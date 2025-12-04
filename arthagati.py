@@ -362,41 +362,37 @@ def load_data():
         st.error(f"Failed to load data. Ensure the Google Sheet is 'Public' (Anyone with link) and the ID is correct. Error: {str(e)}")
         return None
 
-# Pearson Correlation
-@st.cache_data
-def calculate_pearson_correlation(x, y):
-    mask = ~np.isnan(x) & ~np.isnan(y)
-    n = mask.sum()
-    if n < 2:
-        return 0.0
-    
-    x_masked = x[mask]
-    y_masked = y[mask]
-    
-    x_mean = np.mean(x_masked)
-    y_mean = np.mean(y_masked)
-    
-    cov = np.sum((x_masked - x_mean) * (y_masked - y_mean)) / n
-    x_var = np.sum((x_masked - x_mean) ** 2) / n
-    y_var = np.sum((y_masked - y_mean) ** 2) / n
-    
-    if x_var == 0 or y_var == 0:
-        return 0.0
-    
-    return cov / np.sqrt(x_var * y_var)
-
-# Anchor Correlations
+# OPTIMIZED: Vectorized Anchor Correlations
 @st.cache_data
 def calculate_anchor_correlations(df, anchor):
-    if anchor not in df.columns:
+    # Filter for columns that actually exist in the dataframe
+    cols_to_check = [col for col in DEPENDENT_VARS if col in df.columns]
+    
+    if anchor not in df.columns or not cols_to_check:
         return pd.DataFrame(columns=['variable', 'correlation', 'strength', 'type'])
     
+    # Calculate all correlations at once using optimized Pandas vectorization
+    # Select only numeric data for correlation to avoid errors
+    analysis_df = df[[anchor] + cols_to_check].select_dtypes(include=[np.number])
+    
+    if anchor not in analysis_df.columns:
+        return pd.DataFrame(columns=['variable', 'correlation', 'strength', 'type'])
+
+    # Compute correlation matrix
+    corr_matrix = analysis_df.corr(method='pearson')
+    
+    # Extract correlations for the anchor variable, dropping the anchor itself
+    anchor_corrs = corr_matrix[anchor].drop(anchor, errors='ignore')
+    
     correlations = []
-    for var in [col for col in DEPENDENT_VARS if col in df.columns]:
-        corr = calculate_pearson_correlation(df[anchor], df[var])
+    for var, corr in anchor_corrs.items():
+        if pd.isna(corr):
+            corr = 0.0
+            
         strength = ('Strong' if abs(corr) >= 0.7 else 
                    'Moderate' if abs(corr) >= 0.5 else 
                    'Weak' if abs(corr) >= 0.3 else 'Very weak')
+        
         correlations.append({
             'variable': var,
             'correlation': round(corr, 2),
@@ -405,9 +401,11 @@ def calculate_anchor_correlations(df, anchor):
         })
     
     result_df = pd.DataFrame(correlations)
-    return result_df.sort_values(by='correlation', key=abs, ascending=False)
+    if not result_df.empty:
+        return result_df.sort_values(by='correlation', key=abs, ascending=False)
+    return result_df
 
-# Historical Mood Calculation
+# OPTIMIZED: Historical Mood Calculation
 @st.cache_data
 def calculate_historical_mood(df):
     start_time = time.time()
@@ -415,6 +413,7 @@ def calculate_historical_mood(df):
         logging.error("Required columns missing.")
         return pd.DataFrame(columns=['DATE', 'Mood_Score', 'Mood', 'Smoothed_Mood_Score', 'Mood_Volatility'])
     
+    # 1. Correlations (Now Vectorized)
     pe_corrs = calculate_anchor_correlations(df, 'NIFTY50_PE')
     ey_corrs = calculate_anchor_correlations(df, 'NIFTY50_EY')
     
@@ -427,12 +426,11 @@ def calculate_historical_mood(df):
     pe_weights = {k: v/pe_total_weight for k, v in pe_weights.items()}
     ey_weights = {k: v/ey_total_weight for k, v in ey_weights.items()}
     
-    pe_values = df['NIFTY50_PE'].values
-    ey_values = df['NIFTY50_EY'].values
-    
-    # Vectorized percentile calculation
-    pe_percentiles = np.array([np.mean(pe_values[:i+1] <= pe_values[i]) for i in range(len(pe_values))])
-    ey_percentiles = np.array([np.mean(ey_values[:i+1] <= ey_values[i]) for i in range(len(ey_values))])
+    # 2. Percentiles (Massively Optimized)
+    # Replaced O(N^2) loop with O(N) vectorized expanding rank
+    # expanding().rank(pct=True) is equivalent to mean(history <= current)
+    pe_percentiles = df['NIFTY50_PE'].expanding().rank(pct=True, method='max').values
+    ey_percentiles = df['NIFTY50_EY'].expanding().rank(pct=True, method='max').values
     
     pe_base = -1 + 2 * (1 - pe_percentiles)
     ey_base = -1 + 2 * ey_percentiles
@@ -440,21 +438,31 @@ def calculate_historical_mood(df):
     pe_adjustments = np.zeros(len(df))
     ey_adjustments = np.zeros(len(df))
     
-    for var in [col for col in DEPENDENT_VARS if col in df.columns]:
-        var_values = df[var].values
-        var_percentiles = np.array([np.mean(var_values[:i+1] <= var_values[i]) for i in range(len(var_values))])
+    # 3. Adjustments (Optimized loop)
+    # We still iterate through vars, but the percentile calc inside is now vectorized
+    vars_to_process = [col for col in DEPENDENT_VARS if col in df.columns]
+    
+    for var in vars_to_process:
+        # Vectorized percentile calculation for the dependent variable
+        var_percentiles = df[var].expanding().rank(pct=True, method='max').values
         
-        pe_type = pe_corrs.loc[pe_corrs['variable'] == var, 'type'].iloc[0] if var in pe_weights else None
-        if pe_type == 'positive':
-            pe_adjustments += pe_weights.get(var, 0) * (1 - var_percentiles)
-        elif pe_type == 'negative':
-            pe_adjustments -= pe_weights.get(var, 0) * (1 - var_percentiles)
+        # PE Adjustments
+        if var in pe_weights:
+            pe_type = pe_corrs.loc[pe_corrs['variable'] == var, 'type'].iloc[0]
+            weight = pe_weights.get(var, 0)
+            if pe_type == 'positive':
+                pe_adjustments += weight * (1 - var_percentiles)
+            elif pe_type == 'negative':
+                pe_adjustments -= weight * (1 - var_percentiles)
         
-        ey_type = ey_corrs.loc[ey_corrs['variable'] == var, 'type'].iloc[0] if var in ey_weights else None
-        if ey_type == 'positive':
-            ey_adjustments += ey_weights.get(var, 0) * var_percentiles
-        elif ey_type == 'negative':
-            ey_adjustments -= ey_weights.get(var, 0) * var_percentiles
+        # EY Adjustments
+        if var in ey_weights:
+            ey_type = ey_corrs.loc[ey_corrs['variable'] == var, 'type'].iloc[0]
+            weight = ey_weights.get(var, 0)
+            if ey_type == 'positive':
+                ey_adjustments += weight * var_percentiles
+            elif ey_type == 'negative':
+                ey_adjustments -= weight * var_percentiles
     
     pe_scores = 0.5 * pe_base + 0.5 * pe_adjustments
     ey_scores = 0.5 * ey_base + 0.5 * ey_adjustments
@@ -816,7 +824,7 @@ with tab1:
         
         # Display Chart
         with st.spinner("Rendering chart..."):
-            st.plotly_chart(fig, use_container_width=True, config={
+            st.plotly_chart(fig, config={
                 'displayModeBar': True,
                 'scrollZoom': True,
                 'modeBarButtonsToAdd': [
@@ -827,7 +835,16 @@ with tab1:
                     'eraseshape',
                     'zoom2d', 'pan2d', 'autoScale2d', 'resetScale2d'
                 ]
-            })
+            }) # Removed use_container_width=True, let it default or control via layout
+            # Note: For st.plotly_chart, explicit 'width' argument is generally not needed if layout is set,
+            # but if you need to force full width, use the layout 'autosize=True' in Plotly.
+            # The error message specifically mentioned "width='stretch'" for container width behavior in dataframes.
+            # For Plotly charts, simply removing the deprecated kwarg and relying on Plotly's responsive layout is often sufficient.
+            # If explicit stretching is needed in Streamlit < 2025, use_container_width=True was used.
+            # If the user prompt implies a future version where width='stretch' works for charts too:
+            # st.plotly_chart(fig, width="stretch", ...) 
+            # I will apply standard responsive practice here to be safe and address the deprecation.
+
         logging.info(f"Chart rendered in {time.time() - start_time:.2f} seconds.")
         
 # Similar Periods Tab
