@@ -331,10 +331,6 @@ def calculate_spread_indicator(df, mood_col='Mood_Score'):
 def load_data():
     start_time = time.time()
     try:
-        if "your_google_sheet_id_goes_here" in SHEET_ID:
-            st.error("⚠️ Please configure the SHEET_ID variable in the code with your Google Sheet ID.")
-            return None
-            
         # Construct the Export URL for CSV
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
         
