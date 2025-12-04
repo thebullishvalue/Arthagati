@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Replace this with your Google Sheet ID (found in the URL between /d/ and /edit)
-SHEET_ID = "1your_google_sheet_id_goes_here" 
+SHEET_ID = "1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c" 
 # The GID determines which tab to fetch. '0' is usually the first tab.
 SHEET_GID = "0" 
 
