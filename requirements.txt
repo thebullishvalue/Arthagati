@@ -2,4 +2,5 @@ streamlit
 pandas
 numpy
 plotly
-pandas_taxlsxwriter
+pandas_ta
+xlsxwriter
