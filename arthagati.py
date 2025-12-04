@@ -331,10 +331,10 @@ def calculate_spread_indicator(df, mood_col='Mood_Score'):
 def load_data():
     start_time = time.time()
     try:
-        # Construct the Export URL for CSV
-        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
+        # Construct the Export URL for CSV - using gviz/tq endpoint for better reliability
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid={SHEET_GID}"
         
-        # Using read_csv instead of read_excel
+        # Using read_csv with gviz endpoint
         df = pd.read_csv(url, usecols=lambda x: x in EXPECTED_COLUMNS)
         
         if not any(col in df.columns for col in EXPECTED_COLUMNS):
