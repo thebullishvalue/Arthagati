@@ -680,6 +680,26 @@ with tab1:
             col=1
         )
         
+        # High-Performance Background Highlighting (Row 2)
+        # Using a single Bar trace instead of 1000s of separate shapes to prevent freezing
+        valid_bg_mask = indicator_df['bg_color'].notna() & (indicator_df['bg_color'] != 'None')
+        if valid_bg_mask.any():
+            fig.add_trace(
+                go.Bar(
+                    x=df.loc[valid_bg_mask, 'DATE'],
+                    y=[40] * valid_bg_mask.sum(), # Height from -20 to 20 is 40 units
+                    base=[-20] * valid_bg_mask.sum(), # Start at -20
+                    marker_color=indicator_df.loc[valid_bg_mask, 'bg_color'],
+                    marker_line_width=0,
+                    opacity=1.0, # Opacity is already encoded in the RGBA string (0.1)
+                    hoverinfo="skip",
+                    showlegend=False,
+                    name="Signal Background"
+                ),
+                row=2, 
+                col=1
+            )
+
         # Spread Indicator Trace (Row 2)
         fig.add_trace(
             go.Scatter(
@@ -695,43 +715,6 @@ with tab1:
             row=2,
             col=1
         )
-        
-        # Optimized Background Highlighting (Row 2)
-        bg_changes = []
-        prev_color = None
-        start_idx = 0
-        for i in range(len(df)):
-            current_color = indicator_df['bg_color'].iloc[i]
-            if current_color != prev_color or i == len(df) - 1:
-                if prev_color is not None:
-                    bg_changes.append({
-                        'color': prev_color,
-                        'start': df['DATE'].iloc[start_idx],
-                        'end': df['DATE'].iloc[i]
-                    })
-                start_idx = i
-                prev_color = current_color
-        if prev_color is not None and start_idx < len(df):
-            bg_changes.append({
-                'color': prev_color,
-                'start': df['DATE'].iloc[start_idx],
-                'end': df['DATE'].iloc[-1]
-            })
-        
-        for change in bg_changes:
-            if change['color']:
-                fig.add_hrect(
-                    y0=-20,
-                    y1=20,
-                    x0=change['start'],
-                    x1=change['end'],
-                    fillcolor=change['color'],
-                    opacity=0.15, 
-                    layer="below",
-                    line_width=0,
-                    row=2,
-                    col=1
-                )
         
         # Row 2 Oscillator Bounds (Spread Indicator)
         fig.add_hline(y=0, line_color='#757575', line_width=1, annotation_text="Zero", annotation_position="top left", annotation_font_size=10, row=2, col=1)
