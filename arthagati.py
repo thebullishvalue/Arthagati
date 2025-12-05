@@ -315,10 +315,12 @@ def calculate_spread_indicator(df, mood_col='Mood_Score'):
     trace_colors = [color_gray] * len(close)
     
     # Background colors - Matched to success/danger variables
-    bg_green = 'rgba(16, 185, 129, 0.1)' # success-green low opacity
-    bg_red = 'rgba(239, 68, 68, 0.1)'     # danger-red low opacity
+    bg_green = 'rgba(16, 185, 129, 0.15)' # success-green low opacity (slightly higher for visibility)
+    bg_red = 'rgba(239, 68, 68, 0.15)'     # danger-red low opacity
+    
+    # We use 'None' string to represent no color to avoid issues with numpy object arrays and nulls
     bg_colors = np.where((spread90 > spreadup) & (spread200 > spreadup), bg_green,
-                         np.where((spread90 < spreadown) & (spread200 < spreadown), bg_red, None))
+                         np.where((spread90 < spreadown) & (spread200 < spreadown), bg_red, 'None'))
     
     result['diff'] = diff
     result['trace_color'] = trace_colors
@@ -665,9 +667,9 @@ with tab1:
             subplot_titles=("Mood Score", "Spread Indicator")
         )
         
-        # Mood Score Trace (Row 1) - UPDATED TO INFO CYAN (#06b6d4)
+        # Mood Score Trace (Row 1) - USING WEBGL for performance
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=df['DATE'],
                 y=df['Mood_Score'],
                 mode='lines',
@@ -680,29 +682,62 @@ with tab1:
             col=1
         )
         
-        # High-Performance Background Highlighting (Row 2)
-        # Using a single Bar trace instead of 1000s of separate shapes to prevent freezing
-        valid_bg_mask = indicator_df['bg_color'].notna() & (indicator_df['bg_color'] != 'None')
-        if valid_bg_mask.any():
-            fig.add_trace(
-                go.Bar(
-                    x=df.loc[valid_bg_mask, 'DATE'],
-                    y=[40] * valid_bg_mask.sum(), # Height from -20 to 20 is 40 units
-                    base=[-20] * valid_bg_mask.sum(), # Start at -20
-                    marker_color=indicator_df.loc[valid_bg_mask, 'bg_color'],
-                    marker_line_width=0,
-                    opacity=1.0, # Opacity is already encoded in the RGBA string (0.1)
-                    hoverinfo="skip",
-                    showlegend=False,
-                    name="Signal Background"
-                ),
-                row=2, 
-                col=1
-            )
-
-        # Spread Indicator Trace (Row 2)
+        # Optimized Background Highlighting (Row 2) - USING MERGED SHAPES
+        # Instead of 1000s of bars/shapes, we merge consecutive days into single blocks.
+        bg_changes = []
+        prev_color = 'None'
+        start_idx = 0
+        
+        # Convert to numpy/list for fast iteration
+        bg_colors_list = indicator_df['bg_color'].values
+        dates_list = df['DATE'].values
+        
+        for i in range(len(df)):
+            current_color = bg_colors_list[i]
+            
+            # Detect change
+            if current_color != prev_color:
+                # If the PREVIOUS block was a valid color (not 'None'), save it
+                if prev_color != 'None':
+                    bg_changes.append({
+                        'color': prev_color,
+                        'start': dates_list[start_idx],
+                        'end': dates_list[i] # Ends at the start of new color
+                    })
+                # Reset for new block
+                start_idx = i
+                prev_color = current_color
+        
+        # Handle the final block
+        if prev_color != 'None' and start_idx < len(df):
+            bg_changes.append({
+                'color': prev_color,
+                'start': dates_list[start_idx],
+                'end': dates_list[-1]
+            })
+        
+        # Add shapes to layout (much lighter than individual traces)
+        shapes = []
+        for change in bg_changes:
+            # We must use 'xref' and 'yref' specific to the subplot
+            # subplot row 2 col 1 usually maps to x2, y2
+            shapes.append(dict(
+                type="rect",
+                xref="x2", 
+                yref="y2",
+                x0=change['start'],
+                y0=-20,
+                x1=change['end'],
+                y1=20,
+                fillcolor=change['color'],
+                opacity=1, # Opacity is handled in the RGBA string
+                layer="below",
+                line_width=0
+            ))
+        
+        # Spread Indicator Trace (Row 2) - USING WEBGL
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=df['DATE'],
                 y=indicator_df['diff'],
                 mode='lines',
@@ -717,6 +752,8 @@ with tab1:
         )
         
         # Row 2 Oscillator Bounds (Spread Indicator)
+        # Using shapes for lines is better for performance than adding traces
+        # But for simple horizontal lines, add_hline is fine as it uses shapes internally
         fig.add_hline(y=0, line_color='#757575', line_width=1, annotation_text="Zero", annotation_position="top left", annotation_font_size=10, row=2, col=1)
         fig.add_hline(y=10, line_color='#ef4444', line_width=1, annotation_text="Upper", annotation_position="top left", annotation_font_size=10, row=2, col=1)
         fig.add_hline(y=-10, line_color='#10b981', line_width=1, annotation_text="Lower", annotation_position="bottom left", annotation_font_size=10, row=2, col=1)
@@ -763,6 +800,7 @@ with tab1:
             font_color='#EAEAEA',
             hovermode="x unified",
             showlegend=True,
+            shapes=shapes, # Add the optimized background shapes here
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_color="#E0E0E0"),
             margin=dict(l=20, r=20, t=60, b=20),
             xaxis=dict(
