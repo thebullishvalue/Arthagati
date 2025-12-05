@@ -334,8 +334,9 @@ def load_data():
         # Construct the Export URL for CSV - using gviz/tq endpoint for better reliability
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid={SHEET_GID}"
         
-        # Using read_csv with gviz endpoint
-        df = pd.read_csv(url, usecols=lambda x: x in EXPECTED_COLUMNS)
+        # FIX: Read all columns as string first to avoid "Columns (0) have mixed types" warning
+        # This prevents Pandas from guessing types before we are ready
+        df = pd.read_csv(url, usecols=lambda x: x in EXPECTED_COLUMNS, dtype=str)
         
         if not any(col in df.columns for col in EXPECTED_COLUMNS):
             raise ValueError("None of the expected columns found in the Sheet.")
@@ -344,9 +345,14 @@ def load_data():
         if missing_columns:
             logging.warning(f"Missing columns: {missing_columns}. Setting to 0.0.")
             for col in missing_columns:
-                df[col] = 0.0
+                df[col] = "0.0" # Set as string "0.0" since we are in string mode
         
-        df['DATE'] = pd.to_datetime(df['DATE'], errors='coerce')
+        # FIX: Explicitly specify format='%m/%d/%Y' for speed and correctness.
+        # The user reported Google Sheets changed format to MM/DD/YYYY. 
+        # Without this, Pandas falls back to 'dateutil' which causes 503 timeouts on large sheets.
+        df['DATE'] = pd.to_datetime(df['DATE'], format='%m/%d/%Y', errors='coerce')
+        
+        # Convert numeric columns safely
         numeric_cols = [col for col in EXPECTED_COLUMNS if col != 'DATE']
         df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
         
@@ -835,15 +841,7 @@ with tab1:
                     'eraseshape',
                     'zoom2d', 'pan2d', 'autoScale2d', 'resetScale2d'
                 ]
-            }) # Removed use_container_width=True, let it default or control via layout
-            # Note: For st.plotly_chart, explicit 'width' argument is generally not needed if layout is set,
-            # but if you need to force full width, use the layout 'autosize=True' in Plotly.
-            # The error message specifically mentioned "width='stretch'" for container width behavior in dataframes.
-            # For Plotly charts, simply removing the deprecated kwarg and relying on Plotly's responsive layout is often sufficient.
-            # If explicit stretching is needed in Streamlit < 2025, use_container_width=True was used.
-            # If the user prompt implies a future version where width='stretch' works for charts too:
-            # st.plotly_chart(fig, width="stretch", ...) 
-            # I will apply standard responsive practice here to be safe and address the deprecation.
+            }) 
 
         logging.info(f"Chart rendered in {time.time() - start_time:.2f} seconds.")
         
