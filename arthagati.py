@@ -82,7 +82,9 @@ def load_css():
         
         .block-container {
             padding-top: 1rem;
-            max-width: 1400px;
+            max-width: 90%; 
+            padding-left: 2rem; 
+            padding-right: 2rem;
         }
         
         .premium-header {
