@@ -254,6 +254,20 @@ def load_css():
 
 load_css()
 
+# --- Sidebar Controls ---
+with st.sidebar:
+    st.markdown("### Data Controls")
+    
+    # Clear cache button (forces fresh fetch on next load)
+    if st.button("Refresh Data", help="Clear cached data and fetch fresh from Google Sheets"):
+        st.cache_data.clear()
+        st.rerun()
+    
+    st.markdown("---")
+    st.markdown("### Info")
+    st.caption("Data auto-refreshes every hour.")
+    st.caption("Click Refresh to fetch latest data immediately.")
+
 # Title with Premium Header
 st.markdown("""
 <div class="premium-header">
