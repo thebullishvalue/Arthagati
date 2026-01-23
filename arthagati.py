@@ -378,7 +378,7 @@ with st.sidebar:
 # Title with Premium Header
 st.markdown("""
 <div class="premium-header">
-    <h1>ARTHAGATI : Sentiment Intelligence</h1>
+    <h1>ARTHAGATI | Sentiment Intelligence</h1>
     <div class="tagline">Quantitative Market Mood & Correlation Analysis</div>
 </div>
 """, unsafe_allow_html=True)
