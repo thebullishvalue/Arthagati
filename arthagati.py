@@ -1,16 +1,9 @@
-"""
-ARTHAGATI (अर्थगति) - Sentiment Intelligence | A Hemrek Capital Product
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Quantitative market mood analysis using PE/EY correlation metrics.
-Historical sentiment tracking with similar period detection.
-"""
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas_ta as ta
 from io import BytesIO
 import logging
@@ -18,11 +11,6 @@ import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# --- Constants ---
-VERSION = "v1.1.0"
-PRODUCT_NAME = "Arthagati"
-COMPANY = "Hemrek Capital"
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Replace this with your Google Sheet ID (found in the URL between /d/ and /edit)
@@ -44,13 +32,13 @@ DEPENDENT_VARS = [
 
 # Streamlit page configuration
 st.set_page_config(
-    page_title="ARTHAGATI | Sentiment Intelligence",
+    page_title="Arthagati | Market Sentiment Analysis",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# --- Premium Professional CSS (Hemrek Capital Design System) ---
+# --- Premium Professional CSS (Ported from quo.py) ---
 def load_css():
     st.markdown("""
     <style>
@@ -92,59 +80,11 @@ def load_css():
             background-color: transparent;
         }
         
-        #MainMenu {visibility: hidden;} footer {visibility: hidden;}
-        
         .block-container {
-            padding-top: 3.5rem;
+            padding-top: 1rem;
             max-width: 90%; 
             padding-left: 2rem; 
             padding-right: 2rem;
-        }
-        
-        /* Sidebar toggle button - always visible */
-        [data-testid="collapsedControl"] {
-            display: flex !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            background-color: var(--secondary-background-color) !important;
-            border: 2px solid var(--primary-color) !important;
-            border-radius: 8px !important;
-            padding: 10px !important;
-            margin: 12px !important;
-            box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.4) !important;
-            z-index: 999999 !important;
-            position: fixed !important;
-            top: 14px !important;
-            left: 14px !important;
-            width: 40px !important;
-            height: 40px !important;
-            align-items: center !important;
-            justify-content: center !important;
-        }
-        
-        [data-testid="collapsedControl"]:hover {
-            background-color: rgba(var(--primary-rgb), 0.2) !important;
-            box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.6) !important;
-            transform: scale(1.05);
-        }
-        
-        [data-testid="collapsedControl"] svg {
-            stroke: var(--primary-color) !important;
-            width: 20px !important;
-            height: 20px !important;
-        }
-        
-        [data-testid="stSidebar"] button[kind="header"] {
-            background-color: transparent !important;
-            border: none !important;
-        }
-        
-        [data-testid="stSidebar"] button[kind="header"] svg {
-            stroke: var(--primary-color) !important;
-        }
-        
-        button[kind="header"] {
-            z-index: 999999 !important;
         }
         
         .premium-header {
@@ -156,7 +96,7 @@ def load_css():
             border: 1px solid var(--border-color);
             position: relative;
             overflow: hidden;
-            margin-top: 1rem;
+            margin-top: 2.5rem;
         }
         
         .premium-header::before {
@@ -172,7 +112,7 @@ def load_css():
         
         .premium-header h1 {
             margin: 0;
-            font-size: 2rem;
+            font-size: 2.50rem;
             font-weight: 700;
             color: var(--text-primary);
             letter-spacing: -0.50px;
@@ -181,7 +121,7 @@ def load_css():
         
         .premium-header .tagline {
             color: var(--text-muted);
-            font-size: 0.9rem;
+            font-size: 1rem;
             margin-top: 0.25rem;
             font-weight: 400;
             position: relative;
@@ -208,7 +148,7 @@ def load_css():
         
         .metric-card h4 {
             color: var(--text-muted);
-            font-size: 0.75rem;
+            font-size: 0.8rem;
             margin-bottom: 0.5rem;
             font-weight: 600;
             text-transform: uppercase;
@@ -217,14 +157,14 @@ def load_css():
         
         .metric-card h2 {
             color: var(--text-primary);
-            font-size: 1.75rem;
+            font-size: 2rem;
             font-weight: 700;
             margin: 0;
             line-height: 1;
         }
         
         .metric-card .sub-metric {
-            font-size: 0.75rem;
+            font-size: 0.8rem;
             color: var(--text-muted);
             margin-top: 0.5rem;
             font-weight: 500;
@@ -256,12 +196,8 @@ def load_css():
             color: #1A1A1A;
             transform: translateY(-2px);
         }
-        
-        .stButton>button:active {
-            transform: translateY(0);
-        }
 
-        /* Table Styling */
+        /* Table Styling matching quo.py */
         .stMarkdown table {
             width: 100%;
             border-collapse: collapse;
@@ -295,160 +231,214 @@ def load_css():
         }
 
         .green-highlight { color: var(--success-green); font-weight: bold; }
-        .magenta-highlight { color: var(--warning-amber); font-weight: bold; }
-        .blue-highlight { color: var(--danger-red); font-weight: bold; }
+        .magenta-highlight { color: var(--warning-amber); font-weight: bold; } /* Mapped to warning/amber */
+        .blue-highlight { color: var(--danger-red); font-weight: bold; }     /* Mapped to danger/red */
 
         .section-divider {
             height: 1px;
             background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%);
-            margin: 1.5rem 0;
+            margin: 1rem 0;
         }
         
-        .sidebar-title { 
-            font-size: 0.75rem; 
-            font-weight: 700; 
-            color: var(--primary-color); 
-            text-transform: uppercase; 
-            letter-spacing: 1px; 
-            margin-bottom: 0.75rem; 
+        /* Footer Style */
+        .app-footer {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.8rem;
         }
-        
-        [data-testid="stSidebar"] { 
-            background: var(--secondary-background-color); 
-            border-right: 1px solid var(--border-color); 
-        }
-        
-        .info-box { 
-            background: var(--secondary-background-color); 
-            border: 1px solid var(--border-color); 
-            padding: 1.25rem; 
-            border-radius: 12px; 
-            margin: 0.5rem 0; 
-            box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); 
-        }
-        .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
-        .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
-        
-        .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
-        .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
-        .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); background: transparent !important; }
-        
-        .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
-        .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); }
-        
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: var(--background-color); }
-        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
     </style>
     """, unsafe_allow_html=True)
 
 load_css()
 
-# --- Sidebar Controls (Nirnay-style) ---
+# --- Sidebar Controls ---
 with st.sidebar:
-    st.markdown("""
-    <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
-        <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">ARTHAGATI</div>
-        <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">अर्थगति | Sentiment Intelligence</div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
-    st.markdown('<div class="sidebar-title">🔄 Data Controls</div>', unsafe_allow_html=True)
+    st.markdown("### Data Controls")
     
     # Clear cache button (forces fresh fetch on next load)
-    if st.button("REFRESH DATA", help="Clear cached data and fetch fresh from Google Sheets"):
+    if st.button("Refresh Data", help="Clear cached data and fetch fresh from Google Sheets"):
         st.cache_data.clear()
-        st.toast("Data cache cleared!", icon="🔄")
         st.rerun()
     
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
-    st.markdown(f"""
-    <div class='info-box'>
-        <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
-            <strong>Version:</strong> {VERSION}<br>
-            <strong>Engine:</strong> PE/EY Correlation<br>
-            <strong>Data:</strong> Auto-refresh hourly
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("### Info")
+    st.caption("Data auto-refreshes every hour.")
+    st.caption("Click Refresh to fetch latest data immediately.")
 
 # Title with Premium Header
 st.markdown("""
 <div class="premium-header">
-    <h1>ARTHAGATI : Sentiment Intelligence</h1>
-    <div class="tagline">Quantitative Market Mood & Correlation Analysis</div>
+    <h1>Arthagati | Market Sentiment Analysis</h1>
+    <div class="tagline">Quantitative Market Mood & MSF-Enhanced Indicators</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Tabs (reordered with Sentiment Dashboard first)
-tab1, tab2, tab3 = st.tabs(["**📊 Sentiment Dashboard**", "**🔍 Similar Periods**", "**📋 Mood Score Table**"])
+# Tabs
+tab1, tab2, tab3 = st.tabs(["Historical Mood", "Similar Periods", "Mood Score Table"])
 
-# Spread Indicator Function
+# ══════════════════════════════════════════════════════════════════════════════
+# MSF-ENHANCED SPREAD INDICATOR
+# Combines original spread logic with momentum/regime components from MSF
+# ══════════════════════════════════════════════════════════════════════════════
+
+def sigmoid(x, scale=1.0):
+    """Sigmoid normalization to [-1, 1] range"""
+    return 2.0 / (1.0 + np.exp(-x / scale)) - 1.0
+
+def zscore_clipped(series, window, clip=3.0):
+    """Z-score with rolling window and clipping"""
+    roll_mean = series.rolling(window=window, min_periods=1).mean()
+    roll_std = series.rolling(window=window, min_periods=1).std()
+    z = (series - roll_mean) / roll_std.replace(0, np.nan)
+    return z.clip(-clip, clip).fillna(0)
+
 @st.cache_data
-def calculate_spread_indicator(df, mood_col='Mood_Score'):
+def calculate_msf_spread_indicator(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_col='AD_RATIO'):
     """
-    Calculate Spread Indicator using Mood_Score for diff and moving averages.
-    Returns negated diff, single gray trace color, and background colors.
+    Enhanced Spread Indicator with MSF-inspired components.
+    
+    Components:
+    1. Original Spread Logic (MA-based regime detection)
+    2. Momentum Component (ROC z-score of NIFTY)
+    3. Regime Count Component (trend persistence)
+    4. Breadth Flow Component (AD_RATIO as volume proxy)
+    
+    Returns DataFrame with:
+    - msf_spread: Combined oscillator (-10 to +10 scale)
+    - momentum: Momentum component
+    - regime: Regime count component  
+    - flow: Breadth-based flow component
+    - bg_color: Background highlighting
     """
     start_time = time.time()
-    # Inputs
-    look = 50
-    short = 90
-    long = 200
-    spreadup = 1.3
-    spreadown = -1.5
-    thres = 0.33
+    
+    # Parameters
+    length = 20          # MSF lookback
+    roc_len = 14         # ROC period
+    clip = 3.0           # Z-score clip
+    spread_short = 90    # Short MA for spread
+    spread_long = 200    # Long MA for spread
+    spread_up = 1.3      # Upper threshold
+    spread_down = -1.5   # Lower threshold
     
     result = pd.DataFrame(index=df.index)
     
-    # Get Mood_Score
-    close = df[mood_col].values
-    if len(close) == 0:
-        logging.error("Empty Mood_Score data.")
+    # Get base series
+    mood = df[mood_col].values if mood_col in df.columns else np.zeros(len(df))
+    nifty = df[nifty_col].values if nifty_col in df.columns else mood
+    breadth = df[breadth_col].values if breadth_col in df.columns else np.ones(len(df))
+    
+    mood_series = pd.Series(mood, index=df.index)
+    nifty_series = pd.Series(nifty, index=df.index)
+    breadth_series = pd.Series(breadth, index=df.index)
+    
+    if len(mood) == 0:
+        logging.error("Empty data for MSF Spread calculation.")
         return result
     
-    # Calculate return_1
-    close_prev = np.roll(close, 1)
-    close_prev[0] = close[0]
-    return_1 = (close - close_prev) / np.maximum(close_prev, 1e-10) * 100
+    # ═══════════════════════════════════════════════════════════════════════
+    # COMPONENT 1: MOMENTUM (ROC z-score of NIFTY)
+    # ═══════════════════════════════════════════════════════════════════════
+    roc_raw = nifty_series.pct_change(roc_len, fill_method=None)
+    roc_z = zscore_clipped(roc_raw, length, clip)
+    momentum_norm = sigmoid(roc_z, 1.5)
     
-    # Vectorized count calculation
-    count = np.zeros(len(close))
-    count[1:] = np.where(return_1[1:] > thres, 1, np.where(return_1[1:] < -thres, -1, 0))
-    count = np.cumsum(count)
+    # ═══════════════════════════════════════════════════════════════════════
+    # COMPONENT 2: TREND STRUCTURE (using Mood_Score as proxy for structure)
+    # ═══════════════════════════════════════════════════════════════════════
+    trend_fast = mood_series.rolling(5, min_periods=1).mean()
+    trend_slow = mood_series.rolling(length, min_periods=1).mean()
+    trend_diff_z = zscore_clipped(trend_fast - trend_slow, length, clip)
     
-    # Calculate diff and negate it
-    sma_count = pd.Series(count).rolling(window=look, min_periods=1).mean().values
-    diff = -(count - sma_count)
+    # Momentum acceleration of mood
+    mood_accel_raw = mood_series.diff(5).diff(5)
+    mood_accel_z = zscore_clipped(mood_accel_raw, length, clip)
     
-    # Moving Averages
-    close_series = pd.Series(close, index=df.index)
-    ma90 = ta.sma(close_series, length=short).values
-    ma200 = ta.sma(close_series, length=long).values
+    # Composite structure
+    structure_z = (trend_diff_z + mood_accel_z) / np.sqrt(2.0)
+    structure_norm = sigmoid(structure_z, 1.5)
     
-    # Spread calculations
-    spread90 = (ma90 - close) * 100 / np.maximum(ma90, 1e-10)
-    spread200 = (ma200 - close) * 100 / np.maximum(ma200, 1e-10)
+    # ═══════════════════════════════════════════════════════════════════════
+    # COMPONENT 3: REGIME COUNT (price-based persistence)
+    # ═══════════════════════════════════════════════════════════════════════
+    pct_change = nifty_series.pct_change(fill_method=None)
+    threshold = 0.0033  # ~0.33% threshold
+    regime_signals = np.select(
+        [pct_change > threshold, pct_change < -threshold],
+        [1, -1],
+        default=0
+    )
+    regime_count = pd.Series(regime_signals, index=df.index).cumsum()
+    regime_raw = regime_count - regime_count.rolling(length, min_periods=1).mean()
+    regime_z = zscore_clipped(regime_raw, length, clip)
+    regime_norm = sigmoid(regime_z, 1.5)
     
-    # Trace color - Single gray
-    color_gray = 'rgba(136, 136, 136, 0.5)' # Neutral grey
-    trace_colors = [color_gray] * len(close)
+    # ═══════════════════════════════════════════════════════════════════════
+    # COMPONENT 4: BREADTH FLOW (AD_RATIO as volume/participation proxy)
+    # ═══════════════════════════════════════════════════════════════════════
+    # Normalize breadth relative to its rolling mean
+    breadth_ma = breadth_series.rolling(length, min_periods=1).mean()
+    breadth_ratio = breadth_series / breadth_ma.replace(0, 1)
+    breadth_z = zscore_clipped(breadth_ratio - 1, length, clip)
+    flow_norm = sigmoid(breadth_z, 1.5)
     
-    # Background colors - Matched to success/danger variables
-    bg_green = 'rgba(16, 185, 129, 0.15)' # success-green low opacity (slightly higher for visibility)
-    bg_red = 'rgba(239, 68, 68, 0.15)'     # danger-red low opacity
+    # ═══════════════════════════════════════════════════════════════════════
+    # COMBINE INTO MSF-STYLE OSCILLATOR
+    # ═══════════════════════════════════════════════════════════════════════
+    # Weight: Momentum(30%) + Structure(25%) + Regime(25%) + Flow(20%)
+    msf_raw = (
+        0.30 * momentum_norm +
+        0.25 * structure_norm +
+        0.25 * regime_norm +
+        0.20 * flow_norm
+    )
     
-    # We use 'None' string to represent no color to avoid issues with numpy object arrays and nulls
-    bg_colors = np.where((spread90 > spreadup) & (spread200 > spreadup), bg_green,
-                         np.where((spread90 < spreadown) & (spread200 < spreadown), bg_red, 'None'))
+    # Scale to [-10, +10] for display (like original spread)
+    msf_spread = msf_raw * 10
     
-    result['diff'] = diff
-    result['trace_color'] = trace_colors
+    # ═══════════════════════════════════════════════════════════════════════
+    # BACKGROUND COLORS (Original spread logic for zones)
+    # ═══════════════════════════════════════════════════════════════════════
+    ma90 = ta.sma(mood_series, length=spread_short)
+    ma200 = ta.sma(mood_series, length=spread_long)
+    
+    if ma90 is not None and ma200 is not None:
+        ma90_vals = ma90.values
+        ma200_vals = ma200.values
+        
+        spread90 = (ma90_vals - mood) * 100 / np.maximum(np.abs(ma90_vals), 1e-10)
+        spread200 = (ma200_vals - mood) * 100 / np.maximum(np.abs(ma200_vals), 1e-10)
+        
+        bg_green = 'rgba(16, 185, 129, 0.15)'
+        bg_red = 'rgba(239, 68, 68, 0.15)'
+        
+        bg_colors = np.where(
+            (spread90 > spread_up) & (spread200 > spread_up), bg_green,
+            np.where(
+                (spread90 < spread_down) & (spread200 < spread_down), bg_red,
+                'None'
+            )
+        )
+    else:
+        bg_colors = ['None'] * len(df)
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # BUILD RESULT
+    # ═══════════════════════════════════════════════════════════════════════
+    result['msf_spread'] = msf_spread
+    result['momentum'] = momentum_norm * 10
+    result['structure'] = structure_norm * 10
+    result['regime'] = regime_norm * 10
+    result['flow'] = flow_norm * 10
     result['bg_color'] = bg_colors
-    logging.info(f"Spread Indicator calculated in {time.time() - start_time:.2f} seconds.")
+    
+    # Also keep original 'diff' column for backwards compatibility
+    result['diff'] = msf_spread
+    
+    logging.info(f"MSF Spread Indicator calculated in {time.time() - start_time:.2f} seconds.")
     return result
 
 # Data Loading
@@ -745,8 +735,35 @@ if not historical_mood_df.empty:
         card_class = "neutral" # Using Gray for bearish bias
     else:
         card_class = "info"
+    
+    # Calculate MSF Spread for current value
+    temp_df = historical_mood_df.copy()
+    original_df = load_data()
+    if original_df is not None and 'DATE' in original_df.columns:
+        temp_df = temp_df.merge(original_df[['DATE', 'NIFTY', 'AD_RATIO']], on='DATE', how='left')
+        temp_df['NIFTY'] = temp_df['NIFTY'].fillna(method='ffill')
+        temp_df['AD_RATIO'] = temp_df['AD_RATIO'].fillna(1.0)
+    msf_df = calculate_msf_spread_indicator(temp_df)
+    current_msf = msf_df['msf_spread'].iloc[-1] if not msf_df.empty else 0
+    
+    # MSF card class
+    if current_msf > 5:
+        msf_class = "danger"  # Overbought
+        msf_label = "Overbought"
+    elif current_msf > 2:
+        msf_class = "warning"
+        msf_label = "Bullish"
+    elif current_msf < -5:
+        msf_class = "success"  # Oversold
+        msf_label = "Oversold"
+    elif current_msf < -2:
+        msf_class = "info"
+        msf_label = "Bearish"
+    else:
+        msf_class = "neutral"
+        msf_label = "Neutral"
         
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         # Forced Gold color for value to match Date Card
@@ -759,6 +776,16 @@ if not historical_mood_df.empty:
         """, unsafe_allow_html=True)
     
     with col2:
+        msf_color = '#10b981' if current_msf < 0 else '#ef4444' if current_msf > 0 else '#888888'
+        st.markdown(f"""
+        <div class="metric-card {msf_class}">
+            <h4>MSF Spread</h4>
+            <h2 style="color: {msf_color};">{current_msf:+.2f}</h2>
+            <div class="sub-metric">{msf_label}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
         st.markdown("""
         <div class="metric-card primary">
             <h4>Analysis Date</h4>
@@ -774,20 +801,27 @@ with tab1:
         # Use all data
         df = historical_mood_df.copy()
         
-        # Calculate Spread Indicator
-        indicator_df = calculate_spread_indicator(df)
-        if indicator_df.empty or 'diff' not in indicator_df.columns:
-            st.error("Failed to calculate Spread Indicator.")
+        # Merge with original data to get NIFTY and AD_RATIO
+        original_df = load_data()
+        if original_df is not None and 'DATE' in original_df.columns:
+            df = df.merge(original_df[['DATE', 'NIFTY', 'AD_RATIO']], on='DATE', how='left')
+            df['NIFTY'] = df['NIFTY'].fillna(method='ffill')
+            df['AD_RATIO'] = df['AD_RATIO'].fillna(1.0)
+        
+        # Calculate MSF-Enhanced Spread Indicator
+        indicator_df = calculate_msf_spread_indicator(df)
+        if indicator_df.empty or 'msf_spread' not in indicator_df.columns:
+            st.error("Failed to calculate MSF Spread Indicator.")
             st.stop()
         
-        # Create subplots
+        # Create subplots - now 3 rows for components
         fig = make_subplots(
-            rows=2,
+            rows=3,
             cols=1,
             shared_xaxes=True,
-            vertical_spacing=0.05,
-            row_heights=[0.7, 0.3],
-            subplot_titles=("Mood Score", "Spread Indicator")
+            vertical_spacing=0.04,
+            row_heights=[0.55, 0.25, 0.20],
+            subplot_titles=("Mood Score", "MSF Spread Indicator", "MSF Components")
         )
         
         # Mood Score Trace (Row 1) - USING WEBGL for performance
@@ -858,30 +892,95 @@ with tab1:
                 line_width=0
             ))
         
-        # Spread Indicator Trace (Row 2) - USING WEBGL
+        # Spread Indicator Trace (Row 2) - MSF Spread - USING WEBGL
         fig.add_trace(
             go.Scattergl(
                 x=df['DATE'],
-                y=indicator_df['diff'],
+                y=indicator_df['msf_spread'],
                 mode='lines',
-                name='Spread Indicator',
-                line=dict(color='#888888', width=2), # Neutral color
+                name='MSF Spread',
+                line=dict(color='#FFC300', width=2),  # Golden - primary signal
                 connectgaps=False,
-                hovertemplate='<b>%{x|%d %b %Y}</b><br>Spread: %{y:.2f}<extra></extra>',
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>MSF Spread: %{y:.2f}<extra></extra>',
                 showlegend=True
             ),
             row=2,
             col=1
         )
         
-        # Row 2 Oscillator Bounds (Spread Indicator)
-        # Using shapes for lines is better for performance than adding traces
-        # But for simple horizontal lines, add_hline is fine as it uses shapes internally
+        # Row 2 Oscillator Bounds (MSF Spread)
         fig.add_hline(y=0, line_color='#757575', line_width=1, annotation_text="Zero", annotation_position="top left", annotation_font_size=10, row=2, col=1)
-        fig.add_hline(y=10, line_color='#ef4444', line_width=1, annotation_text="Upper", annotation_position="top left", annotation_font_size=10, row=2, col=1)
-        fig.add_hline(y=-10, line_color='#10b981', line_width=1, annotation_text="Lower", annotation_position="bottom left", annotation_font_size=10, row=2, col=1)
-        fig.add_hline(y=7, line_color='#ef4444', line_dash="dot", line_width=1, annotation_text="Mid Upper", annotation_position="top left", annotation_font_size=10, row=2, col=1)
-        fig.add_hline(y=-7, line_color='#10b981', line_dash="dot", line_width=1, annotation_text="Mid Lower", annotation_position="bottom left", annotation_font_size=10, row=2, col=1)
+        fig.add_hline(y=7, line_color='#ef4444', line_width=1, annotation_text="Overbought", annotation_position="top left", annotation_font_size=10, row=2, col=1)
+        fig.add_hline(y=-7, line_color='#10b981', line_width=1, annotation_text="Oversold", annotation_position="bottom left", annotation_font_size=10, row=2, col=1)
+        fig.add_hline(y=3, line_color='#ef4444', line_dash="dot", line_width=1, row=2, col=1)
+        fig.add_hline(y=-3, line_color='#10b981', line_dash="dot", line_width=1, row=2, col=1)
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # ROW 3: MSF COMPONENTS (Momentum, Structure, Regime, Flow)
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        # Momentum Component (ROC-based)
+        fig.add_trace(
+            go.Scattergl(
+                x=df['DATE'],
+                y=indicator_df['momentum'],
+                mode='lines',
+                name='Momentum',
+                line=dict(color='#06b6d4', width=1.5),  # Cyan
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Momentum: %{y:.2f}<extra></extra>',
+                showlegend=True
+            ),
+            row=3,
+            col=1
+        )
+        
+        # Structure Component (Trend-based)
+        fig.add_trace(
+            go.Scattergl(
+                x=df['DATE'],
+                y=indicator_df['structure'],
+                mode='lines',
+                name='Structure',
+                line=dict(color='#f59e0b', width=1.5),  # Amber
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Structure: %{y:.2f}<extra></extra>',
+                showlegend=True
+            ),
+            row=3,
+            col=1
+        )
+        
+        # Regime Component (Count-based)
+        fig.add_trace(
+            go.Scattergl(
+                x=df['DATE'],
+                y=indicator_df['regime'],
+                mode='lines',
+                name='Regime',
+                line=dict(color='#10b981', width=1.5),  # Green
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Regime: %{y:.2f}<extra></extra>',
+                showlegend=True
+            ),
+            row=3,
+            col=1
+        )
+        
+        # Flow Component (Breadth-based)
+        fig.add_trace(
+            go.Scattergl(
+                x=df['DATE'],
+                y=indicator_df['flow'],
+                mode='lines',
+                name='Flow',
+                line=dict(color='#ef4444', width=1.5),  # Red
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Flow: %{y:.2f}<extra></extra>',
+                showlegend=True
+            ),
+            row=3,
+            col=1
+        )
+        
+        # Row 3 zero line
+        fig.add_hline(y=0, line_color='#757575', line_width=1, row=3, col=1)
         
         # Neutral Line (Row 1)
         fig.add_hline(
@@ -916,7 +1015,7 @@ with tab1:
         
         # Update Layout for Dark Theme with Premium Colors
         fig.update_layout(
-            height=800,
+            height=950,  # Increased for 3 rows
             template="plotly_dark",
             plot_bgcolor='#1A1A1A',
             paper_bgcolor='#1A1A1A',
@@ -946,6 +1045,16 @@ with tab1:
                 spikecolor="#FFC300",
                 spikethickness=1
             ),
+            xaxis3=dict(
+                type="date",
+                showgrid=True,
+                gridcolor='#2A2A2A',
+                showspikes=True,
+                spikemode="toaxis+across",
+                spikesnap="cursor",
+                spikecolor="#FFC300",
+                spikethickness=1
+            ),
             yaxis=dict(
                 title="Mood Score",
                 autorange="reversed",
@@ -959,11 +1068,23 @@ with tab1:
                 spikethickness=1
             ),
             yaxis2=dict(
-                title="Spread Indicator",
+                title="MSF Spread",
                 showgrid=True,
                 gridcolor='#2A2A2A',
                 zeroline=False,
-                range=[-20, 20],
+                range=[-12, 12],
+                showspikes=True,
+                spikemode="toaxis+across",
+                spikesnap="data",
+                spikecolor="#FFC300",
+                spikethickness=1
+            ),
+            yaxis3=dict(
+                title="Components",
+                showgrid=True,
+                gridcolor='#2A2A2A',
+                zeroline=False,
+                range=[-12, 12],
                 showspikes=True,
                 spikemode="toaxis+across",
                 spikesnap="data",
@@ -1095,14 +1216,9 @@ with tab3:
         st.write("No mood score data available.")
 
 # --- FOOTER ---
-# Dynamic footer with IST time
-def render_footer():
-    from datetime import timezone
-    utc_now = datetime.now(timezone.utc)
-    ist_now = utc_now + timedelta(hours=5, minutes=30)
-    current_time_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
-    
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.caption(f"© 2026 {PRODUCT_NAME} | {COMPANY} | {VERSION} | {current_time_ist}")
-
-render_footer()
+# Placed after all other content
+st.markdown(f"""
+<div class="app-footer">
+    <p>© {datetime.now().year} Arthagati | Quantitative Market Sentiment. All data is for informational purposes only.</p>
+</div>
+""", unsafe_allow_html=True)
