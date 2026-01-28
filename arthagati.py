@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas_ta as ta
 from io import BytesIO
 import logging
@@ -248,35 +248,6 @@ def load_css():
             text-align: center;
             color: var(--text-muted);
             font-size: 0.8rem;
-        }
-        
-        /* Timeframe Selector Styling to match Swing */
-        div[data-testid="stRadio"] > div {
-            display: flex;
-            justify-content: flex-start;
-            gap: 10px;
-        }
-        
-        div[data-testid="stRadio"] label {
-            background-color: var(--bg-elevated);
-            padding: 0.4rem 1rem;
-            border-radius: 20px;
-            border: 1px solid var(--border-color);
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-        
-        div[data-testid="stRadio"] label:hover {
-            border-color: var(--primary-color);
-            color: var(--primary-color);
-        }
-        
-        div[data-testid="stRadio"] div[role="radiogroup"] > label[data-checked="true"] {
-            background-color: rgba(255, 195, 0, 0.15);
-            border-color: var(--primary-color);
-            color: var(--primary-color);
         }
     </style>
     """, unsafe_allow_html=True)
@@ -864,54 +835,14 @@ with tab1:
             st.error("Failed to calculate MSF Spread Indicator.")
             st.stop()
         
-        # --- TIMEFRAME SELECTOR (SWING STYLE) ---
-        timeframes = ["1W", "1M", "3M", "6M", "YTD", "1Y", "2Y", "5Y", "MAX"]
-        
-        col_tf, col_sp = st.columns([0.8, 0.2])
-        with col_tf:
-            # Use horizontal radio to simulate a pill bar
-            selected_tf = st.radio("Select Timeframe", timeframes, index=5, horizontal=True, label_visibility="collapsed")
-        
-        # --- FILTER DATA BASED ON TIMEFRAME ---
-        max_date = df['DATE'].max()
-        filter_start_date = df['DATE'].min()
-        
-        if selected_tf == "1W":
-            filter_start_date = max_date - timedelta(days=7)
-        elif selected_tf == "1M":
-            filter_start_date = max_date - timedelta(days=30)
-        elif selected_tf == "3M":
-            filter_start_date = max_date - timedelta(days=90)
-        elif selected_tf == "6M":
-            filter_start_date = max_date - timedelta(days=180)
-        elif selected_tf == "YTD":
-            filter_start_date = datetime(max_date.year, 1, 1)
-        elif selected_tf == "1Y":
-            filter_start_date = max_date - timedelta(days=365)
-        elif selected_tf == "2Y":
-            filter_start_date = max_date - timedelta(days=365*2)
-        elif selected_tf == "5Y":
-            filter_start_date = max_date - timedelta(days=365*5)
-        
-        # Create filtered dataframes
-        mask = df['DATE'] >= filter_start_date
-        plot_df = df.loc[mask].copy()
-        
-        # Important: We also need to filter the indicator_df to match the dates
-        # indicator_df usually has the same index as df if created from it.
-        # But safest is to filter by index or join. Assuming index alignment since indicator_df was created from df
-        plot_indicator_df = indicator_df.loc[mask].copy()
-
-        # Dynamic Y-axis scaling for MSF Spread - Calculated on Filtered Data
-        if not plot_indicator_df.empty:
-            msf_vals = plot_indicator_df['msf_spread']
-            y_min = msf_vals.min()
-            y_max = msf_vals.max()
-            # Add 10% padding
-            y_padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
-            y_axis_range = [y_min - y_padding, y_max + y_padding]
-        else:
-            y_axis_range = [-10, 10]
+        # Dynamic Y-axis scaling for MSF Spread - Python Calculated
+        # This avoids Plotly's autorange issues where it adds too much padding
+        msf_vals = indicator_df['msf_spread']
+        y_min = msf_vals.min()
+        y_max = msf_vals.max()
+        # Add 10% padding
+        y_padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
+        y_axis_range = [y_min - y_padding, y_max + y_padding]
 
         # Create subplots - now 2 rows (Components removed)
         fig = make_subplots(
@@ -926,13 +857,13 @@ with tab1:
         # Mood Score Trace (Row 1) - USING WEBGL for performance
         fig.add_trace(
             go.Scattergl(
-                x=plot_df['DATE'],
-                y=plot_df['Mood_Score'],
+                x=df['DATE'],
+                y=df['Mood_Score'],
                 mode='lines',
                 name='Mood Score',
                 line=dict(color='#06b6d4', width=2), # Info Cyan
                 hovertemplate='<b>%{x|%d %b %Y}</b><br>Mood: %{customdata}<br>Score: %{y:.2f}<extra></extra>',
-                customdata=plot_df['Mood']
+                customdata=df['Mood']
             ),
             row=1,
             col=1
@@ -945,34 +876,32 @@ with tab1:
         start_idx = 0
         
         # Convert to numpy/list for fast iteration
-        # Use plot_indicator_df and plot_df here!
-        bg_colors_list = plot_indicator_df['bg_color'].values
-        dates_list = plot_df['DATE'].values
+        bg_colors_list = indicator_df['bg_color'].values
+        dates_list = df['DATE'].values
         
-        if len(plot_df) > 0:
-            for i in range(len(plot_df)):
-                current_color = bg_colors_list[i]
-                
-                # Detect change
-                if current_color != prev_color:
-                    # If the PREVIOUS block was a valid color (not 'None'), save it
-                    if prev_color != 'None':
-                        bg_changes.append({
-                            'color': prev_color,
-                            'start': dates_list[start_idx],
-                            'end': dates_list[i] # Ends at the start of new color
-                        })
-                    # Reset for new block
-                    start_idx = i
-                    prev_color = current_color
+        for i in range(len(df)):
+            current_color = bg_colors_list[i]
             
-            # Handle the final block
-            if prev_color != 'None' and start_idx < len(plot_df):
-                bg_changes.append({
-                    'color': prev_color,
-                    'start': dates_list[start_idx],
-                    'end': dates_list[-1]
-                })
+            # Detect change
+            if current_color != prev_color:
+                # If the PREVIOUS block was a valid color (not 'None'), save it
+                if prev_color != 'None':
+                    bg_changes.append({
+                        'color': prev_color,
+                        'start': dates_list[start_idx],
+                        'end': dates_list[i] # Ends at the start of new color
+                    })
+                # Reset for new block
+                start_idx = i
+                prev_color = current_color
+        
+        # Handle the final block
+        if prev_color != 'None' and start_idx < len(df):
+            bg_changes.append({
+                'color': prev_color,
+                'start': dates_list[start_idx],
+                'end': dates_list[-1]
+            })
         
         # Add shapes to layout (much lighter than individual traces)
         shapes = []
@@ -996,8 +925,8 @@ with tab1:
         # Spread Indicator Trace (Row 2) - MSF Spread - USING WEBGL
         fig.add_trace(
             go.Scattergl(
-                x=plot_df['DATE'],
-                y=plot_indicator_df['msf_spread'],
+                x=df['DATE'],
+                y=indicator_df['msf_spread'],
                 mode='lines',
                 name='MSF Spread',
                 line=dict(color='#FFC300', width=2),  # Golden - primary signal
@@ -1030,22 +959,21 @@ with tab1:
         )
         
         # Last Point Annotation (Row 1)
-        if not plot_df.empty:
-            last_point = plot_df.iloc[-1]
-            fig.add_annotation(
-                x=last_point['DATE'],
-                y=last_point['Mood_Score'],
-                text=f"Current: {last_point['Mood_Score']:.2f}",
-                showarrow=True,
-                arrowhead=1,
-                ax=-40,
-                ay=-30,
-                bgcolor="#212121",
-                bordercolor="#FFC300",
-                font_color="#FAFAFA",
-                row=1,
-                col=1
-            )
+        last_point = df.iloc[-1]
+        fig.add_annotation(
+            x=last_point['DATE'],
+            y=last_point['Mood_Score'],
+            text=f"Current: {last_point['Mood_Score']:.2f}",
+            showarrow=True,
+            arrowhead=1,
+            ax=-40,
+            ay=-30,
+            bgcolor="#212121",
+            bordercolor="#FFC300",
+            font_color="#FAFAFA",
+            row=1,
+            col=1
+        )
         
         # Update Layout for Dark Theme with Premium Colors
         fig.update_layout(
@@ -1096,7 +1024,7 @@ with tab1:
                 showgrid=True,
                 gridcolor='#2A2A2A',
                 zeroline=False,
-                range=y_axis_range, # Python Calculated Dynamic Range based on FILTERED data
+                range=y_axis_range, # Python Calculated Dynamic Range
                 showspikes=True,
                 spikemode="toaxis+across",
                 spikesnap="data",
