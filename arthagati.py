@@ -64,7 +64,7 @@ TIMEFRAMES = {
     '1Y': 365,
     '2Y': 730,
     '5Y': 1825,
-    'MAX': 3650
+    'MAX': None  # Show all data
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -807,26 +807,6 @@ def render_historical_mood(mood_df, msf_df):
         row=1, col=1
     )
     
-    # Smoothed Mood Score
-    fig.add_trace(
-        go.Scattergl(
-            x=df['DATE'],
-            y=df['Smoothed_Mood_Score'],
-            mode='lines',
-            name='Smoothed (7D)',
-            line=dict(color='#FFC300', width=1.5, dash='dot'),
-            hovertemplate='<b>%{x|%d %b %Y}</b><br>Smoothed: %{y:.2f}<extra></extra>',
-        ),
-        row=1, col=1
-    )
-    
-    # Zone bands
-    fig.add_hrect(y0=60, y1=100, fillcolor="rgba(16, 185, 129, 0.1)", line_width=0, row=1, col=1)
-    fig.add_hrect(y0=20, y1=60, fillcolor="rgba(16, 185, 129, 0.05)", line_width=0, row=1, col=1)
-    fig.add_hrect(y0=-20, y1=20, fillcolor="rgba(136, 136, 136, 0.05)", line_width=0, row=1, col=1)
-    fig.add_hrect(y0=-60, y1=-20, fillcolor="rgba(239, 68, 68, 0.05)", line_width=0, row=1, col=1)
-    fig.add_hrect(y0=-100, y1=-60, fillcolor="rgba(239, 68, 68, 0.1)", line_width=0, row=1, col=1)
-    
     # Reference lines
     fig.add_hline(y=0, line_color='#757575', line_width=1, line_dash='dash', row=1, col=1)
     fig.add_hline(y=60, line_color='#10b981', line_width=1, line_dash='dot', row=1, col=1)
@@ -854,16 +834,16 @@ def render_historical_mood(mood_df, msf_df):
     # ROW 2: MSF SPREAD INDICATOR (Oscillator Pane)
     # ─────────────────────────────────────────────────────────────────────────
     
-    # MSF Spread with color based on value
+    # MSF Spread Line
     msf_values = msf_filtered['msf_spread'].values
-    colors = ['#10b981' if v < 0 else '#ef4444' for v in msf_values]
     
     fig.add_trace(
-        go.Bar(
+        go.Scattergl(
             x=df['DATE'],
             y=msf_values,
+            mode='lines',
             name='MSF Spread',
-            marker=dict(color=colors, line=dict(width=0)),
+            line=dict(color='#FFC300', width=2),
             hovertemplate='<b>%{x|%d %b %Y}</b><br>MSF: %{y:.2f}<extra></extra>',
         ),
         row=2, col=1
@@ -917,8 +897,7 @@ def render_historical_mood(mood_df, msf_df):
             title=dict(text='MSF Spread', font=dict(size=11, color='#888888')),
             showgrid=True,
             gridcolor='#2A2A2A',
-            zeroline=False,
-            range=[-10, 10]
+            zeroline=False
         )
     )
     
@@ -926,7 +905,7 @@ def render_historical_mood(mood_df, msf_df):
     fig.update_xaxes(showgrid=False, row=1, col=1)
     fig.update_xaxes(showgrid=True, gridcolor='#2A2A2A', row=2, col=1)
     
-    st.plotly_chart(fig, use_container_width=True, config={
+    st.plotly_chart(fig, config={
         'displayModeBar': True,
         'scrollZoom': True,
         'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'eraseshape']
