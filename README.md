@@ -2,41 +2,43 @@
 
 **A Hemrek Capital Product | v1.2.0**
 
-Quantitative market mood analysis with MSF-enhanced spread indicators.
+Quantitative market mood analysis with MSF-enhanced indicators and TradingView-style charting.
 
 ## Features
 
-### Market Mood Analysis
-- **Mood Score**: Composite sentiment indicator (-100 to +100)
-- **Historical Tracking**: Full time-series visualization
-- **Similar Periods**: AI-matched historical analogues
+### 📈 Historical Mood Terminal (TradingView Style)
+- **Main Chart**: Mood Score with smoothed overlay (inverted axis for intuitive reading)
+- **Indicator Pane**: MSF Spread oscillator with overbought/oversold zones
+- **Timeframe Selector**: 1W, 1M, 3M, 6M, YTD, 1Y, 2Y, 5Y, MAX
+- **Zone Bands**: Visual highlighting of bullish/bearish/neutral zones
+- **Period Summary**: High, Low, Average metrics for selected timeframe
 
-### MSF-Enhanced Spread Indicator (NEW in v1.2.0)
-Replaces the original spread indicator with MSF (Momentum Structure Flow) inspired components:
+### 📊 MSF-Enhanced Spread Indicator
+Four-component oscillator inspired by Nirnay's MSF logic:
 
-#### Components
-1. **Momentum (30%)**: ROC z-score of NIFTY - price momentum
-2. **Structure (25%)**: Mood trend acceleration and divergence
-3. **Regime (25%)**: Trend persistence counting
-4. **Flow (20%)**: AD_RATIO breadth as participation proxy
+| Component | Weight | Source | Description |
+|-----------|--------|--------|-------------|
+| Momentum | 30% | NIFTY | ROC z-score normalized |
+| Structure | 25% | Mood | Trend acceleration |
+| Regime | 25% | NIFTY | Price persistence |
+| Flow | 20% | AD_RATIO | Breadth participation |
 
-#### Signal Interpretation
-| MSF Spread | Zone | Interpretation |
-|------------|------|----------------|
-| > +7 | Overbought | Caution - potential reversal |
-| +3 to +7 | Bullish | Strong upward momentum |
-| -3 to +3 | Neutral | No clear directional bias |
-| -7 to -3 | Bearish | Downward momentum |
-| < -7 | Oversold | Caution - potential bounce |
+**Signal Interpretation:**
+- `> +5`: Overbought (caution)
+- `+2 to +5`: Bullish momentum
+- `-2 to +2`: Neutral
+- `-5 to -2`: Bearish momentum
+- `< -5`: Oversold (potential bounce)
 
-### Correlation Analysis
-- Anchor variable correlations (PE, EY)
-- Dependent variable impact analysis
-- Strength classification (Strong/Moderate/Weak)
+### 🔍 Similar Periods Analysis
+- AI-matched historical periods based on mood score and volatility
+- Similarity scoring with recency weighting
+- Card-based display with mood classification
 
-## Data Source
-- Google Sheets with market breadth and valuation data
-- Required columns: DATE, NIFTY, AD_RATIO, NIFTY50_PE, NIFTY50_EY, etc.
+### 📋 Correlation Analysis
+- PE Ratio correlations with dependent variables
+- Earnings Yield correlations
+- Visual bar charts with strength indicators
 
 ## Installation
 
@@ -46,18 +48,27 @@ streamlit run arthagati.py
 ```
 
 ## Requirements
+- Python 3.10+
 - streamlit
 - pandas
 - numpy
 - plotly
 - pandas_ta
+- pytz
+
+## Data Source
+Google Sheets with market breadth and valuation data.
+
+Required columns:
+- DATE, NIFTY, AD_RATIO, NIFTY50_PE, NIFTY50_EY
+- Plus: Breadth metrics, bond yields, valuation ratios
 
 ## Hemrek Capital Design System
 - Golden accent theme (#FFC300)
-- Dark mode interface
+- Dark mode interface (Nirnay-grade)
 - Consistent with NIRNAY, AARAMBH, PRAGYAM, SWING, SAMHITA
 
 ## Version History
-- v1.2.0: MSF-enhanced spread indicator with 4 components
-- v1.1.0: Hemrek design system, performance optimizations
+- v1.2.0: Complete redesign with TradingView-style charts, timeframe selector, Nirnay UI/UX
+- v1.1.0: Initial MSF integration
 - v1.0.0: Initial release
