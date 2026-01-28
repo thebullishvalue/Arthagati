@@ -841,7 +841,7 @@ with tab1:
         y_min = msf_vals.min()
         y_max = msf_vals.max()
         # Add 10% padding
-        y_padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
+        y_padding = (y_max - y_min) * 0.025 if y_max != y_min else 1.0
         y_axis_range = [y_min - y_padding, y_max + y_padding]
 
         # Create subplots - now 2 rows (Components removed)
