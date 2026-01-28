@@ -397,7 +397,7 @@ def calculate_msf_spread_indicator(df, mood_col='Mood_Score', nifty_col='NIFTY',
     )
     
     # Scale to [-10, +10] for display (like original spread)
-    msf_spread = msf_raw * 10
+    msf_spread = msf_raw * 6
     
     # ═══════════════════════════════════════════════════════════════════════
     # BACKGROUND COLORS (Original spread logic for zones)
