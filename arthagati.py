@@ -28,6 +28,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 st.set_page_config(
     page_title="ARTHAGATI | Market Sentiment Analysis",
     layout="wide",
+    page_icon="📊",
     initial_sidebar_state="expanded"
 )
 
@@ -226,28 +227,19 @@ st.markdown("""
     
     .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
     .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); }
+    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
     
     .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
     
     [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
     
+    .stTextInput > div > div > input { background: var(--bg-elevated) !important; border: 1px solid var(--border-color) !important; border-radius: 8px !important; color: var(--text-primary) !important; }
+    .stTextInput > div > div > input:focus { border-color: var(--primary-color) !important; box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2) !important; }
+    
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: var(--background-color); }
     ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
-    
-    .footer-container {
-        background: var(--secondary-background-color);
-        padding: 1rem 2rem;
-        border-radius: 12px;
-        margin-top: 2rem;
-        border: 1px solid var(--border-color);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .footer-brand { color: var(--primary-color); font-weight: 700; font-size: 0.9rem; }
-    .footer-timestamp { color: var(--text-muted); font-size: 0.8rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -578,6 +570,7 @@ def main():
             <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">अर्थगति | Market Sentiment</div>
         </div>
         """, unsafe_allow_html=True)
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
         st.markdown('<p class="sidebar-title">⚙️ Controls</p>', unsafe_allow_html=True)
         
@@ -585,7 +578,7 @@ def main():
             st.cache_data.clear()
             st.rerun()
         
-        st.markdown("---")
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown('<p class="sidebar-title">📊 View Mode</p>', unsafe_allow_html=True)
         view_mode = st.radio(
             "Select View",
@@ -593,7 +586,7 @@ def main():
             label_visibility="collapsed"
         )
         
-        st.markdown("---")
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown(f"""
         <div style="text-align: center; padding: 1rem 0; color: #888888; font-size: 0.7rem;">
             <div style="color: #FFC300; font-weight: 600;">{COMPANY}</div>
@@ -721,15 +714,12 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # FOOTER
     # ═══════════════════════════════════════════════════════════════════════════
-    ist = pytz.timezone('Asia/Kolkata')
-    current_time = datetime.now(ist).strftime('%d %b %Y, %I:%M %p IST')
+    utc_now = datetime.now(pytz.UTC)
+    ist_now = utc_now.astimezone(pytz.timezone('Asia/Kolkata'))
+    current_time_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
     
-    st.markdown(f"""
-        <div class="footer-container">
-            <span class="footer-brand">{COMPANY} | {PRODUCT_NAME} {VERSION}</span>
-            <span class="footer-timestamp">Last updated: {current_time}</span>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    st.caption(f"© 2026 {PRODUCT_NAME} | {COMPANY} | {VERSION} | {current_time_ist}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HISTORICAL MOOD VIEW (TradingView Style)
@@ -786,7 +776,7 @@ def render_historical_mood(mood_df, msf_df):
         rows=2,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.03,
+        vertical_spacing=0.08,  # Increased spacing for separator
         row_heights=[0.65, 0.35]
     )
     
@@ -942,7 +932,7 @@ def render_historical_mood(mood_df, msf_df):
     # ─────────────────────────────────────────────────────────────────────────
     
     fig.update_layout(
-        height=700,
+        height=750,
         template='plotly_dark',
         plot_bgcolor='#1A1A1A',
         paper_bgcolor='#1A1A1A',
@@ -952,12 +942,12 @@ def render_historical_mood(mood_df, msf_df):
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=1.02,
+            y=1.05,  # Moved up to avoid toolbar overlap
             xanchor='right',
             x=1,
             font=dict(size=11)
         ),
-        margin=dict(l=60, r=20, t=40, b=40),
+        margin=dict(l=60, r=20, t=80, b=40),  # Increased top margin
         xaxis2=dict(
             showgrid=True,
             gridcolor='#2A2A2A',
@@ -978,6 +968,18 @@ def render_historical_mood(mood_df, msf_df):
         )
     )
     
+    # Add separator line between charts (horizontal line at the boundary)
+    fig.add_shape(
+        type="line",
+        xref="paper",
+        yref="paper",
+        x0=0,
+        y0=0.38,  # Position between the two charts
+        x1=1,
+        y1=0.38,
+        line=dict(color="#3A3A3A", width=1)
+    )
+    
     # Remove x-axis grid on row 1 for cleaner look
     fig.update_xaxes(showgrid=False, row=1, col=1)
     fig.update_xaxes(showgrid=True, gridcolor='#2A2A2A', row=2, col=1)
@@ -992,7 +994,7 @@ def render_historical_mood(mood_df, msf_df):
     # PERIOD SUMMARY
     # ═══════════════════════════════════════════════════════════════════════════
     
-    st.markdown("---")
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     
     col1, col2, col3, col4 = st.columns(4)
     
