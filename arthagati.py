@@ -931,10 +931,10 @@ with tab1:
         
         # Row 2 Oscillator Bounds (MSF Spread)
         fig.add_hline(y=0, line_color='#757575', line_width=1, annotation_text="Zero", annotation_position="top left", annotation_font_size=10, row=2, col=1)
-        fig.add_hline(y=5, line_color='#ef4444', line_width=1, annotation_text="Overbought", annotation_position="top left", annotation_font_size=10, row=2, col=1)
-        fig.add_hline(y=-5, line_color='#10b981', line_width=1, annotation_text="Oversold", annotation_position="bottom left", annotation_font_size=10, row=2, col=1)
-        fig.add_hline(y=2, line_color='#ef4444', line_dash="dot", line_width=1, row=2, col=1)
-        fig.add_hline(y=-2, line_color='#10b981', line_dash="dot", line_width=1, row=2, col=1)
+        fig.add_hline(y=7, line_color='#ef4444', line_width=1, annotation_text="Overbought", annotation_position="top left", annotation_font_size=10, row=2, col=1)
+        fig.add_hline(y=-7, line_color='#10b981', line_width=1, annotation_text="Oversold", annotation_position="bottom left", annotation_font_size=10, row=2, col=1)
+        fig.add_hline(y=3, line_color='#ef4444', line_dash="dot", line_width=1, row=2, col=1)
+        fig.add_hline(y=-3, line_color='#10b981', line_dash="dot", line_width=1, row=2, col=1)
         
         # ═══════════════════════════════════════════════════════════════════════
         # ROW 3: MSF COMPONENTS (Momentum, Structure, Regime, Flow)
@@ -1093,7 +1093,7 @@ with tab1:
                 showgrid=True,
                 gridcolor='#2A2A2A',
                 zeroline=False,
-                range=[-5, 5],
+                range=[-12, 12],
                 showspikes=True,
                 spikemode="toaxis+across",
                 spikesnap="data",
@@ -1105,7 +1105,7 @@ with tab1:
                 showgrid=True,
                 gridcolor='#2A2A2A',
                 zeroline=False,
-                range=[-5, 5],
+                range=[-12, 12],
                 showspikes=True,
                 spikemode="toaxis+across",
                 spikesnap="data",
