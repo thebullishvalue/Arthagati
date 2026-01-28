@@ -1015,7 +1015,7 @@ with tab1:
                 showgrid=True,
                 gridcolor='#2A2A2A',
                 zeroline=False,
-                range=[-12, 12],
+                autorange=True,
                 showspikes=True,
                 spikemode="toaxis+across",
                 spikesnap="data",
