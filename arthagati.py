@@ -740,21 +740,9 @@ if not historical_mood_df.empty:
     temp_df = historical_mood_df.copy()
     original_df = load_data()
     if original_df is not None and 'DATE' in original_df.columns:
-        # Check if NIFTY already exists in temp_df to prevent collision
-        cols_to_merge = ['DATE']
-        if 'NIFTY' not in temp_df.columns:
-            cols_to_merge.append('NIFTY')
-        if 'AD_RATIO' not in temp_df.columns:
-            cols_to_merge.append('AD_RATIO')
-            
-        temp_df = temp_df.merge(original_df[cols_to_merge], on='DATE', how='left')
-        
-        # Safe filling using modern pandas approach
-        if 'NIFTY' in temp_df.columns:
-            temp_df['NIFTY'] = temp_df['NIFTY'].ffill()
-        if 'AD_RATIO' in temp_df.columns:
-            temp_df['AD_RATIO'] = temp_df['AD_RATIO'].fillna(1.0)
-            
+        temp_df = temp_df.merge(original_df[['DATE', 'NIFTY', 'AD_RATIO']], on='DATE', how='left')
+        temp_df['NIFTY'] = temp_df['NIFTY'].fillna(method='ffill')
+        temp_df['AD_RATIO'] = temp_df['AD_RATIO'].fillna(1.0)
     msf_df = calculate_msf_spread_indicator(temp_df)
     current_msf = msf_df['msf_spread'].iloc[-1] if not msf_df.empty else 0
     
@@ -813,21 +801,12 @@ with tab1:
         # Use all data
         df = historical_mood_df.copy()
         
-        # Merge with original data to get NIFTY and AD_RATIO (Avoiding Duplicates)
+        # Merge with original data to get NIFTY and AD_RATIO
         original_df = load_data()
         if original_df is not None and 'DATE' in original_df.columns:
-            cols_to_merge = ['DATE']
-            if 'NIFTY' not in df.columns:
-                cols_to_merge.append('NIFTY')
-            if 'AD_RATIO' not in df.columns:
-                cols_to_merge.append('AD_RATIO')
-                
-            df = df.merge(original_df[cols_to_merge], on='DATE', how='left')
-            
-            if 'NIFTY' in df.columns:
-                df['NIFTY'] = df['NIFTY'].ffill()
-            if 'AD_RATIO' in df.columns:
-                df['AD_RATIO'] = df['AD_RATIO'].fillna(1.0)
+            df = df.merge(original_df[['DATE', 'NIFTY', 'AD_RATIO']], on='DATE', how='left')
+            df['NIFTY'] = df['NIFTY'].fillna(method='ffill')
+            df['AD_RATIO'] = df['AD_RATIO'].fillna(1.0)
         
         # Calculate MSF-Enhanced Spread Indicator
         indicator_df = calculate_msf_spread_indicator(df)
@@ -835,23 +814,14 @@ with tab1:
             st.error("Failed to calculate MSF Spread Indicator.")
             st.stop()
         
-        # Dynamic Y-axis scaling for MSF Spread - Python Calculated
-        # This avoids Plotly's autorange issues where it adds too much padding
-        msf_vals = indicator_df['msf_spread']
-        y_min = msf_vals.min()
-        y_max = msf_vals.max()
-        # Add 10% padding
-        y_padding = (y_max - y_min) * 0.025 if y_max != y_min else 1.0
-        y_axis_range = [y_min - y_padding, y_max + y_padding]
-
-        # Create subplots - now 2 rows (Components removed)
+        # Create subplots - now 3 rows for components
         fig = make_subplots(
-            rows=2,
+            rows=3,
             cols=1,
             shared_xaxes=True,
-            vertical_spacing=0.05,
-            row_heights=[0.65, 0.35],
-            subplot_titles=("Mood Score", "MSF Spread Indicator")
+            vertical_spacing=0.04,
+            row_heights=[0.55, 0.25, 0.20],
+            subplot_titles=("Mood Score", "MSF Spread Indicator", "MSF Components")
         )
         
         # Mood Score Trace (Row 1) - USING WEBGL for performance
@@ -913,7 +883,7 @@ with tab1:
                 xref="x2", 
                 yref="y2",
                 x0=change['start'],
-                y0=-20, # Use wide bounds for the background shape to cover any data range
+                y0=-20,
                 x1=change['end'],
                 y1=20,
                 fillcolor=change['color'],
@@ -940,9 +910,77 @@ with tab1:
         
         # Row 2 Oscillator Bounds (MSF Spread)
         fig.add_hline(y=0, line_color='#757575', line_width=1, annotation_text="Zero", annotation_position="top left", annotation_font_size=10, row=2, col=1)
-        # Removed solid Overbought (+7) and Oversold (-7) lines as requested
+        fig.add_hline(y=7, line_color='#ef4444', line_width=1, annotation_text="Overbought", annotation_position="top left", annotation_font_size=10, row=2, col=1)
+        fig.add_hline(y=-7, line_color='#10b981', line_width=1, annotation_text="Oversold", annotation_position="bottom left", annotation_font_size=10, row=2, col=1)
         fig.add_hline(y=3, line_color='#ef4444', line_dash="dot", line_width=1, row=2, col=1)
         fig.add_hline(y=-3, line_color='#10b981', line_dash="dot", line_width=1, row=2, col=1)
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # ROW 3: MSF COMPONENTS (Momentum, Structure, Regime, Flow)
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        # Momentum Component (ROC-based)
+        fig.add_trace(
+            go.Scattergl(
+                x=df['DATE'],
+                y=indicator_df['momentum'],
+                mode='lines',
+                name='Momentum',
+                line=dict(color='#06b6d4', width=1.5),  # Cyan
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Momentum: %{y:.2f}<extra></extra>',
+                showlegend=True
+            ),
+            row=3,
+            col=1
+        )
+        
+        # Structure Component (Trend-based)
+        fig.add_trace(
+            go.Scattergl(
+                x=df['DATE'],
+                y=indicator_df['structure'],
+                mode='lines',
+                name='Structure',
+                line=dict(color='#f59e0b', width=1.5),  # Amber
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Structure: %{y:.2f}<extra></extra>',
+                showlegend=True
+            ),
+            row=3,
+            col=1
+        )
+        
+        # Regime Component (Count-based)
+        fig.add_trace(
+            go.Scattergl(
+                x=df['DATE'],
+                y=indicator_df['regime'],
+                mode='lines',
+                name='Regime',
+                line=dict(color='#10b981', width=1.5),  # Green
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Regime: %{y:.2f}<extra></extra>',
+                showlegend=True
+            ),
+            row=3,
+            col=1
+        )
+        
+        # Flow Component (Breadth-based)
+        fig.add_trace(
+            go.Scattergl(
+                x=df['DATE'],
+                y=indicator_df['flow'],
+                mode='lines',
+                name='Flow',
+                line=dict(color='#ef4444', width=1.5),  # Red
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Flow: %{y:.2f}<extra></extra>',
+                showlegend=True
+            ),
+            row=3,
+            col=1
+        )
+        
+        # Row 3 zero line
+        fig.add_hline(y=0, line_color='#757575', line_width=1, row=3, col=1)
         
         # Neutral Line (Row 1)
         fig.add_hline(
@@ -977,7 +1015,7 @@ with tab1:
         
         # Update Layout for Dark Theme with Premium Colors
         fig.update_layout(
-            height=800,  # Adjusted for 2 rows
+            height=950,  # Increased for 3 rows
             template="plotly_dark",
             plot_bgcolor='#1A1A1A',
             paper_bgcolor='#1A1A1A',
@@ -1007,6 +1045,16 @@ with tab1:
                 spikecolor="#FFC300",
                 spikethickness=1
             ),
+            xaxis3=dict(
+                type="date",
+                showgrid=True,
+                gridcolor='#2A2A2A',
+                showspikes=True,
+                spikemode="toaxis+across",
+                spikesnap="cursor",
+                spikecolor="#FFC300",
+                spikethickness=1
+            ),
             yaxis=dict(
                 title="Mood Score",
                 autorange="reversed",
@@ -1024,7 +1072,19 @@ with tab1:
                 showgrid=True,
                 gridcolor='#2A2A2A',
                 zeroline=False,
-                range=y_axis_range, # Python Calculated Dynamic Range
+                range=[-12, 12],
+                showspikes=True,
+                spikemode="toaxis+across",
+                spikesnap="data",
+                spikecolor="#FFC300",
+                spikethickness=1
+            ),
+            yaxis3=dict(
+                title="Components",
+                showgrid=True,
+                gridcolor='#2A2A2A',
+                zeroline=False,
+                range=[-12, 12],
                 showspikes=True,
                 spikemode="toaxis+across",
                 spikesnap="data",
