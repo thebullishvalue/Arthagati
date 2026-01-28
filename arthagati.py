@@ -907,20 +907,18 @@ def render_historical_mood(mood_df, msf_df):
             type='date'
         ),
         yaxis=dict(
-            title='Mood Score',
+            title=dict(text='Mood Score', font=dict(size=11, color='#888888')),
             showgrid=True,
             gridcolor='#2A2A2A',
             zeroline=False,
-            autorange='reversed',
-            titlefont=dict(size=11, color='#888888')
+            autorange='reversed'
         ),
         yaxis2=dict(
-            title='MSF Spread',
+            title=dict(text='MSF Spread', font=dict(size=11, color='#888888')),
             showgrid=True,
             gridcolor='#2A2A2A',
             zeroline=False,
-            range=[-10, 10],
-            titlefont=dict(size=11, color='#888888')
+            range=[-10, 10]
         )
     )
     
