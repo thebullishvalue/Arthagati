@@ -650,14 +650,14 @@ def main():
     else:
         mood_class = "neutral"
     
-    # MSF card styling
-    if msf_spread > 5:
+    # MSF card styling (thresholds at ±4)
+    if msf_spread > 4:
         msf_class = "danger"
         msf_label = "Overbought"
     elif msf_spread > 2:
         msf_class = "warning"
         msf_label = "Bullish"
-    elif msf_spread < -5:
+    elif msf_spread < -4:
         msf_class = "success"
         msf_label = "Oversold"
     elif msf_spread < -2:
@@ -671,7 +671,7 @@ def main():
     
     with col1:
         st.markdown(f"""
-        <div class="metric-card {mood_class}">
+        <div class="metric-card primary">
             <h4>Mood Score</h4>
             <h2>{mood_score:.2f}</h2>
             <div class="sub-metric">{latest['Mood']}</div>
@@ -679,7 +679,7 @@ def main():
         """, unsafe_allow_html=True)
     
     with col2:
-        msf_color = '#10b981' if msf_spread < 0 else '#ef4444' if msf_spread > 0 else '#888888'
+        msf_color = '#06b6d4'  # Cyan to match trace
         st.markdown(f"""
         <div class="metric-card {msf_class}">
             <h4>MSF Spread</h4>
@@ -791,7 +791,7 @@ def render_historical_mood(mood_df, msf_df):
     )
     
     # ─────────────────────────────────────────────────────────────────────────
-    # ROW 1: MOOD SCORE (Main Chart)
+    # ROW 1: MOOD SCORE (Main Chart) - YELLOW
     # ─────────────────────────────────────────────────────────────────────────
     
     # Mood Score Line
@@ -801,16 +801,14 @@ def render_historical_mood(mood_df, msf_df):
             y=df['Mood_Score'],
             mode='lines',
             name='Mood Score',
-            line=dict(color='#06b6d4', width=2),
+            line=dict(color='#FFC300', width=2),
             hovertemplate='<b>%{x|%d %b %Y}</b><br>Mood: %{y:.2f}<extra></extra>',
         ),
         row=1, col=1
     )
     
-    # Reference lines
+    # Only zero line reference
     fig.add_hline(y=0, line_color='#757575', line_width=1, line_dash='dash', row=1, col=1)
-    fig.add_hline(y=60, line_color='#10b981', line_width=1, line_dash='dot', row=1, col=1)
-    fig.add_hline(y=-60, line_color='#ef4444', line_width=1, line_dash='dot', row=1, col=1)
     
     # Current value annotation
     last_point = df.iloc[-1]
@@ -820,18 +818,18 @@ def render_historical_mood(mood_df, msf_df):
         text=f"<b>{last_point['Mood_Score']:.1f}</b>",
         showarrow=True,
         arrowhead=2,
-        arrowcolor='#06b6d4',
+        arrowcolor='#FFC300',
         ax=40,
         ay=0,
         bgcolor='#1A1A1A',
-        bordercolor='#06b6d4',
+        bordercolor='#FFC300',
         borderwidth=1,
-        font=dict(color='#06b6d4', size=11),
+        font=dict(color='#FFC300', size=11),
         row=1, col=1
     )
     
     # ─────────────────────────────────────────────────────────────────────────
-    # ROW 2: MSF SPREAD INDICATOR (Oscillator Pane)
+    # ROW 2: MSF SPREAD INDICATOR (Oscillator Pane) - CYAN
     # ─────────────────────────────────────────────────────────────────────────
     
     # MSF Spread Line
@@ -843,22 +841,109 @@ def render_historical_mood(mood_df, msf_df):
             y=msf_values,
             mode='lines',
             name='MSF Spread',
-            line=dict(color='#FFC300', width=2),
+            line=dict(color='#06b6d4', width=2),
             hovertemplate='<b>%{x|%d %b %Y}</b><br>MSF: %{y:.2f}<extra></extra>',
         ),
         row=2, col=1
     )
     
-    # Overbought/Oversold zones
+    # Overbought/Oversold zones at ±4
     fig.add_hline(y=0, line_color='#757575', line_width=1, row=2, col=1)
-    fig.add_hline(y=5, line_color='#ef4444', line_width=1, line_dash='dot', row=2, col=1)
-    fig.add_hline(y=-5, line_color='#10b981', line_width=1, line_dash='dot', row=2, col=1)
+    fig.add_hline(y=4, line_color='#ef4444', line_width=1, line_dash='dot', row=2, col=1)
+    fig.add_hline(y=-4, line_color='#10b981', line_width=1, line_dash='dot', row=2, col=1)
     
-    # Add annotations for zones
-    fig.add_annotation(x=df['DATE'].iloc[0], y=6, text="Overbought", showarrow=False,
-                       font=dict(color='#ef4444', size=9), xanchor='left', row=2, col=1)
-    fig.add_annotation(x=df['DATE'].iloc[0], y=-6, text="Oversold", showarrow=False,
-                       font=dict(color='#10b981', size=9), xanchor='left', row=2, col=1)
+    # ─────────────────────────────────────────────────────────────────────────
+    # DIVERGENCE SIGNALS (Triangles)
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    # Detect divergences between Mood Score and MSF Spread
+    # Bullish divergence: Mood making lower lows, MSF making higher lows
+    # Bearish divergence: Mood making higher highs, MSF making lower highs
+    
+    lookback = 10  # Lookback period for local extrema
+    mood_vals = df['Mood_Score'].values
+    
+    bullish_signals = []
+    bearish_signals = []
+    
+    for i in range(lookback * 2, len(df) - 1):
+        # Get local windows
+        mood_window = mood_vals[i - lookback:i + 1]
+        msf_window = msf_values[i - lookback:i + 1]
+        
+        # Check for local minimum (potential bullish divergence)
+        if mood_vals[i] == mood_window.min() and i > lookback:
+            # Compare with previous local minimum
+            prev_mood_window = mood_vals[i - lookback * 2:i - lookback + 1]
+            prev_msf_window = msf_values[i - lookback * 2:i - lookback + 1]
+            
+            if len(prev_mood_window) > 0 and len(prev_msf_window) > 0:
+                prev_mood_min = prev_mood_window.min()
+                prev_msf_min = prev_msf_window.min()
+                curr_msf_min = msf_window.min()
+                
+                # Bullish divergence: Mood lower low, MSF higher low
+                if mood_vals[i] < prev_mood_min and curr_msf_min > prev_msf_min:
+                    bullish_signals.append(i)
+        
+        # Check for local maximum (potential bearish divergence)
+        if mood_vals[i] == mood_window.max() and i > lookback:
+            # Compare with previous local maximum
+            prev_mood_window = mood_vals[i - lookback * 2:i - lookback + 1]
+            prev_msf_window = msf_values[i - lookback * 2:i - lookback + 1]
+            
+            if len(prev_mood_window) > 0 and len(prev_msf_window) > 0:
+                prev_mood_max = prev_mood_window.max()
+                prev_msf_max = prev_msf_window.max()
+                curr_msf_max = msf_window.max()
+                
+                # Bearish divergence: Mood higher high, MSF lower high
+                if mood_vals[i] > prev_mood_max and curr_msf_max < prev_msf_max:
+                    bearish_signals.append(i)
+    
+    # Calculate y positions for triangles (at edges of MSF chart)
+    msf_max = max(msf_values) if len(msf_values) > 0 else 5
+    msf_min = min(msf_values) if len(msf_values) > 0 else -5
+    triangle_top = msf_max + abs(msf_max) * 0.15  # 15% above max
+    triangle_bottom = msf_min - abs(msf_min) * 0.15  # 15% below min
+    
+    # Add bullish divergence triangles (green, bottom of chart)
+    if bullish_signals:
+        fig.add_trace(
+            go.Scatter(
+                x=[df['DATE'].iloc[i] for i in bullish_signals],
+                y=[triangle_bottom] * len(bullish_signals),
+                mode='markers',
+                name='Bullish Divergence',
+                marker=dict(
+                    symbol='triangle-up',
+                    size=12,
+                    color='#10b981',
+                    line=dict(color='#10b981', width=1)
+                ),
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Bullish Divergence<extra></extra>',
+            ),
+            row=2, col=1
+        )
+    
+    # Add bearish divergence triangles (red inverted, top of chart)
+    if bearish_signals:
+        fig.add_trace(
+            go.Scatter(
+                x=[df['DATE'].iloc[i] for i in bearish_signals],
+                y=[triangle_top] * len(bearish_signals),
+                mode='markers',
+                name='Bearish Divergence',
+                marker=dict(
+                    symbol='triangle-down',
+                    size=12,
+                    color='#ef4444',
+                    line=dict(color='#ef4444', width=1)
+                ),
+                hovertemplate='<b>%{x|%d %b %Y}</b><br>Bearish Divergence<extra></extra>',
+            ),
+            row=2, col=1
+        )
     
     # ─────────────────────────────────────────────────────────────────────────
     # LAYOUT
