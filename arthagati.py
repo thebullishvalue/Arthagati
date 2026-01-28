@@ -835,14 +835,14 @@ with tab1:
             st.error("Failed to calculate MSF Spread Indicator.")
             st.stop()
         
-        # Create subplots - now 3 rows for components
+        # Create subplots - now 2 rows (Components removed)
         fig = make_subplots(
-            rows=3,
+            rows=2,
             cols=1,
             shared_xaxes=True,
-            vertical_spacing=0.04,
-            row_heights=[0.55, 0.25, 0.20],
-            subplot_titles=("Mood Score", "MSF Spread Indicator", "MSF Components")
+            vertical_spacing=0.05,
+            row_heights=[0.65, 0.35],
+            subplot_titles=("Mood Score", "MSF Spread Indicator")
         )
         
         # Mood Score Trace (Row 1) - USING WEBGL for performance
@@ -931,77 +931,9 @@ with tab1:
         
         # Row 2 Oscillator Bounds (MSF Spread)
         fig.add_hline(y=0, line_color='#757575', line_width=1, annotation_text="Zero", annotation_position="top left", annotation_font_size=10, row=2, col=1)
-        fig.add_hline(y=7, line_color='#ef4444', line_width=1, annotation_text="Overbought", annotation_position="top left", annotation_font_size=10, row=2, col=1)
-        fig.add_hline(y=-7, line_color='#10b981', line_width=1, annotation_text="Oversold", annotation_position="bottom left", annotation_font_size=10, row=2, col=1)
+        # Removed solid Overbought (+7) and Oversold (-7) lines as requested
         fig.add_hline(y=3, line_color='#ef4444', line_dash="dot", line_width=1, row=2, col=1)
         fig.add_hline(y=-3, line_color='#10b981', line_dash="dot", line_width=1, row=2, col=1)
-        
-        # ═══════════════════════════════════════════════════════════════════════
-        # ROW 3: MSF COMPONENTS (Momentum, Structure, Regime, Flow)
-        # ═══════════════════════════════════════════════════════════════════════
-        
-        # Momentum Component (ROC-based)
-        fig.add_trace(
-            go.Scattergl(
-                x=df['DATE'],
-                y=indicator_df['momentum'],
-                mode='lines',
-                name='Momentum',
-                line=dict(color='#06b6d4', width=1.5),  # Cyan
-                hovertemplate='<b>%{x|%d %b %Y}</b><br>Momentum: %{y:.2f}<extra></extra>',
-                showlegend=True
-            ),
-            row=3,
-            col=1
-        )
-        
-        # Structure Component (Trend-based)
-        fig.add_trace(
-            go.Scattergl(
-                x=df['DATE'],
-                y=indicator_df['structure'],
-                mode='lines',
-                name='Structure',
-                line=dict(color='#f59e0b', width=1.5),  # Amber
-                hovertemplate='<b>%{x|%d %b %Y}</b><br>Structure: %{y:.2f}<extra></extra>',
-                showlegend=True
-            ),
-            row=3,
-            col=1
-        )
-        
-        # Regime Component (Count-based)
-        fig.add_trace(
-            go.Scattergl(
-                x=df['DATE'],
-                y=indicator_df['regime'],
-                mode='lines',
-                name='Regime',
-                line=dict(color='#10b981', width=1.5),  # Green
-                hovertemplate='<b>%{x|%d %b %Y}</b><br>Regime: %{y:.2f}<extra></extra>',
-                showlegend=True
-            ),
-            row=3,
-            col=1
-        )
-        
-        # Flow Component (Breadth-based)
-        fig.add_trace(
-            go.Scattergl(
-                x=df['DATE'],
-                y=indicator_df['flow'],
-                mode='lines',
-                name='Flow',
-                line=dict(color='#ef4444', width=1.5),  # Red
-                hovertemplate='<b>%{x|%d %b %Y}</b><br>Flow: %{y:.2f}<extra></extra>',
-                showlegend=True
-            ),
-            row=3,
-            col=1
-        )
-        
-        # Row 3 zero line
-        fig.add_hline(y=0, line_color='#757575', line_width=1, row=3, col=1)
         
         # Neutral Line (Row 1)
         fig.add_hline(
@@ -1036,7 +968,7 @@ with tab1:
         
         # Update Layout for Dark Theme with Premium Colors
         fig.update_layout(
-            height=950,  # Increased for 3 rows
+            height=800,  # Adjusted for 2 rows
             template="plotly_dark",
             plot_bgcolor='#1A1A1A',
             paper_bgcolor='#1A1A1A',
@@ -1066,16 +998,6 @@ with tab1:
                 spikecolor="#FFC300",
                 spikethickness=1
             ),
-            xaxis3=dict(
-                type="date",
-                showgrid=True,
-                gridcolor='#2A2A2A',
-                showspikes=True,
-                spikemode="toaxis+across",
-                spikesnap="cursor",
-                spikecolor="#FFC300",
-                spikethickness=1
-            ),
             yaxis=dict(
                 title="Mood Score",
                 autorange="reversed",
@@ -1090,18 +1012,6 @@ with tab1:
             ),
             yaxis2=dict(
                 title="MSF Spread",
-                showgrid=True,
-                gridcolor='#2A2A2A',
-                zeroline=False,
-                range=[-12, 12],
-                showspikes=True,
-                spikemode="toaxis+across",
-                spikesnap="data",
-                spikecolor="#FFC300",
-                spikethickness=1
-            ),
-            yaxis3=dict(
-                title="Components",
                 showgrid=True,
                 gridcolor='#2A2A2A',
                 zeroline=False,
