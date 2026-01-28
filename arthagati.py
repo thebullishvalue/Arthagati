@@ -414,15 +414,11 @@ def calculate_historical_mood(df):
     smoothed_mood_scores = mood_series.rolling(window=7, min_periods=1).mean()
     mood_volatility = mood_series.rolling(window=30, min_periods=1).std().fillna(0)
     
-    conditions = [
-        mood_scores > 60,
-        mood_scores > 20,
-        mood_scores > -20,
-        mood_scores > -60,
-        True
-    ]
-    choices = ['Very Bullish', 'Bullish', 'Neutral', 'Bearish', 'Very Bearish']
-    moods = np.select(conditions, choices)
+    # Classify mood using vectorized approach
+    moods = np.where(mood_scores > 60, 'Very Bullish',
+            np.where(mood_scores > 20, 'Bullish',
+            np.where(mood_scores > -20, 'Neutral',
+            np.where(mood_scores > -60, 'Bearish', 'Very Bearish'))))
     
     result_df = pd.DataFrame({
         'DATE': df['DATE'].values,
@@ -610,7 +606,6 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     st.markdown(f"""
         <div class="premium-header">
-            <span class="product-badge">{COMPANY}</span>
             <h1>ARTHAGATI : Market Sentiment Analysis</h1>
             <div class="tagline">Quantitative Market Mood & MSF-Enhanced Indicators</div>
         </div>
