@@ -740,9 +740,21 @@ if not historical_mood_df.empty:
     temp_df = historical_mood_df.copy()
     original_df = load_data()
     if original_df is not None and 'DATE' in original_df.columns:
-        temp_df = temp_df.merge(original_df[['DATE', 'NIFTY', 'AD_RATIO']], on='DATE', how='left')
-        temp_df['NIFTY'] = temp_df['NIFTY'].fillna(method='ffill')
-        temp_df['AD_RATIO'] = temp_df['AD_RATIO'].fillna(1.0)
+        # Check if NIFTY already exists in temp_df to prevent collision
+        cols_to_merge = ['DATE']
+        if 'NIFTY' not in temp_df.columns:
+            cols_to_merge.append('NIFTY')
+        if 'AD_RATIO' not in temp_df.columns:
+            cols_to_merge.append('AD_RATIO')
+            
+        temp_df = temp_df.merge(original_df[cols_to_merge], on='DATE', how='left')
+        
+        # Safe filling using modern pandas approach
+        if 'NIFTY' in temp_df.columns:
+            temp_df['NIFTY'] = temp_df['NIFTY'].ffill()
+        if 'AD_RATIO' in temp_df.columns:
+            temp_df['AD_RATIO'] = temp_df['AD_RATIO'].fillna(1.0)
+            
     msf_df = calculate_msf_spread_indicator(temp_df)
     current_msf = msf_df['msf_spread'].iloc[-1] if not msf_df.empty else 0
     
@@ -801,12 +813,21 @@ with tab1:
         # Use all data
         df = historical_mood_df.copy()
         
-        # Merge with original data to get NIFTY and AD_RATIO
+        # Merge with original data to get NIFTY and AD_RATIO (Avoiding Duplicates)
         original_df = load_data()
         if original_df is not None and 'DATE' in original_df.columns:
-            df = df.merge(original_df[['DATE', 'NIFTY', 'AD_RATIO']], on='DATE', how='left')
-            df['NIFTY'] = df['NIFTY'].fillna(method='ffill')
-            df['AD_RATIO'] = df['AD_RATIO'].fillna(1.0)
+            cols_to_merge = ['DATE']
+            if 'NIFTY' not in df.columns:
+                cols_to_merge.append('NIFTY')
+            if 'AD_RATIO' not in df.columns:
+                cols_to_merge.append('AD_RATIO')
+                
+            df = df.merge(original_df[cols_to_merge], on='DATE', how='left')
+            
+            if 'NIFTY' in df.columns:
+                df['NIFTY'] = df['NIFTY'].ffill()
+            if 'AD_RATIO' in df.columns:
+                df['AD_RATIO'] = df['AD_RATIO'].fillna(1.0)
         
         # Calculate MSF-Enhanced Spread Indicator
         indicator_df = calculate_msf_spread_indicator(df)
