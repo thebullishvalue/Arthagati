@@ -847,33 +847,30 @@ def render_historical_mood(mood_df, msf_df):
         row=2, col=1
     )
     
-    # Overbought/Oversold zones at ±4
+    # Only zero line reference
     fig.add_hline(y=0, line_color='#757575', line_width=1, row=2, col=1)
-    fig.add_hline(y=4, line_color='#ef4444', line_width=1, line_dash='dot', row=2, col=1)
-    fig.add_hline(y=-4, line_color='#10b981', line_width=1, line_dash='dot', row=2, col=1)
     
     # ─────────────────────────────────────────────────────────────────────────
     # DIVERGENCE SIGNALS (Triangles)
     # ─────────────────────────────────────────────────────────────────────────
     
     # Detect divergences between Mood Score and MSF Spread
-    # Bullish divergence: Mood making lower lows, MSF making higher lows
-    # Bearish divergence: Mood making higher highs, MSF making lower highs
+    # Condition A (was bullish): Mood making lower lows, MSF making higher lows -> RED (top)
+    # Condition B (was bearish): Mood making higher highs, MSF making lower highs -> GREEN (bottom)
     
     lookback = 10  # Lookback period for local extrema
     mood_vals = df['Mood_Score'].values
     
-    bullish_signals = []
-    bearish_signals = []
+    red_signals = []    # Mood lower low + MSF higher low -> bearish signal (red at top)
+    green_signals = []  # Mood higher high + MSF lower high -> bullish signal (green at bottom)
     
     for i in range(lookback * 2, len(df) - 1):
         # Get local windows
         mood_window = mood_vals[i - lookback:i + 1]
         msf_window = msf_values[i - lookback:i + 1]
         
-        # Check for local minimum (potential bullish divergence)
+        # Check for local minimum
         if mood_vals[i] == mood_window.min() and i > lookback:
-            # Compare with previous local minimum
             prev_mood_window = mood_vals[i - lookback * 2:i - lookback + 1]
             prev_msf_window = msf_values[i - lookback * 2:i - lookback + 1]
             
@@ -882,13 +879,12 @@ def render_historical_mood(mood_df, msf_df):
                 prev_msf_min = prev_msf_window.min()
                 curr_msf_min = msf_window.min()
                 
-                # Bullish divergence: Mood lower low, MSF higher low
+                # Mood lower low, MSF higher low -> RED signal (inverted)
                 if mood_vals[i] < prev_mood_min and curr_msf_min > prev_msf_min:
-                    bullish_signals.append(i)
+                    red_signals.append(i)
         
-        # Check for local maximum (potential bearish divergence)
+        # Check for local maximum
         if mood_vals[i] == mood_window.max() and i > lookback:
-            # Compare with previous local maximum
             prev_mood_window = mood_vals[i - lookback * 2:i - lookback + 1]
             prev_msf_window = msf_values[i - lookback * 2:i - lookback + 1]
             
@@ -897,50 +893,46 @@ def render_historical_mood(mood_df, msf_df):
                 prev_msf_max = prev_msf_window.max()
                 curr_msf_max = msf_window.max()
                 
-                # Bearish divergence: Mood higher high, MSF lower high
+                # Mood higher high, MSF lower high -> GREEN signal (inverted)
                 if mood_vals[i] > prev_mood_max and curr_msf_max < prev_msf_max:
-                    bearish_signals.append(i)
+                    green_signals.append(i)
     
-    # Calculate y positions for triangles (at edges of MSF chart)
-    msf_max = max(msf_values) if len(msf_values) > 0 else 5
-    msf_min = min(msf_values) if len(msf_values) > 0 else -5
-    triangle_top = msf_max + abs(msf_max) * 0.15  # 15% above max
-    triangle_bottom = msf_min - abs(msf_min) * 0.15  # 15% below min
-    
-    # Add bullish divergence triangles (green, bottom of chart)
-    if bullish_signals:
+    # Add red triangles at y=5 (top, inverted)
+    if red_signals:
         fig.add_trace(
             go.Scatter(
-                x=[df['DATE'].iloc[i] for i in bullish_signals],
-                y=[triangle_bottom] * len(bullish_signals),
+                x=[df['DATE'].iloc[i] for i in red_signals],
+                y=[5] * len(red_signals),
                 mode='markers',
-                name='Bullish Divergence',
+                name='Bearish Signal',
                 marker=dict(
-                    symbol='triangle-up',
-                    size=12,
-                    color='#10b981',
-                    line=dict(color='#10b981', width=1)
+                    symbol='triangle-down',
+                    size=8,
+                    color='#ef4444',
+                    line=dict(color='#ef4444', width=1)
                 ),
-                hovertemplate='<b>%{x|%d %b %Y}</b><br>Bullish Divergence<extra></extra>',
+                hoverinfo='skip',
+                showlegend=False
             ),
             row=2, col=1
         )
     
-    # Add bearish divergence triangles (red inverted, top of chart)
-    if bearish_signals:
+    # Add green triangles at y=-5 (bottom)
+    if green_signals:
         fig.add_trace(
             go.Scatter(
-                x=[df['DATE'].iloc[i] for i in bearish_signals],
-                y=[triangle_top] * len(bearish_signals),
+                x=[df['DATE'].iloc[i] for i in green_signals],
+                y=[-5] * len(green_signals),
                 mode='markers',
-                name='Bearish Divergence',
+                name='Bullish Signal',
                 marker=dict(
-                    symbol='triangle-down',
-                    size=12,
-                    color='#ef4444',
-                    line=dict(color='#ef4444', width=1)
+                    symbol='triangle-up',
+                    size=8,
+                    color='#10b981',
+                    line=dict(color='#10b981', width=1)
                 ),
-                hovertemplate='<b>%{x|%d %b %Y}</b><br>Bearish Divergence<extra></extra>',
+                hoverinfo='skip',
+                showlegend=False
             ),
             row=2, col=1
         )

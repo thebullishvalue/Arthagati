@@ -8,10 +8,10 @@ Quantitative market mood analysis with MSF-enhanced indicators and TradingView-s
 
 ### 📈 Historical Mood Terminal (TradingView Style)
 - **Main Chart**: Mood Score (Yellow line) with zero reference
-- **Indicator Pane**: MSF Spread oscillator (Cyan line) with ±4 overbought/oversold bounds
+- **Indicator Pane**: MSF Spread oscillator (Cyan line) with auto-scaling
 - **Divergence Signals**: 
-  - 🔺 Green triangles (bottom) = Bullish divergence
-  - 🔻 Red triangles (top) = Bearish divergence
+  - 🔻 Red triangles (y=5) = Mood lower low + MSF higher low
+  - 🔺 Green triangles (y=-5) = Mood higher high + MSF lower high
 - **Timeframe Selector**: 1W, 1M, 3M, 6M, YTD, 1Y, 2Y, 5Y, MAX
 - **Period Summary**: High, Low, Average metrics for selected timeframe
 
@@ -26,15 +26,13 @@ Four-component oscillator inspired by Nirnay's MSF logic:
 | Flow | 20% | AD_RATIO | Breadth participation |
 
 ### Divergence Detection
-- **Bullish Divergence**: Mood Score making lower lows while MSF making higher lows
-- **Bearish Divergence**: Mood Score making higher highs while MSF making lower highs
+- **Red Signal (y=5)**: Mood Score making lower lows while MSF making higher lows
+- **Green Signal (y=-5)**: Mood Score making higher highs while MSF making lower highs
 
 **Signal Interpretation:**
-- `> +4`: Overbought (caution)
-- `+2 to +4`: Bullish momentum
-- `-2 to +2`: Neutral
-- `-4 to -2`: Bearish momentum
-- `< -4`: Oversold (potential bounce)
+- Red triangles at top suggest caution
+- Green triangles at bottom suggest opportunity
+- Auto-scaling Y-axis for both charts
 
 ### 🔍 Similar Periods Analysis
 - AI-matched historical periods based on mood score and volatility
