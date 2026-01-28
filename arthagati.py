@@ -835,6 +835,15 @@ with tab1:
             st.error("Failed to calculate MSF Spread Indicator.")
             st.stop()
         
+        # Dynamic Y-axis scaling for MSF Spread - Python Calculated
+        # This avoids Plotly's autorange issues where it adds too much padding
+        msf_vals = indicator_df['msf_spread']
+        y_min = msf_vals.min()
+        y_max = msf_vals.max()
+        # Add 10% padding
+        y_padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
+        y_axis_range = [y_min - y_padding, y_max + y_padding]
+
         # Create subplots - now 2 rows (Components removed)
         fig = make_subplots(
             rows=2,
@@ -904,7 +913,7 @@ with tab1:
                 xref="x2", 
                 yref="y2",
                 x0=change['start'],
-                y0=-20,
+                y0=-20, # Use wide bounds for the background shape to cover any data range
                 x1=change['end'],
                 y1=20,
                 fillcolor=change['color'],
@@ -1015,7 +1024,7 @@ with tab1:
                 showgrid=True,
                 gridcolor='#2A2A2A',
                 zeroline=False,
-                autorange=True,
+                range=y_axis_range, # Python Calculated Dynamic Range
                 showspikes=True,
                 spikemode="toaxis+across",
                 spikesnap="data",
