@@ -572,19 +572,17 @@ def main():
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
-        st.markdown('<p class="sidebar-title">⚙️ Controls</p>', unsafe_allow_html=True)
-        
-        if st.button("🔄 Refresh Data", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-        
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<p class="sidebar-title">📊 View Mode</p>', unsafe_allow_html=True)
         view_mode = st.radio(
-            "Select View",
+            "View Mode",
             ["📈 Historical Mood", "🔍 Similar Periods", "📋 Correlation Analysis"],
             label_visibility="collapsed"
         )
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="sidebar-title">⚙️ Controls</div>', unsafe_allow_html=True)
+        if st.button("🔄 Refresh Data", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown(f"""
@@ -699,6 +697,9 @@ def main():
             <div class="sub-metric">{latest['DATE'].strftime('%Y')}</div>
         </div>
         """, unsafe_allow_html=True)
+    
+    # Separator between cards and chart section
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # VIEW MODES
@@ -977,7 +978,7 @@ def render_historical_mood(mood_df, msf_df):
         y0=0.38,  # Position between the two charts
         x1=1,
         y1=0.38,
-        line=dict(color="#3A3A3A", width=1)
+        line=dict(color="#555555", width=2)
     )
     
     # Remove x-axis grid on row 1 for cleaner look
