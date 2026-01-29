@@ -236,6 +236,10 @@ st.markdown("""
     .stTextInput > div > div > input { background: var(--bg-elevated) !important; border: 1px solid var(--border-color) !important; border-radius: 8px !important; color: var(--text-primary) !important; }
     .stTextInput > div > div > input:focus { border-color: var(--primary-color) !important; box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2) !important; }
     
+    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
+    .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
+    .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
+    
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: var(--background-color); }
     ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
@@ -586,9 +590,12 @@ def main():
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown(f"""
-        <div style="text-align: center; padding: 1rem 0; color: #888888; font-size: 0.7rem;">
-            <div style="color: #FFC300; font-weight: 600;">{COMPANY}</div>
-            <div style="margin-top: 0.25rem;">{PRODUCT_NAME} {VERSION}</div>
+        <div class='info-box'>
+            <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
+                <strong>Version:</strong> {VERSION}<br>
+                <strong>Engine:</strong> Mood + MSF<br>
+                <strong>Data:</strong> {COMPANY}
+            </p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -601,6 +608,9 @@ def main():
             <div class="tagline">Quantitative Market Mood & MSF-Enhanced Indicators</div>
         </div>
     """, unsafe_allow_html=True)
+    
+    # Separator between header and cards
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # DATA LOADING
