@@ -32,7 +32,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-VERSION = "v1.2.0"
+VERSION = "v2.0.0"
 PRODUCT_NAME = "Arthagati"
 COMPANY = "Hemrek Capital"
 
@@ -52,7 +52,8 @@ EXPECTED_COLUMNS = [
 DEPENDENT_VARS = [
     'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'BREADTH', 'COUNT', 'IN10Y', 'IN02Y', 
     'IN30Y', 'INIRYY', 'REPO', 'CRR', 'US02Y', 'US30Y', 'US10Y', 'US_FED', 'NIFTY50_DY',
-    'NIFTY50_PB', 'PE_DEV', 'EY_DEV'
+    'NIFTY50_PB', 'PE_DEV', 'EY_DEV',
+    'IN_TERM_SPREAD', 'US_TERM_SPREAD'  # v2.0: derived yield curve slopes
 ]
 
 # Timeframe Configuration
@@ -263,6 +264,331 @@ def zscore_clipped(series, window, clip=3.0):
     return z.clip(-clip, clip).fillna(0)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# v2.0 MATHEMATICAL PRIMITIVES
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Design principle: every function has exactly ONE callsite and ONE job.
+#
+#   Function                        → Used in                   → Purpose
+#   ─────────────────────────────────────────────────────────────────────────
+#   exponential_decay_weights       → correlations              → recency weighting
+#   weighted_spearman               → correlations              → robust rank correlation
+#   shannon_entropy                 → variable weighting        → penalize noisy variables
+#   adaptive_percentile             → mood scoring              → decay-weighted CDF
+#   ornstein_uhlenbeck_estimate     → mood normalization        → physics-based scaling
+#   kalman_filter_1d                → mood smoothing            → adaptive noise filtering
+#   rolling_hurst                   → diagnostics (output only) → trending vs reverting
+#   rolling_entropy                 → diagnostics (output only) → market disorder
+#   mahalanobis_distance_batch      → similar periods           → covariance-aware matching
+#   cosine_similarity               → similar periods           → trajectory shape matching
+# ══════════════════════════════════════════════════════════════════════════════
+
+def exponential_decay_weights(n, half_life):
+    """
+    Generate exponential decay weights for n observations.
+    w_i = exp(-λ * i), λ = ln(2) / half_life.
+    Most recent observation has weight 1.0, oldest decays toward 0.
+    
+    Used in: calculate_anchor_correlations (Layer 1)
+    """
+    if n <= 0:
+        return np.array([])
+    lam = np.log(2) / max(half_life, 1)
+    indices = np.arange(n - 1, -1, -1, dtype=np.float64)
+    weights = np.exp(-lam * indices)
+    return weights / weights.sum()
+
+def weighted_spearman(x, y, weights):
+    """
+    Exponential-decay-weighted Spearman rank correlation.
+    Computes weighted Pearson on ranks — preserves rank-robustness
+    while adding recency weighting.
+    
+    Why Spearman over Pearson:
+      - Robust to outliers (rank-based, one extreme day doesn't dominate)
+      - Captures monotonic nonlinear relationships (PE compression, yield inversions)
+      - Invariant to marginal distribution shape
+    
+    Used in: calculate_anchor_correlations (Layer 1)
+    """
+    valid = np.isfinite(x) & np.isfinite(y)
+    if valid.sum() < 3:
+        return 0.0
+    x, y, w = x[valid], y[valid], weights[valid]
+    
+    def _rank(arr):
+        order = arr.argsort()
+        ranks = np.empty_like(order, dtype=float)
+        ranks[order] = np.arange(1, len(arr) + 1, dtype=float)
+        for val in np.unique(arr):
+            mask = arr == val
+            if mask.sum() > 1:
+                ranks[mask] = ranks[mask].mean()
+        return ranks
+    
+    rx, ry = _rank(x), _rank(y)
+    w_sum = w.sum()
+    if w_sum == 0:
+        return 0.0
+    w_norm = w / w_sum
+    
+    mean_rx = np.sum(w_norm * rx)
+    mean_ry = np.sum(w_norm * ry)
+    
+    cov_xy = np.sum(w_norm * (rx - mean_rx) * (ry - mean_ry))
+    var_x = np.sum(w_norm * (rx - mean_rx) ** 2)
+    var_y = np.sum(w_norm * (ry - mean_ry) ** 2)
+    
+    denom = np.sqrt(var_x * var_y)
+    if denom < 1e-12:
+        return 0.0
+    return np.clip(cov_xy / denom, -1.0, 1.0)
+
+def shannon_entropy(values, n_bins=20):
+    """
+    Shannon entropy H = -Σ p_i * log₂(p_i), normalized to [0, 1].
+    H≈1 → maximum disorder (uniform dist), H≈0 → perfect order (delta).
+    
+    Applied to variable returns to measure how "noisy" a predictor is.
+    
+    Used in: calculate_historical_mood → _build_weights (Layer 2)
+    """
+    clean = values[np.isfinite(values)]
+    if len(clean) < 5:
+        return 0.5
+    counts, _ = np.histogram(clean, bins=n_bins)
+    probs = counts / counts.sum()
+    probs = probs[probs > 0]
+    if len(probs) <= 1:
+        return 0.0
+    h = -np.sum(probs * np.log2(probs))
+    h_max = np.log2(n_bins)
+    return h / h_max if h_max > 0 else 0.0
+
+def adaptive_percentile(series, half_life=252):
+    """
+    Exponential-decay-weighted empirical CDF.
+    
+    For each time t, the percentile of x_t is:
+        P(t) = Σ_{i≤t} w_i · 𝟙(x_i ≤ x_t) / Σ_{i≤t} w_i
+    where w_i = exp(-λ·(t-i)), λ = ln(2)/half_life.
+    
+    This makes recent data count more in determining "where are we historically."
+    A PE of 22 is judged against recent-ish history, not against 2005.
+    
+    Used in: calculate_historical_mood (Layer 3)
+    """
+    values = np.asarray(series, dtype=np.float64)
+    n = len(values)
+    result = np.full(n, 0.5)
+    lam = np.log(2) / max(half_life, 1)
+    
+    for t in range(1, n):
+        if not np.isfinite(values[t]):
+            result[t] = result[t - 1] if t > 0 else 0.5
+            continue
+        
+        ages = np.arange(t, -1, -1, dtype=np.float64)
+        weights = np.exp(-lam * ages)
+        indicators = (values[:t + 1] <= values[t]).astype(np.float64)
+        valid = np.isfinite(values[:t + 1])
+        w_valid = weights[valid]
+        ind_valid = indicators[valid]
+        w_sum = w_valid.sum()
+        if w_sum > 1e-12:
+            result[t] = np.sum(w_valid * ind_valid) / w_sum
+    
+    return result
+
+def ornstein_uhlenbeck_estimate(series, dt=1.0):
+    """
+    Estimate Ornstein-Uhlenbeck process parameters from discrete observations.
+    
+    The OU process: dx = θ(μ − x)dt + σdW
+    Discrete AR(1): x_{t+1} = a + b·x_t + ε
+        b = exp(−θ·dt), a = μ·(1−b), Var(ε) = σ²·(1−b²)/(2θ)
+    
+    Returns (theta, mu, sigma):
+        theta : mean-reversion speed (higher = faster snap-back)
+        mu    : long-run equilibrium level
+        sigma : process volatility
+    
+    Used in: calculate_historical_mood (Layer 4)
+    """
+    ts = np.asarray(series, dtype=np.float64)
+    ts = ts[np.isfinite(ts)]
+    if len(ts) < 10:
+        return (0.01, 0.0, 1.0)
+    
+    x, y = ts[:-1], ts[1:]
+    mean_x, mean_y = x.mean(), y.mean()
+    
+    cov_xy = np.sum((x - mean_x) * (y - mean_y))
+    var_x = np.sum((x - mean_x) ** 2)
+    if var_x < 1e-12:
+        return (0.01, mean_x, 1.0)
+    
+    b = np.clip(cov_xy / var_x, 1e-6, 1.0 - 1e-6)
+    a = mean_y - b * mean_x
+    
+    theta = np.clip(-np.log(b) / dt, 1e-4, 10.0)
+    mu = a / (1.0 - b)
+    
+    residuals = y - (a + b * x)
+    var_eps = np.var(residuals)
+    sigma_sq = 2.0 * theta * var_eps / (1.0 - b ** 2) if (1.0 - b ** 2) > 1e-12 else var_eps
+    sigma = np.sqrt(max(sigma_sq, 1e-12))
+    
+    return (theta, mu, sigma)
+
+def kalman_filter_1d(observations, process_var=None, measurement_var=None):
+    """
+    1D Kalman filter for adaptive smoothing.
+    
+    The state model: "there exists a true underlying mood being observed with noise."
+    - When SNR is low (noisy): Kalman gain ↓, smooths aggressively
+    - When SNR is high (clean): Kalman gain ↑, tracks signal closely
+    
+    Auto-estimates noise parameters from data if not provided.
+    
+    Used in: calculate_historical_mood (Layer 5)
+    Returns: (filtered_state, kalman_gains)
+    """
+    obs = np.asarray(observations, dtype=np.float64)
+    n = len(obs)
+    if n == 0:
+        return np.array([]), np.array([])
+    
+    if process_var is None:
+        diffs = np.diff(obs[np.isfinite(obs)])
+        process_var = max(np.var(diffs) * 0.1, 1e-8) if len(diffs) > 1 else 1e-3
+    if measurement_var is None:
+        clean = obs[np.isfinite(obs)]
+        measurement_var = max(np.var(clean) * 0.5, 1e-8) if len(clean) > 1 else 1.0
+    
+    state = obs[0] if np.isfinite(obs[0]) else 0.0
+    estimate_var = measurement_var
+    filtered = np.zeros(n)
+    gains = np.zeros(n)
+    filtered[0] = state
+    
+    for i in range(1, n):
+        pred_var = estimate_var + process_var
+        if np.isfinite(obs[i]):
+            K = pred_var / (pred_var + measurement_var)
+            state = state + K * (obs[i] - state)
+            estimate_var = (1 - K) * pred_var
+            gains[i] = K
+        else:
+            estimate_var = pred_var
+        filtered[i] = state
+    
+    return filtered, gains
+
+def _hurst_rs(series, max_lag=None):
+    """
+    Hurst exponent via Rescaled Range (R/S) analysis.
+    H > 0.5 → persistent (trending), H < 0.5 → anti-persistent (mean-reverting).
+    Internal helper for rolling_hurst.
+    """
+    ts = np.asarray(series, dtype=np.float64)
+    ts = ts[np.isfinite(ts)]
+    n = len(ts)
+    if n < 20:
+        return 0.5
+    if max_lag is None:
+        max_lag = min(n // 2, 200)
+    
+    lags, rs_values = [], []
+    for lag in range(10, max_lag + 1, max(1, (max_lag - 10) // 25)):
+        n_blocks = n // lag
+        if n_blocks < 1:
+            continue
+        rs_block = []
+        for b in range(n_blocks):
+            block = ts[b * lag:(b + 1) * lag]
+            deviations = block - block.mean()
+            cumulative = np.cumsum(deviations)
+            R = cumulative.max() - cumulative.min()
+            S = block.std(ddof=1)
+            if S > 1e-12:
+                rs_block.append(R / S)
+        if rs_block:
+            lags.append(lag)
+            rs_values.append(np.mean(rs_block))
+    
+    if len(lags) < 3:
+        return 0.5
+    log_lags = np.log(np.array(lags, dtype=np.float64))
+    log_rs = np.log(np.array(rs_values, dtype=np.float64))
+    valid = np.isfinite(log_lags) & np.isfinite(log_rs)
+    if valid.sum() < 3:
+        return 0.5
+    log_lags, log_rs = log_lags[valid], log_rs[valid]
+    mean_x, mean_y = log_lags.mean(), log_rs.mean()
+    var_x = np.sum((log_lags - mean_x) ** 2)
+    H = np.sum((log_lags - mean_x) * (log_rs - mean_y)) / var_x if var_x > 1e-12 else 0.5
+    return np.clip(H, 0.01, 0.99)
+
+def rolling_hurst(series, window=90, step=5):
+    """
+    Rolling Hurst exponent. Computed every `step` points, forward-filled.
+    Used in: calculate_historical_mood → diagnostics output
+    """
+    values = np.asarray(series, dtype=np.float64)
+    n = len(values)
+    result = np.full(n, 0.5)
+    for i in range(window, n, step):
+        result[i] = _hurst_rs(values[i - window:i])
+    # Forward-fill stepped values
+    for i in range(1, n):
+        if result[i] == 0.5 and i > window and result[i - 1] != 0.5:
+            result[i] = result[i - 1]
+    return result
+
+def rolling_entropy(series, window=60, n_bins=15):
+    """
+    Rolling Shannon entropy of a series. Normalized to [0, 1].
+    Used in: calculate_historical_mood → diagnostics output
+    """
+    values = series.values if hasattr(series, 'values') else np.asarray(series)
+    n = len(values)
+    result = np.full(n, 0.5)
+    for i in range(window, n):
+        result[i] = shannon_entropy(values[i - window:i], n_bins)
+    for i in range(5, min(window, n)):
+        result[i] = shannon_entropy(values[:i], n_bins)
+    return result
+
+def mahalanobis_distance_batch(features, center, cov_matrix):
+    """
+    Mahalanobis distance: d_M = √((x−μ)ᵀ Σ⁻¹ (x−μ))
+    Accounts for correlations — two periods close in correlated dimensions
+    are less similar than Euclidean distance would suggest.
+    Used in: find_similar_periods
+    """
+    diff = features - center
+    reg = 1e-6 * np.eye(cov_matrix.shape[0])
+    try:
+        cov_inv = np.linalg.inv(cov_matrix + reg)
+    except np.linalg.LinAlgError:
+        cov_inv = np.linalg.pinv(cov_matrix + reg)
+    left = diff @ cov_inv
+    d_sq = np.maximum(np.sum(left * diff, axis=1), 0)
+    return np.sqrt(d_sq)
+
+def cosine_similarity(a, b):
+    """
+    Cosine similarity — measures trajectory shape match irrespective of magnitude.
+    Used in: find_similar_periods → trajectory matching
+    """
+    a, b = np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64)
+    norm_a, norm_b = np.linalg.norm(a), np.linalg.norm(b)
+    if norm_a < 1e-12 or norm_b < 1e-12:
+        return 0.0
+    return np.dot(a, b) / (norm_a * norm_b)
+
+# ══════════════════════════════════════════════════════════════════════════════
 # DATA LOADING
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -293,6 +619,20 @@ def load_data():
             raise ValueError("No valid rows with positive NIFTY or valid DATE.")
         
         df = df[EXPECTED_COLUMNS].sort_values('DATE').reset_index(drop=True)
+        
+        # v2.0: Derive yield curve term spreads
+        # 10Y−2Y is the single most validated macro signal — every US recession
+        # since 1960 was preceded by inversion. Same principle applies to India.
+        if 'IN10Y' in df.columns and 'IN02Y' in df.columns:
+            df['IN_TERM_SPREAD'] = df['IN10Y'] - df['IN02Y']
+        else:
+            df['IN_TERM_SPREAD'] = 0.0
+        
+        if 'US10Y' in df.columns and 'US02Y' in df.columns:
+            df['US_TERM_SPREAD'] = df['US10Y'] - df['US02Y']
+        else:
+            df['US_TERM_SPREAD'] = 0.0
+        
         logging.info(f"Data loaded in {time.time() - start_time:.2f} seconds.")
         return df
     except Exception as e:
@@ -306,7 +646,14 @@ def load_data():
 
 @st.cache_data
 def calculate_anchor_correlations(df, anchor, dependent_vars=None):
-    """Calculate correlations between anchor and dependent variables."""
+    """
+    Layer 1: Exponential-decay-weighted Spearman rank correlations.
+    
+    Half-life ~504 days (~2 trading years). This means:
+    - Data from 2 years ago has half the weight of today
+    - Data from 4 years ago has 1/4 the weight
+    - Very old regimes fade naturally without being discarded
+    """
     if dependent_vars is None:
         dependent_vars = DEPENDENT_VARS
     cols_to_check = [col for col in dependent_vars if col in df.columns]
@@ -315,122 +662,178 @@ def calculate_anchor_correlations(df, anchor, dependent_vars=None):
         return pd.DataFrame(columns=['variable', 'correlation', 'strength', 'type'])
     
     analysis_df = df[[anchor] + cols_to_check].select_dtypes(include=[np.number])
-    
     if anchor not in analysis_df.columns:
         return pd.DataFrame(columns=['variable', 'correlation', 'strength', 'type'])
-
-    corr_matrix = analysis_df.corr(method='pearson')
-    anchor_corrs = corr_matrix[anchor].drop(anchor, errors='ignore')
+    
+    anchor_vals = analysis_df[anchor].values
+    n = len(anchor_vals)
+    half_life = min(504, n // 2) if n > 20 else max(n // 2, 5)
+    weights = exponential_decay_weights(n, half_life)
     
     correlations = []
-    for var, corr in anchor_corrs.items():
-        if pd.isna(corr):
+    for var in cols_to_check:
+        if var == anchor or var not in analysis_df.columns:
+            continue
+        corr = weighted_spearman(anchor_vals, analysis_df[var].values, weights)
+        if not np.isfinite(corr):
             corr = 0.0
-            
-        strength = ('Strong' if abs(corr) >= 0.7 else 
-                   'Moderate' if abs(corr) >= 0.5 else 
-                   'Weak' if abs(corr) >= 0.3 else 'Very weak')
-        
+        abs_corr = abs(corr)
+        strength = ('Strong' if abs_corr >= 0.7 else
+                   'Moderate' if abs_corr >= 0.5 else
+                   'Weak' if abs_corr >= 0.3 else 'Very weak')
         correlations.append({
-            'variable': var,
-            'correlation': corr,
-            'strength': strength,
-            'type': 'positive' if corr > 0 else 'negative'
+            'variable': var, 'correlation': corr,
+            'strength': strength, 'type': 'positive' if corr > 0 else 'negative'
         })
     
     return pd.DataFrame(correlations)
 
 @st.cache_data
 def calculate_historical_mood(df, dependent_vars=None):
-    """Calculate historical mood scores."""
+    """
+    v2.0 Mood Score Engine — 5-layer architecture.
+    
+    Layer 1: Adaptive Correlations    (decay-weighted Spearman)
+    Layer 2: Information Weighting    (|corr| × entropy penalty)
+    Layer 3: Adaptive Percentiles     (decay-weighted ECDF)
+    Layer 4: OU Normalization         (physics-based scaling)
+    Layer 5: Kalman Smoothing         (adaptive noise filtering)
+    
+    Diagnostics (output-only, do NOT modify the score):
+      Hurst exponent, market entropy, OU half-life
+    """
     if dependent_vars is None:
         dependent_vars = DEPENDENT_VARS
     start_time = time.time()
+    
     if 'DATE' not in df.columns or 'NIFTY50_PE' not in df.columns or 'NIFTY50_EY' not in df.columns:
         logging.error("Required columns missing.")
         return pd.DataFrame(columns=['DATE', 'Mood_Score', 'Mood', 'Smoothed_Mood_Score', 'Mood_Volatility'])
     
+    n = len(df)
+    
+    # ── Layer 1: Adaptive Correlations ──────────────────────────────────
     pe_corrs = calculate_anchor_correlations(df, 'NIFTY50_PE', dependent_vars)
     ey_corrs = calculate_anchor_correlations(df, 'NIFTY50_EY', dependent_vars)
     
-    pe_weights = {row['variable']: abs(row['correlation']) for _, row in pe_corrs.iterrows()}
-    ey_weights = {row['variable']: abs(row['correlation']) for _, row in ey_corrs.iterrows()}
+    # ── Layer 2: Information-Theoretic Weighting ────────────────────────
+    # weight = |correlation| × (1 − normalized_entropy_of_variable)
+    # Entropy is computed ONCE per variable on its returns distribution.
+    # Low-entropy (structured) variables get amplified.
+    # High-entropy (noisy/random) variables get suppressed.
+    # This is the ONE place entropy belongs — in variable selection.
+    var_entropies = {}
+    for var in [col for col in dependent_vars if col in df.columns]:
+        var_returns = df[var].pct_change().dropna().values
+        var_entropies[var] = shannon_entropy(var_returns) if len(var_returns) > 10 else 0.5
     
-    pe_total_weight = max(sum(pe_weights.values()), 1e-10)
-    ey_total_weight = max(sum(ey_weights.values()), 1e-10)
+    def _build_weights(corr_df):
+        raw = {}
+        for _, row in corr_df.iterrows():
+            var = row['variable']
+            corr_mag = abs(row['correlation'])
+            entropy_penalty = 1.0 - var_entropies.get(var, 0.5)
+            raw[var] = corr_mag * max(entropy_penalty, 0.1)
+        total = max(sum(raw.values()), 1e-10)
+        return {k: v / total for k, v in raw.items()}
     
-    pe_weights = {k: v/pe_total_weight for k, v in pe_weights.items()}
-    ey_weights = {k: v/ey_total_weight for k, v in ey_weights.items()}
+    pe_weights = _build_weights(pe_corrs)
+    ey_weights = _build_weights(ey_corrs)
     
-    pe_percentiles = df['NIFTY50_PE'].expanding().rank(pct=True, method='max').values
-    ey_percentiles = df['NIFTY50_EY'].expanding().rank(pct=True, method='max').values
+    # ── Layer 3: Adaptive Percentiles ───────────────────────────────────
+    # Half-life = 252 trading days (1 year). Recent market structure
+    # matters more than ancient history for positioning.
+    pct_hl = min(252, n // 2) if n > 20 else max(n // 2, 5)
     
-    pe_base = -1 + 2 * (1 - pe_percentiles)
-    ey_base = -1 + 2 * ey_percentiles
+    pe_percentiles = adaptive_percentile(df['NIFTY50_PE'].values, half_life=pct_hl)
+    ey_percentiles = adaptive_percentile(df['NIFTY50_EY'].values, half_life=pct_hl)
     
-    pe_adjustments = np.zeros(len(df))
-    ey_adjustments = np.zeros(len(df))
+    pe_base = -1.0 + 2.0 * (1.0 - pe_percentiles)  # High PE = bearish
+    ey_base = -1.0 + 2.0 * ey_percentiles             # High EY = bullish
     
-    vars_to_process = [col for col in dependent_vars if col in df.columns]
+    pe_adjustments = np.zeros(n)
+    ey_adjustments = np.zeros(n)
     
-    for var in vars_to_process:
-        var_percentiles = df[var].expanding().rank(pct=True, method='max').values
+    for var in [col for col in dependent_vars if col in df.columns]:
+        var_pct = adaptive_percentile(df[var].values, half_life=pct_hl)
         
         if var in pe_weights:
-            pe_type = pe_corrs.loc[pe_corrs['variable'] == var, 'type'].iloc[0] if len(pe_corrs.loc[pe_corrs['variable'] == var]) > 0 else 'positive'
-            weight = pe_weights.get(var, 0)
-            if pe_type == 'positive':
-                pe_adjustments += weight * (1 - var_percentiles)
-            elif pe_type == 'negative':
-                pe_adjustments -= weight * (1 - var_percentiles)
+            pe_match = pe_corrs.loc[pe_corrs['variable'] == var]
+            pe_type = pe_match.iloc[0]['type'] if len(pe_match) > 0 else 'positive'
+            sign = 1.0 if pe_type == 'positive' else -1.0
+            pe_adjustments += sign * pe_weights[var] * (1.0 - var_pct)
         
         if var in ey_weights:
-            ey_type = ey_corrs.loc[ey_corrs['variable'] == var, 'type'].iloc[0] if len(ey_corrs.loc[ey_corrs['variable'] == var]) > 0 else 'positive'
-            weight = ey_weights.get(var, 0)
-            if ey_type == 'positive':
-                ey_adjustments += weight * var_percentiles
-            elif ey_type == 'negative':
-                ey_adjustments -= weight * var_percentiles
+            ey_match = ey_corrs.loc[ey_corrs['variable'] == var]
+            ey_type = ey_match.iloc[0]['type'] if len(ey_match) > 0 else 'positive'
+            sign = 1.0 if ey_type == 'positive' else -1.0
+            ey_adjustments += sign * ey_weights[var] * var_pct
     
-    pe_scores = 0.5 * pe_base + 0.5 * pe_adjustments
-    ey_scores = 0.5 * ey_base + 0.5 * ey_adjustments
-    pe_scores = np.clip(pe_scores, -1, 1)
-    ey_scores = np.clip(ey_scores, -1, 1)
+    pe_scores = np.clip(0.5 * pe_base + 0.5 * pe_adjustments, -1, 1)
+    ey_scores = np.clip(0.5 * ey_base + 0.5 * ey_adjustments, -1, 1)
     
-    pe_corr_strength = sum(abs(row['correlation']) for _, row in pe_corrs.iterrows())
-    ey_corr_strength = sum(abs(row['correlation']) for _, row in ey_corrs.iterrows())
-    total_strength = pe_corr_strength + ey_corr_strength or 1
-    pe_weight = pe_corr_strength / total_strength
-    ey_weight = ey_corr_strength / total_strength
+    pe_strength = sum(abs(r['correlation']) for _, r in pe_corrs.iterrows())
+    ey_strength = sum(abs(r['correlation']) for _, r in ey_corrs.iterrows())
+    total_strength = pe_strength + ey_strength or 1
+    raw_mood = (pe_strength / total_strength) * pe_scores + (ey_strength / total_strength) * ey_scores
     
-    raw_mood_scores = pe_weight * pe_scores + ey_weight * ey_scores
+    # ── Layer 4: OU Normalization ───────────────────────────────────────
+    # Instead of global z-score (adding 1 point shifts ALL history),
+    # model the mood as Ornstein-Uhlenbeck: dx = θ(μ-x)dt + σdW
+    # Normalize by the OU stationary std: σ_∞ = σ/√(2θ)
+    # This is LOCAL and has physical meaning: "distance from equilibrium in natural units"
     
-    mean_score = np.mean(raw_mood_scores)
-    std_score = np.std(raw_mood_scores) or 1
-    mood_scores = (raw_mood_scores - mean_score) / std_score * 30
-    mood_scores = np.clip(mood_scores, -100, 100)
+    # First: expanding z-score to get rough scale
+    expanding_mean = pd.Series(raw_mood).expanding().mean().values
+    expanding_std = np.maximum(pd.Series(raw_mood).expanding().std().fillna(1).values, 1e-6)
+    rough_scaled = (raw_mood - expanding_mean) / expanding_std
     
-    mood_series = pd.Series(mood_scores)
-    smoothed_mood_scores = mood_series.rolling(window=7, min_periods=1).mean()
-    mood_volatility = mood_series.rolling(window=30, min_periods=1).std().fillna(0)
+    # OU estimation on the rough-scaled series
+    theta, mu, sigma_ou = ornstein_uhlenbeck_estimate(rough_scaled) if n > 50 else (0.05, 0.0, 1.0)
+    sigma_ou = max(sigma_ou, 1e-6)
+    ou_stationary_std = max(sigma_ou / np.sqrt(2.0 * max(theta, 1e-4)), 1e-6)
     
-    # Classify mood using vectorized approach
+    mood_scores = np.clip((rough_scaled - mu) / ou_stationary_std * 30.0, -100, 100)
+    
+    # OU half-life: the expected time for the current deviation to halve
+    ou_half_life = np.log(2) / max(theta, 1e-4)
+    
+    # ── Layer 5: Kalman Smoothing ───────────────────────────────────────
+    smoothed_mood_scores, kalman_gains = kalman_filter_1d(mood_scores)
+    
+    # Traditional volatility (backward compatible)
+    mood_volatility = pd.Series(mood_scores).rolling(window=30, min_periods=1).std().fillna(0)
+    
+    # ── Classification (fixed thresholds — see VISION.md §6 for why) ───
     moods = np.where(mood_scores > 60, 'Very Bullish',
             np.where(mood_scores > 20, 'Bullish',
             np.where(mood_scores > -20, 'Neutral',
             np.where(mood_scores > -60, 'Bearish', 'Very Bearish'))))
     
+    # ── Diagnostics (output-only — do NOT modify scores) ───────────────
+    nifty_returns = df['NIFTY'].pct_change().fillna(0).values
+    hurst_vals = rolling_hurst(mood_scores, window=90, step=5)
+    entropy_vals = rolling_entropy(nifty_returns, window=60, n_bins=15)
+    
     result_df = pd.DataFrame({
         'DATE': df['DATE'].values,
         'Mood_Score': mood_scores,
         'Mood': moods,
-        'Smoothed_Mood_Score': smoothed_mood_scores.values,
+        'Smoothed_Mood_Score': smoothed_mood_scores,
         'Mood_Volatility': mood_volatility.values,
         'NIFTY': df['NIFTY'].values,
-        'AD_RATIO': df['AD_RATIO'].values if 'AD_RATIO' in df.columns else 1.0
+        'AD_RATIO': df['AD_RATIO'].values if 'AD_RATIO' in df.columns else 1.0,
+        # v2.0 diagnostics
+        'Hurst': hurst_vals,
+        'Market_Entropy': entropy_vals,
+        'OU_Half_Life': ou_half_life,  # Scalar, broadcast
+        'OU_Theta': theta,
+        'OU_Mu': mu,
     })
     
-    logging.info(f"Historical mood calculated in {time.time() - start_time:.2f} seconds.")
+    logging.info(f"v2.0 mood [{n} rows] in {time.time() - start_time:.2f}s | "
+                 f"θ={theta:.3f} μ={mu:.2f} t½={ou_half_life:.0f}d "
+                 f"H={hurst_vals[-1]:.2f} S={entropy_vals[-1]:.2f}")
     return result_df
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -440,8 +843,18 @@ def calculate_historical_mood(df, dependent_vars=None):
 @st.cache_data
 def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_col='AD_RATIO'):
     """
-    MSF-Enhanced Spread Indicator.
-    Combines momentum, structure, regime, and flow components.
+    v2.0 MSF-Enhanced Spread Indicator.
+    
+    4 components (same purpose as v1.x — momentum/structure alignment detection):
+      1. Momentum  — NIFTY ROC z-score (price velocity)
+      2. Structure — Mood trend divergence + acceleration (mood curvature)
+      3. Regime    — Adaptive-threshold directional count (market character)
+      4. Flow      — Breadth divergence from mean (participation width)
+    
+    v2.0 changes:
+      - Regime threshold adapts to local volatility (was: fixed 0.0033)
+      - Inverse-variance weighting (was: fixed 30/25/25/20)
+        Stable components get more weight — minimum-variance portfolio of signals.
     """
     start_time = time.time()
     
@@ -450,25 +863,26 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     clip = 3.0
     
     result = pd.DataFrame(index=df.index)
+    n = len(df)
     
-    mood = df[mood_col].values if mood_col in df.columns else np.zeros(len(df))
+    mood = df[mood_col].values if mood_col in df.columns else np.zeros(n)
     nifty = df[nifty_col].values if nifty_col in df.columns else mood
-    breadth = df[breadth_col].values if breadth_col in df.columns else np.ones(len(df))
+    breadth = df[breadth_col].values if breadth_col in df.columns else np.ones(n)
     
     mood_series = pd.Series(mood, index=df.index)
     nifty_series = pd.Series(nifty, index=df.index)
     breadth_series = pd.Series(breadth, index=df.index)
     
-    if len(mood) == 0:
+    if n == 0:
         logging.error("Empty data for MSF Spread calculation.")
         return result
     
-    # Component 1: Momentum (ROC z-score of NIFTY)
+    # ── Component 1: Momentum (NIFTY ROC z-score) ──────────────────────
     roc_raw = nifty_series.pct_change(roc_len, fill_method=None)
     roc_z = zscore_clipped(roc_raw, length, clip)
     momentum_norm = sigmoid(roc_z, 1.5)
     
-    # Component 2: Structure (Mood trend)
+    # ── Component 2: Structure (Mood trend divergence + acceleration) ──
     trend_fast = mood_series.rolling(5, min_periods=1).mean()
     trend_slow = mood_series.rolling(length, min_periods=1).mean()
     trend_diff_z = zscore_clipped(trend_fast - trend_slow, length, clip)
@@ -477,33 +891,48 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     structure_z = (trend_diff_z + mood_accel_z) / np.sqrt(2.0)
     structure_norm = sigmoid(structure_z, 1.5)
     
-    # Component 3: Regime Count
-    pct_change = nifty_series.pct_change(fill_method=None)
-    threshold = 0.0033
-    regime_signals = np.select(
-        [pct_change > threshold, pct_change < -threshold],
-        [1, -1],
-        default=0
-    )
+    # ── Component 3: Regime (Adaptive threshold) ────────────────────────
+    # v1.x: fixed 0.0033 threshold. v2.0: scales with local volatility.
+    # A move is "directional" only if it exceeds half a local std.
+    pct_change = nifty_series.pct_change(fill_method=None).fillna(0)
+    rolling_vol = pct_change.rolling(window=length, min_periods=5).std().fillna(0.003)
+    adaptive_threshold = (rolling_vol * 0.5).clip(lower=0.001)
+    
+    regime_signals = np.where(pct_change > adaptive_threshold, 1,
+                     np.where(pct_change < -adaptive_threshold, -1, 0))
     regime_count = pd.Series(regime_signals, index=df.index).cumsum()
     regime_raw = regime_count - regime_count.rolling(length, min_periods=1).mean()
     regime_z = zscore_clipped(regime_raw, length, clip)
     regime_norm = sigmoid(regime_z, 1.5)
     
-    # Component 4: Breadth Flow
+    # ── Component 4: Breadth Flow ───────────────────────────────────────
     breadth_ma = breadth_series.rolling(length, min_periods=1).mean()
     breadth_ratio = breadth_series / breadth_ma.replace(0, 1)
     breadth_z = zscore_clipped(breadth_ratio - 1, length, clip)
     flow_norm = sigmoid(breadth_z, 1.5)
     
-    # Combine: Momentum(30%) + Structure(25%) + Regime(25%) + Flow(20%)
-    msf_raw = (
-        0.30 * momentum_norm +
-        0.25 * structure_norm +
-        0.25 * regime_norm +
-        0.20 * flow_norm
-    )
+    # ── Inverse-Variance Weighting ──────────────────────────────────────
+    # Markowitz for signals: stable (low variance) components get more weight.
+    components = {
+        'momentum': momentum_norm,
+        'structure': structure_norm,
+        'regime': regime_norm,
+        'flow': flow_norm,
+    }
     
+    tail_window = min(60, n)
+    inv_vars = {}
+    for name, comp in components.items():
+        comp_vals = comp.values if hasattr(comp, 'values') else np.asarray(comp)
+        tail = comp_vals[-tail_window:]
+        tail_clean = tail[np.isfinite(tail)]
+        var = np.var(tail_clean) if len(tail_clean) > 5 else 1.0
+        inv_vars[name] = 1.0 / max(var, 1e-6)
+    
+    total_inv_var = sum(inv_vars.values())
+    weights = {k: v / total_inv_var for k, v in inv_vars.items()}
+    
+    msf_raw = sum(weights[name] * comp for name, comp in components.items())
     msf_spread = msf_raw * 10
     
     result['msf_spread'] = msf_spread
@@ -512,7 +941,8 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     result['regime'] = regime_norm * 10
     result['flow'] = flow_norm * 10
     
-    logging.info(f"MSF Spread calculated in {time.time() - start_time:.2f} seconds.")
+    weight_str = ', '.join(f"{k}={v:.0%}" for k, v in weights.items())
+    logging.info(f"v2.0 MSF in {time.time() - start_time:.2f}s [{weight_str}]")
     return result
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -521,33 +951,97 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
 
 @st.cache_data
 def find_similar_periods(df, top_n=10, recency_weight=0.1):
-    """Find historically similar market periods."""
+    """
+    v2.0 Similar Period Finder.
+    
+    3-part scoring:
+      1. Mahalanobis distance (55%) — covariance-aware state matching
+         Features: mood, volatility, NIFTY momentum, Hurst, entropy
+      2. Trajectory cosine similarity (35%) — detrended mood path shape
+      3. Exponential recency decay (10%) — prefer recent analogs
+    """
     if df.empty or 'Mood_Score' not in df.columns:
         return []
     
     latest = df.iloc[-1]
-    current_mood = latest['Mood_Score']
-    current_volatility = latest['Mood_Volatility']
+    n = len(df)
     
-    historical = df.iloc[:-30].copy() if len(df) > 30 else df.iloc[:-1].copy()
-    if historical.empty:
+    historical = df.iloc[:-30].copy() if n > 30 else df.iloc[:-1].copy()
+    if historical.empty or len(historical) < 5:
         return []
     
-    historical['mood_diff'] = abs(historical['Mood_Score'] - current_mood)
-    historical['vol_diff'] = abs(historical['Mood_Volatility'] - current_volatility)
+    # ── Build Feature Vectors ───────────────────────────────────────────
+    nifty_roc = df['NIFTY'].pct_change(14).fillna(0).values
     
-    max_mood_diff = historical['mood_diff'].max() or 1
-    max_vol_diff = historical['vol_diff'].max() or 1
+    feature_cols = ['Mood_Score', 'Mood_Volatility']
+    current_features = [latest['Mood_Score'], latest['Mood_Volatility']]
+    hist_arrays = [historical['Mood_Score'].values, historical['Mood_Volatility'].values]
     
-    historical['mood_sim'] = 1 - (historical['mood_diff'] / max_mood_diff)
-    historical['vol_sim'] = 1 - (historical['vol_diff'] / max_vol_diff)
+    # NIFTY momentum
+    feature_cols.append('NIFTY_ROC')
+    current_features.append(nifty_roc[-1] if len(nifty_roc) > 0 else 0.0)
+    h_roc = nifty_roc[:len(historical)]
+    if len(h_roc) < len(historical):
+        h_roc = np.pad(h_roc, (len(historical) - len(h_roc), 0), constant_values=0)
+    hist_arrays.append(h_roc[:len(historical)])
     
-    days_since = (latest['DATE'] - historical['DATE']).dt.days
-    max_days = days_since.max() or 1
-    historical['recency_bonus'] = recency_weight * (1 - days_since / max_days)
+    # Hurst (if available from v2.0 engine)
+    if 'Hurst' in df.columns:
+        feature_cols.append('Hurst')
+        current_features.append(latest['Hurst'])
+        hist_arrays.append(historical['Hurst'].values)
     
-    historical['similarity'] = 0.6 * historical['mood_sim'] + 0.3 * historical['vol_sim'] + historical['recency_bonus']
+    # Market Entropy (if available)
+    if 'Market_Entropy' in df.columns:
+        feature_cols.append('Market_Entropy')
+        current_features.append(latest['Market_Entropy'])
+        hist_arrays.append(historical['Market_Entropy'].values)
     
+    current_vec = np.array(current_features, dtype=np.float64)
+    hist_matrix = np.column_stack(hist_arrays)
+    
+    # Clean NaN/Inf → column medians
+    for col in range(hist_matrix.shape[1]):
+        col_data = hist_matrix[:, col]
+        valid = np.isfinite(col_data)
+        median_val = np.median(col_data[valid]) if valid.any() else 0.0
+        hist_matrix[~valid, col] = median_val
+    current_vec = np.where(np.isfinite(current_vec), current_vec, 0.0)
+    
+    # ── Part 1: Mahalanobis Distance (55%) ──────────────────────────────
+    cov_matrix = np.cov(hist_matrix, rowvar=False)
+    if cov_matrix.ndim < 2:
+        cov_matrix = np.array([[max(float(cov_matrix), 1e-6)]])
+    
+    maha_dist = mahalanobis_distance_batch(hist_matrix, current_vec, cov_matrix)
+    max_dist = maha_dist.max() if maha_dist.max() > 0 else 1.0
+    maha_sim = 1.0 - (maha_dist / max_dist)
+    
+    # ── Part 2: Trajectory Cosine Similarity (35%) ──────────────────────
+    traj_window = 20
+    traj_sim = np.zeros(len(historical))
+    
+    if n > traj_window:
+        current_traj = df['Mood_Score'].values[-traj_window:]
+        ct_detrended = current_traj - np.linspace(current_traj[0], current_traj[-1], traj_window)
+        
+        for j, idx in enumerate(historical.index):
+            pos = df.index.get_loc(idx)
+            if pos >= traj_window:
+                hist_traj = df['Mood_Score'].values[pos - traj_window:pos]
+                ht_detrended = hist_traj - np.linspace(hist_traj[0], hist_traj[-1], traj_window)
+                traj_sim[j] = (cosine_similarity(ct_detrended, ht_detrended) + 1) / 2
+    
+    # ── Part 3: Exponential Recency Decay (10%) ─────────────────────────
+    days_since = (latest['DATE'] - historical['DATE']).dt.days.values.astype(float)
+    recency = np.exp(-np.log(2) * days_since / 365.0) * recency_weight
+    recency_norm = recency / max(recency.max(), 1e-6)
+    
+    # ── Combined ────────────────────────────────────────────────────────
+    combined = 0.55 * maha_sim + 0.35 * traj_sim + 0.10 * recency_norm
+    
+    historical = historical.copy()
+    historical['similarity'] = combined
     top_similar = historical.nlargest(top_n, 'similarity')
     
     results = []
@@ -607,12 +1101,11 @@ def main():
             )
             if not selected_predictors:
                 st.warning("⚠️ Select at least one predictor column.")
-                selected_predictors = DEPENDENT_VARS  # fallback to defaults
+                selected_predictors = DEPENDENT_VARS
             
             if set(selected_predictors) != set(DEPENDENT_VARS):
                 st.info(f"Using {len(selected_predictors)}/{len(DEPENDENT_VARS)} predictors")
         
-        # Store in session state for downstream use
         st.session_state['selected_predictors'] = tuple(selected_predictors)
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -620,7 +1113,7 @@ def main():
         <div class='info-box'>
             <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
                 <strong>Version:</strong> {VERSION}<br>
-                <strong>Engine:</strong> Mood + MSF<br>
+                <strong>Engine:</strong> OU · Kalman · Spearman<br>
                 <strong>Data:</strong> {COMPANY}
             </p>
         </div>
@@ -632,7 +1125,7 @@ def main():
     st.markdown(f"""
         <div class="premium-header">
             <h1>ARTHAGATI : Market Sentiment Analysis</h1>
-            <div class="tagline">Quantitative Market Mood & MSF-Enhanced Indicators</div>
+            <div class="tagline">Ornstein-Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
         </div>
     """, unsafe_allow_html=True)
     
