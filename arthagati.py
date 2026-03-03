@@ -620,9 +620,22 @@ def load_data():
         
         df = df[EXPECTED_COLUMNS].sort_values('DATE').reset_index(drop=True)
         
-        # v2.0: Derive yield curve term spreads
-        # 10Y−2Y is the single most validated macro signal — every US recession
-        # since 1960 was preceded by inversion. Same principle applies to India.
+        # v2.0: Ensure NIFTY50_EY has real data.
+        # EY (Earnings Yield) = 1/PE × 100. If the sheet has PE but EY is
+        # missing or constant (all zeros), derive it. This is the most common
+        # cause of "empty EY correlations" — the sheet simply doesn't populate it.
+        if 'NIFTY50_PE' in df.columns and df['NIFTY50_PE'].gt(0).any():
+            if 'NIFTY50_EY' not in df.columns or df['NIFTY50_EY'].nunique() <= 1:
+                df['NIFTY50_EY'] = (1.0 / df['NIFTY50_PE'].replace(0, np.nan) * 100).fillna(0)
+                logging.info("Derived NIFTY50_EY from NIFTY50_PE (1/PE × 100).")
+        
+        # v2.0: Derive yield curve term spreads.
+        # Formula: Term Spread = 10-Year Bond Yield − 2-Year Bond Yield
+        # IN_TERM_SPREAD = IN10Y − IN02Y  (India yield curve slope)
+        # US_TERM_SPREAD = US10Y − US02Y  (US yield curve slope)
+        # Positive = normal curve (expansion), Negative = inverted (recession signal).
+        # The 10Y−2Y spread is the single most validated macro predictor:
+        # every US recession since 1960 was preceded by inversion.
         if 'IN10Y' in df.columns and 'IN02Y' in df.columns:
             df['IN_TERM_SPREAD'] = df['IN10Y'] - df['IN02Y']
         else:
@@ -1090,23 +1103,59 @@ def main():
         
         # ── Model Configuration ──
         st.markdown('<div class="sidebar-title">🧠 Model Configuration</div>', unsafe_allow_html=True)
+        
+        # Initialize active predictors on first run
+        if 'active_predictors' not in st.session_state:
+            st.session_state['active_predictors'] = tuple(DEPENDENT_VARS)
+        
         with st.expander("Predictor Columns", expanded=False):
-            st.caption("Select which columns feed into the Mood Score model. Defaults are pre-selected.")
-            selected_predictors = st.multiselect(
+            st.caption("Select predictors, then click Apply to recompute.")
+            
+            # Staging multiselect — user plays with this freely, no recompute
+            staging_predictors = st.multiselect(
                 "Predictor Columns",
                 options=DEPENDENT_VARS,
-                default=DEPENDENT_VARS,
+                default=list(st.session_state['active_predictors']),
                 label_visibility="collapsed",
                 help="These columns are used as dependent variables for PE & EY correlation-weighted mood scoring."
             )
-            if not selected_predictors:
-                st.warning("⚠️ Select at least one predictor column.")
-                selected_predictors = DEPENDENT_VARS
             
-            if set(selected_predictors) != set(DEPENDENT_VARS):
-                st.info(f"Using {len(selected_predictors)}/{len(DEPENDENT_VARS)} predictors")
-        
-        st.session_state['selected_predictors'] = tuple(selected_predictors)
+            if not staging_predictors:
+                st.warning("⚠️ Select at least one predictor.")
+                staging_predictors = list(st.session_state['active_predictors'])
+            
+            # Show diff between staging and active
+            staging_set = set(staging_predictors)
+            active_set = set(st.session_state['active_predictors'])
+            has_changes = staging_set != active_set
+            
+            if has_changes:
+                added = staging_set - active_set
+                removed = active_set - staging_set
+                changes = []
+                if added:
+                    changes.append(f"+{len(added)} added")
+                if removed:
+                    changes.append(f"−{len(removed)} removed")
+                st.caption(f"Pending: {', '.join(changes)}")
+            
+            # Apply button — only this triggers recomputation
+            apply_clicked = st.button(
+                "✅ Apply Configuration" if has_changes else "No changes",
+                use_container_width=True,
+                disabled=not has_changes,
+                type="primary" if has_changes else "secondary"
+            )
+            
+            if apply_clicked and has_changes:
+                st.session_state['active_predictors'] = tuple(staging_predictors)
+                st.cache_data.clear()
+                st.rerun()
+            
+            active_count = len(st.session_state['active_predictors'])
+            total_count = len(DEPENDENT_VARS)
+            if active_count != total_count:
+                st.info(f"Active: {active_count}/{total_count} predictors")
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown(f"""
@@ -1142,7 +1191,7 @@ def main():
         st.stop()
     
     with st.spinner("Calculating mood scores..."):
-        selected_preds = st.session_state.get('selected_predictors', tuple(DEPENDENT_VARS))
+        selected_preds = st.session_state.get('active_predictors', tuple(DEPENDENT_VARS))
         mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
     
     if mood_df.empty:
@@ -1621,54 +1670,193 @@ def render_similar_periods(mood_df):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_correlation_analysis(raw_df):
-    """Render correlation analysis between variables."""
+    """Render correlation analysis with data diagnostics and predictor recommendations."""
+    
+    active_preds = st.session_state.get('active_predictors', tuple(DEPENDENT_VARS))
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0;">📋 Correlation Analysis</h3>
-            <p style="color: #888888; font-size: 0.85rem; margin: 0;">Variable relationships with PE and Earnings Yield anchors</p>
+            <h3 style="color: #FFC300; margin: 0;">📋 Correlation & Predictor Analysis</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
         </div>
     """, unsafe_allow_html=True)
     
+    # ── Data Quality Check ──────────────────────────────────────────────
+    # Detect anchors with insufficient variance (root cause of "empty" correlations)
+    anchors = {'NIFTY50_PE': 'PE Ratio', 'NIFTY50_EY': 'Earnings Yield'}
+    anchor_health = {}
+    for col, label in anchors.items():
+        if col in raw_df.columns:
+            nunique = raw_df[col].nunique()
+            has_variance = nunique > 3 and raw_df[col].std() > 1e-6
+            anchor_health[col] = {'label': label, 'ok': has_variance, 'nunique': nunique}
+        else:
+            anchor_health[col] = {'label': label, 'ok': False, 'nunique': 0}
+    
+    # Show diagnostic if any anchor is unhealthy
+    bad_anchors = [v['label'] for v in anchor_health.values() if not v['ok']]
+    if bad_anchors:
+        st.markdown(f"""
+        <div class="info-box" style="border-left: 4px solid #ef4444;">
+            <h4 style="color: #ef4444;">⚠️ Data Quality Issue</h4>
+            <p><b>{', '.join(bad_anchors)}</b> has insufficient variance in the source data.
+            If Earnings Yield is empty in the sheet, it is auto-derived from PE (1/PE × 100).
+            Check that your Google Sheet has valid data for these columns.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # ── Correlation Bars ────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     
-    with col1:
-        st.markdown("#### PE Ratio Correlations")
-        pe_corrs = calculate_anchor_correlations(raw_df, 'NIFTY50_PE', st.session_state.get('selected_predictors', tuple(DEPENDENT_VARS)))
-        if not pe_corrs.empty:
-            pe_corrs_display = pe_corrs.sort_values('correlation', key=abs, ascending=False)
-            for _, row in pe_corrs_display.iterrows():
+    def _render_corr_bars(parent_col, anchor_col, title):
+        with parent_col:
+            st.markdown(f"#### {title}")
+            if not anchor_health.get(anchor_col, {}).get('ok', False):
+                st.caption(f"⚠️ {anchor_col} has insufficient data variance — correlations may be unreliable.")
+            
+            corrs = calculate_anchor_correlations(raw_df, anchor_col, active_preds)
+            if corrs.empty:
+                st.caption("No correlations computed. Check data source.")
+                return corrs
+            
+            corrs_display = corrs.sort_values('correlation', key=abs, ascending=False)
+            for _, row in corrs_display.iterrows():
                 corr_val = row['correlation']
                 color = '#10b981' if corr_val > 0 else '#ef4444'
                 bar_width = abs(corr_val) * 100
+                strength_dot = '🟢' if abs(corr_val) >= 0.5 else '🟡' if abs(corr_val) >= 0.3 else '⚪'
                 st.markdown(f"""
                 <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: #1A1A1A; border-radius: 8px;">
-                    <span style="width: 120px; font-size: 0.8rem; color: #EAEAEA;">{row['variable']}</span>
+                    <span style="width: 14px; font-size: 0.6rem;">{strength_dot}</span>
+                    <span style="width: 130px; font-size: 0.8rem; color: #EAEAEA;">{row['variable']}</span>
                     <div style="flex: 1; height: 8px; background: #2A2A2A; border-radius: 4px; margin: 0 10px;">
                         <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 4px;"></div>
                     </div>
-                    <span style="width: 60px; text-align: right; font-size: 0.8rem; color: {color};">{corr_val:.2f}</span>
+                    <span style="width: 60px; text-align: right; font-size: 0.8rem; color: {color}; font-weight: 600;">{corr_val:+.2f}</span>
                 </div>
                 """, unsafe_allow_html=True)
+            return corrs
     
-    with col2:
-        st.markdown("#### Earnings Yield Correlations")
-        ey_corrs = calculate_anchor_correlations(raw_df, 'NIFTY50_EY', st.session_state.get('selected_predictors', tuple(DEPENDENT_VARS)))
+    pe_corrs = _render_corr_bars(col1, 'NIFTY50_PE', 'PE Ratio Correlations')
+    ey_corrs = _render_corr_bars(col2, 'NIFTY50_EY', 'Earnings Yield Correlations')
+    
+    # ── Predictor Recommendations ───────────────────────────────────────
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    st.markdown("""
+        <div style="margin-bottom: 1rem;">
+            <h3 style="color: #FFC300; margin: 0;">🎯 Predictor Quality Assessment</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">
+                Each predictor scored by: correlation strength × information quality (1 − entropy).
+                High-entropy (noisy) variables are penalized. This is how the mood engine weights them internally.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Build quality scores for all predictors
+    all_vars = [col for col in DEPENDENT_VARS if col in raw_df.columns]
+    
+    quality_rows = []
+    for var in all_vars:
+        # PE correlation
+        pe_corr = 0.0
+        if not pe_corrs.empty:
+            pe_match = pe_corrs.loc[pe_corrs['variable'] == var]
+            if len(pe_match) > 0:
+                pe_corr = abs(pe_match.iloc[0]['correlation'])
+        
+        # EY correlation
+        ey_corr = 0.0
         if not ey_corrs.empty:
-            ey_corrs_display = ey_corrs.sort_values('correlation', key=abs, ascending=False)
-            for _, row in ey_corrs_display.iterrows():
-                corr_val = row['correlation']
-                color = '#10b981' if corr_val > 0 else '#ef4444'
-                bar_width = abs(corr_val) * 100
-                st.markdown(f"""
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: #1A1A1A; border-radius: 8px;">
-                    <span style="width: 120px; font-size: 0.8rem; color: #EAEAEA;">{row['variable']}</span>
-                    <div style="flex: 1; height: 8px; background: #2A2A2A; border-radius: 4px; margin: 0 10px;">
-                        <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 4px;"></div>
-                    </div>
-                    <span style="width: 60px; text-align: right; font-size: 0.8rem; color: {color};">{corr_val:.2f}</span>
+            ey_match = ey_corrs.loc[ey_corrs['variable'] == var]
+            if len(ey_match) > 0:
+                ey_corr = abs(ey_match.iloc[0]['correlation'])
+        
+        avg_corr = (pe_corr + ey_corr) / 2
+        
+        # Entropy of variable's returns
+        var_returns = raw_df[var].pct_change().dropna().values
+        entropy = shannon_entropy(var_returns) if len(var_returns) > 10 else 0.5
+        
+        # Quality score: same formula the engine uses for weighting
+        info_quality = 1.0 - entropy
+        quality_score = avg_corr * max(info_quality, 0.1)
+        
+        # Data coverage
+        non_zero_pct = (raw_df[var] != 0).mean() * 100
+        
+        is_active = var in active_preds
+        
+        quality_rows.append({
+            'variable': var,
+            'pe_corr': pe_corr,
+            'ey_corr': ey_corr,
+            'avg_corr': avg_corr,
+            'entropy': entropy,
+            'quality': quality_score,
+            'coverage': non_zero_pct,
+            'active': is_active
+        })
+    
+    # Sort by quality score descending
+    quality_rows.sort(key=lambda x: x['quality'], reverse=True)
+    
+    if quality_rows:
+        max_quality = max(r['quality'] for r in quality_rows) or 1.0
+        
+        # Render as ranked cards
+        for rank, row in enumerate(quality_rows, 1):
+            bar_pct = (row['quality'] / max_quality) * 100
+            
+            # Recommendation logic
+            if row['quality'] >= max_quality * 0.5 and row['coverage'] > 50:
+                rec = '✅ KEEP'
+                rec_color = '#10b981'
+            elif row['quality'] >= max_quality * 0.2 and row['coverage'] > 30:
+                rec = '🟡 USEFUL'
+                rec_color = '#f59e0b'
+            elif row['coverage'] < 10:
+                rec = '❌ NO DATA'
+                rec_color = '#ef4444'
+            else:
+                rec = '⚪ WEAK'
+                rec_color = '#888888'
+            
+            active_badge = '● Active' if row['active'] else '○ Inactive'
+            active_color = '#FFC300' if row['active'] else '#555555'
+            
+            st.markdown(f"""
+            <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.75rem; background: #1A1A1A; border-radius: 8px; border: 1px solid {'#2A2A2A' if row['active'] else '#1A1A1A'};">
+                <span style="width: 24px; font-size: 0.75rem; color: #555; font-weight: 700;">{rank}</span>
+                <span style="width: 140px; font-size: 0.8rem; color: #EAEAEA; font-weight: 600;">{row['variable']}</span>
+                <div style="flex: 1; height: 6px; background: #2A2A2A; border-radius: 3px; margin: 0 12px;">
+                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, #FFC300, #f59e0b); border-radius: 3px;"></div>
                 </div>
-                """, unsafe_allow_html=True)
+                <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">|ρ| {row['avg_corr']:.2f}</span>
+                <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">H {row['entropy']:.2f}</span>
+                <span style="width: 55px; font-size: 0.7rem; color: {rec_color}; font-weight: 700; text-align: center;">{rec}</span>
+                <span style="width: 65px; font-size: 0.65rem; color: {active_color}; text-align: right;">{active_badge}</span>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Summary recommendation
+        keep_count = sum(1 for r in quality_rows if r['quality'] >= max_quality * 0.5 and r['coverage'] > 50)
+        useful_count = sum(1 for r in quality_rows if max_quality * 0.2 <= r['quality'] < max_quality * 0.5 and r['coverage'] > 30)
+        weak_count = len(quality_rows) - keep_count - useful_count
+        
+        st.markdown(f"""
+        <div class="info-box" style="margin-top: 1rem;">
+            <h4>Recommendation Summary</h4>
+            <p>
+                <b style="color: #10b981;">✅ {keep_count} strong</b> predictors (high correlation × low entropy) ·
+                <b style="color: #f59e0b;">🟡 {useful_count} useful</b> (moderate signal) ·
+                <b style="color: #888;">⚪ {weak_count} weak</b> (low signal or noisy)<br>
+                <span style="font-size: 0.8rem; color: #666;">
+                    |ρ| = average |correlation| with PE & EY anchors · H = Shannon entropy of returns (lower = more structured) ·
+                    Quality = |ρ| × (1−H) — same formula the mood engine uses internally for weighting.
+                </span>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RUN APPLICATION
