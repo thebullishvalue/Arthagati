@@ -305,9 +305,11 @@ def load_data():
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data
-def calculate_anchor_correlations(df, anchor):
+def calculate_anchor_correlations(df, anchor, dependent_vars=None):
     """Calculate correlations between anchor and dependent variables."""
-    cols_to_check = [col for col in DEPENDENT_VARS if col in df.columns]
+    if dependent_vars is None:
+        dependent_vars = DEPENDENT_VARS
+    cols_to_check = [col for col in dependent_vars if col in df.columns]
     
     if anchor not in df.columns or not cols_to_check:
         return pd.DataFrame(columns=['variable', 'correlation', 'strength', 'type'])
@@ -339,15 +341,17 @@ def calculate_anchor_correlations(df, anchor):
     return pd.DataFrame(correlations)
 
 @st.cache_data
-def calculate_historical_mood(df):
+def calculate_historical_mood(df, dependent_vars=None):
     """Calculate historical mood scores."""
+    if dependent_vars is None:
+        dependent_vars = DEPENDENT_VARS
     start_time = time.time()
     if 'DATE' not in df.columns or 'NIFTY50_PE' not in df.columns or 'NIFTY50_EY' not in df.columns:
         logging.error("Required columns missing.")
         return pd.DataFrame(columns=['DATE', 'Mood_Score', 'Mood', 'Smoothed_Mood_Score', 'Mood_Volatility'])
     
-    pe_corrs = calculate_anchor_correlations(df, 'NIFTY50_PE')
-    ey_corrs = calculate_anchor_correlations(df, 'NIFTY50_EY')
+    pe_corrs = calculate_anchor_correlations(df, 'NIFTY50_PE', dependent_vars)
+    ey_corrs = calculate_anchor_correlations(df, 'NIFTY50_EY', dependent_vars)
     
     pe_weights = {row['variable']: abs(row['correlation']) for _, row in pe_corrs.iterrows()}
     ey_weights = {row['variable']: abs(row['correlation']) for _, row in ey_corrs.iterrows()}
@@ -367,7 +371,7 @@ def calculate_historical_mood(df):
     pe_adjustments = np.zeros(len(df))
     ey_adjustments = np.zeros(len(df))
     
-    vars_to_process = [col for col in DEPENDENT_VARS if col in df.columns]
+    vars_to_process = [col for col in dependent_vars if col in df.columns]
     
     for var in vars_to_process:
         var_percentiles = df[var].expanding().rank(pct=True, method='max').values
@@ -589,6 +593,29 @@ def main():
             st.rerun()
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        
+        # ── Model Configuration ──
+        st.markdown('<div class="sidebar-title">🧠 Model Configuration</div>', unsafe_allow_html=True)
+        with st.expander("Predictor Columns", expanded=False):
+            st.caption("Select which columns feed into the Mood Score model. Defaults are pre-selected.")
+            selected_predictors = st.multiselect(
+                "Predictor Columns",
+                options=DEPENDENT_VARS,
+                default=DEPENDENT_VARS,
+                label_visibility="collapsed",
+                help="These columns are used as dependent variables for PE & EY correlation-weighted mood scoring."
+            )
+            if not selected_predictors:
+                st.warning("⚠️ Select at least one predictor column.")
+                selected_predictors = DEPENDENT_VARS  # fallback to defaults
+            
+            if set(selected_predictors) != set(DEPENDENT_VARS):
+                st.info(f"Using {len(selected_predictors)}/{len(DEPENDENT_VARS)} predictors")
+        
+        # Store in session state for downstream use
+        st.session_state['selected_predictors'] = tuple(selected_predictors)
+        
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown(f"""
         <div class='info-box'>
             <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
@@ -622,7 +649,8 @@ def main():
         st.stop()
     
     with st.spinner("Calculating mood scores..."):
-        mood_df = calculate_historical_mood(raw_df)
+        selected_preds = st.session_state.get('selected_predictors', tuple(DEPENDENT_VARS))
+        mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
     
     if mood_df.empty:
         st.error("Failed to calculate mood scores.")
@@ -1113,7 +1141,7 @@ def render_correlation_analysis(raw_df):
     
     with col1:
         st.markdown("#### PE Ratio Correlations")
-        pe_corrs = calculate_anchor_correlations(raw_df, 'NIFTY50_PE')
+        pe_corrs = calculate_anchor_correlations(raw_df, 'NIFTY50_PE', st.session_state.get('selected_predictors', tuple(DEPENDENT_VARS)))
         if not pe_corrs.empty:
             pe_corrs_display = pe_corrs.sort_values('correlation', key=abs, ascending=False)
             for _, row in pe_corrs_display.iterrows():
@@ -1132,7 +1160,7 @@ def render_correlation_analysis(raw_df):
     
     with col2:
         st.markdown("#### Earnings Yield Correlations")
-        ey_corrs = calculate_anchor_correlations(raw_df, 'NIFTY50_EY')
+        ey_corrs = calculate_anchor_correlations(raw_df, 'NIFTY50_EY', st.session_state.get('selected_predictors', tuple(DEPENDENT_VARS)))
         if not ey_corrs.empty:
             ey_corrs_display = ey_corrs.sort_values('correlation', key=abs, ascending=False)
             for _, row in ey_corrs_display.iterrows():
