@@ -156,6 +156,57 @@ All functions are **pure numpy** — zero additional dependencies beyond the bas
 
 ---
 
+## v2.1 Features
+
+### OU Forward Projection
+
+The chart now shows a **dotted line** extending 90 days beyond the current data point. This is the Ornstein-Uhlenbeck expected reversion path:
+
+```
+E[mood(t+n)] = μ + (mood_current − μ) · exp(−θ·n)
+```
+
+The projection shows where the mood score is mathematically expected to converge. The `EQ` label marks the equilibrium level with the OU half-life in days.
+
+### Kalman Confidence Bands
+
+A translucent band surrounds the mood score line showing ±1.96 standard deviations of the Kalman filter's estimate variance (~95% confidence interval). When the band is **tight**, the reading is confident. When it's **wide**, the system is uncertain. A mood score of +40 with tight bands means something very different from +40 with wide bands.
+
+### Data Staleness Warning
+
+If the most recent data point is more than 3 days old (accounting for weekends), a red banner appears warning that scores reflect stale data and the Google Sheet needs updating.
+
+### MSF Component Decomposition
+
+Below the period summary, a breakdown shows each MSF component's current contribution and period average:
+- **Momentum** — NIFTY rate-of-change z-score
+- **Structure** — Mood trend divergence + acceleration
+- **Regime** — Adaptive-threshold directional count
+- **Flow** — Breadth participation divergence
+
+### Forward Returns in Similar Periods
+
+Each similar period card now shows what happened to NIFTY 30, 60, and 90 days later. Aggregate summary cards show median returns and win rates across all analogs.
+
+### Backtest Scatter Plot
+
+The Similar Periods tab includes a scatter plot of mood score at time T vs NIFTY return at T+30 days for all historical data. Shows the linear correlation (ρ) with a regression line and interpretation text.
+
+### Regime Transition Detection
+
+Uses Hurst exponent × entropy to classify the market into 4 regimes:
+
+| Regime | Hurst | Entropy | Trading Implication |
+|--------|-------|---------|-------------------|
+| Trending | > 0.5 | Low | Momentum strategies work |
+| Volatile Trend | > 0.5 | High | Directional with large swings |
+| Mean-Reverting | < 0.5 | Low | Contrarian/range strategies work |
+| Choppy | < 0.5 | High | Hardest to trade — reduce size |
+
+Regime transitions are marked as vertical dotted lines on the mood chart. The current regime is displayed as a diagnostic card in the top metrics row.
+
+---
+
 ## Requirements
 
 ```
@@ -188,6 +239,7 @@ pytz
 |---------|---------|
 | v1.2.0 | Original release: Pearson correlations, expanding percentiles, fixed MSF weights |
 | v2.0.0 | Decay-Spearman correlations, adaptive percentiles, OU normalization, Kalman smoothing, inverse-variance MSF, Mahalanobis similarity, predictor quality assessment, apply-button config, EY auto-derivation, yield term spreads |
+| v2.1.0 | OU forward projection (90d dotted line), Kalman confidence bands (±1.96σ), data staleness warning, MSF component decomposition, forward returns in similar periods (30/60/90d NIFTY), backtest scatter (mood vs +30d return), regime transition detection (Hurst×Entropy quadrant model), diagnostic cards row |
 
 ---
 

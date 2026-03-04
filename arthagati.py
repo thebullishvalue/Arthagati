@@ -32,7 +32,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-VERSION = "v2.0.0"
+VERSION = "v2.1.0"
 PRODUCT_NAME = "Arthagati"
 COMPANY = "Hemrek Capital"
 
@@ -452,12 +452,12 @@ def kalman_filter_1d(observations, process_var=None, measurement_var=None):
     Auto-estimates noise parameters from data if not provided.
     
     Used in: calculate_historical_mood (Layer 5)
-    Returns: (filtered_state, kalman_gains)
+    Returns: (filtered_state, kalman_gains, estimate_variances)
     """
     obs = np.asarray(observations, dtype=np.float64)
     n = len(obs)
     if n == 0:
-        return np.array([]), np.array([])
+        return np.array([]), np.array([]), np.array([])
     
     if process_var is None:
         diffs = np.diff(obs[np.isfinite(obs)])
@@ -470,7 +470,9 @@ def kalman_filter_1d(observations, process_var=None, measurement_var=None):
     estimate_var = measurement_var
     filtered = np.zeros(n)
     gains = np.zeros(n)
+    variances = np.zeros(n)
     filtered[0] = state
+    variances[0] = estimate_var
     
     for i in range(1, n):
         pred_var = estimate_var + process_var
@@ -482,8 +484,9 @@ def kalman_filter_1d(observations, process_var=None, measurement_var=None):
         else:
             estimate_var = pred_var
         filtered[i] = state
+        variances[i] = estimate_var
     
-    return filtered, gains
+    return filtered, gains, variances
 
 def _hurst_rs(series, max_lag=None):
     """
@@ -587,6 +590,82 @@ def cosine_similarity(a, b):
     if norm_a < 1e-12 or norm_b < 1e-12:
         return 0.0
     return np.dot(a, b) / (norm_a * norm_b)
+
+def detect_regime_transitions(hurst_values, entropy_values, window=10):
+    """
+    Detect regime transitions using Hurst exponent + entropy jointly.
+    
+    The idea: market operates in one of 4 quadrants:
+      High H, Low S  → Trending/Ordered   (momentum works, strong directional move)
+      High H, High S → Trending/Disordered (volatile trend, large swings in one direction)
+      Low H, Low S   → Mean-reverting/Ordered (range-bound, predictable oscillation)
+      Low H, High S  → Mean-reverting/Disordered (choppy chaos, hardest to trade)
+    
+    A regime TRANSITION is when the market crosses quadrant boundaries.
+    Specifically, the most important transitions are:
+      Trending→Choppy : H drops below 0.5 while S rises → trend exhaustion
+      Choppy→Trending : H rises above 0.5 while S drops → new trend emerging
+    
+    We smooth both signals and detect crossover events.
+    
+    Returns: array of regime labels + transition indices
+    """
+    h = np.asarray(hurst_values, dtype=np.float64)
+    s = np.asarray(entropy_values, dtype=np.float64)
+    n = len(h)
+    
+    if n < window * 2:
+        return np.full(n, 'Unknown', dtype=object), []
+    
+    # Smooth both signals to avoid noise-triggered transitions
+    h_smooth = pd.Series(h).rolling(window=window, min_periods=1).mean().values
+    s_smooth = pd.Series(s).rolling(window=window, min_periods=1).mean().values
+    
+    # Median thresholds (adaptive to the data, not hardcoded)
+    h_threshold = 0.5   # Theoretical random walk boundary
+    s_median = np.median(s_smooth[s_smooth > 0]) if np.any(s_smooth > 0) else 0.5
+    
+    # Classify each point into regime quadrant
+    regimes = np.full(n, 'Unknown', dtype=object)
+    for i in range(n):
+        trending = h_smooth[i] > h_threshold
+        ordered = s_smooth[i] < s_median
+        
+        if trending and ordered:
+            regimes[i] = 'Trending'         # Best for momentum
+        elif trending and not ordered:
+            regimes[i] = 'Volatile Trend'   # Momentum with risk
+        elif not trending and ordered:
+            regimes[i] = 'Mean-Reverting'   # Best for contrarian
+        else:
+            regimes[i] = 'Choppy'           # Hardest to trade
+    
+    # Detect transition points (regime[i] != regime[i-1])
+    transitions = []
+    for i in range(1, n):
+        if regimes[i] != regimes[i - 1]:
+            prev = regimes[i - 1]
+            curr = regimes[i]
+            
+            # Classify transition significance
+            # Major: Trending↔Choppy (complete character flip)
+            # Minor: adjacent quadrant shifts
+            major_pairs = {
+                ('Trending', 'Choppy'), ('Choppy', 'Trending'),
+                ('Trending', 'Mean-Reverting'), ('Mean-Reverting', 'Trending'),
+            }
+            is_major = (prev, curr) in major_pairs
+            
+            transitions.append({
+                'index': i,
+                'from': prev,
+                'to': curr,
+                'major': is_major,
+                'hurst': h_smooth[i],
+                'entropy': s_smooth[i],
+            })
+    
+    return regimes, transitions
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA LOADING
@@ -812,7 +891,12 @@ def calculate_historical_mood(df, dependent_vars=None):
     ou_half_life = np.log(2) / max(theta, 1e-4)
     
     # ── Layer 5: Kalman Smoothing ───────────────────────────────────────
-    smoothed_mood_scores, kalman_gains = kalman_filter_1d(mood_scores)
+    smoothed_mood_scores, kalman_gains, kalman_variances = kalman_filter_1d(mood_scores)
+    
+    # Confidence band: ±1.96 * sqrt(variance) for ~95% interval
+    kalman_std = np.sqrt(np.maximum(kalman_variances, 0))
+    confidence_upper = smoothed_mood_scores + 1.96 * kalman_std
+    confidence_lower = smoothed_mood_scores - 1.96 * kalman_std
     
     # Traditional volatility (backward compatible)
     mood_volatility = pd.Series(mood_scores).rolling(window=30, min_periods=1).std().fillna(0)
@@ -828,6 +912,9 @@ def calculate_historical_mood(df, dependent_vars=None):
     hurst_vals = rolling_hurst(mood_scores, window=90, step=5)
     entropy_vals = rolling_entropy(nifty_returns, window=60, n_bins=15)
     
+    # ── Regime Detection ────────────────────────────────────────────────
+    regime_labels, regime_transitions = detect_regime_transitions(hurst_vals, entropy_vals)
+    
     result_df = pd.DataFrame({
         'DATE': df['DATE'].values,
         'Mood_Score': mood_scores,
@@ -842,6 +929,11 @@ def calculate_historical_mood(df, dependent_vars=None):
         'OU_Half_Life': ou_half_life,  # Scalar, broadcast
         'OU_Theta': theta,
         'OU_Mu': mu,
+        # v2.1 additions
+        'OU_Sigma': sigma_ou,
+        'Confidence_Upper': np.clip(confidence_upper, -100, 100),
+        'Confidence_Lower': np.clip(confidence_lower, -100, 100),
+        'Regime': regime_labels,
     })
     
     logging.info(f"v2.0 mood [{n} rows] in {time.time() - start_time:.2f}s | "
@@ -1058,14 +1150,30 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
     top_similar = historical.nlargest(top_n, 'similarity')
     
     results = []
+    nifty_vals = df['NIFTY'].values
     for _, row in top_similar.iterrows():
+        idx_pos = df.index.get_loc(row.name)
+        nifty_at = row['NIFTY'] if 'NIFTY' in row and row['NIFTY'] > 0 else None
+        
+        # Forward returns: what happened to NIFTY 30/60/90 days after this analog?
+        fwd_returns = {}
+        for horizon in [30, 60, 90]:
+            fwd_idx = idx_pos + horizon
+            if fwd_idx < len(nifty_vals) and nifty_at and nifty_at > 0:
+                fwd_returns[horizon] = (nifty_vals[fwd_idx] / nifty_at - 1) * 100
+            else:
+                fwd_returns[horizon] = None
+        
         results.append({
             'date': row['DATE'].strftime('%Y-%m-%d'),
             'similarity': row['similarity'],
             'mood_score': row['Mood_Score'],
             'mood': row['Mood'],
             'mood_volatility': row['Mood_Volatility'],
-            'nifty': row['NIFTY'] if 'NIFTY' in row else 0
+            'nifty': nifty_at or 0,
+            'fwd_30d': fwd_returns.get(30),
+            'fwd_60d': fwd_returns.get(60),
+            'fwd_90d': fwd_returns.get(90),
         })
     
     return results
@@ -1190,6 +1298,26 @@ def main():
     if raw_df is None:
         st.stop()
     
+    # ── Data Staleness Check ────────────────────────────────────────────
+    latest_date = raw_df['DATE'].max()
+    ist_tz = pytz.timezone('Asia/Kolkata')
+    today_ist = datetime.now(ist_tz).date()
+    data_age_days = (pd.Timestamp(today_ist) - latest_date).days
+    
+    # >3 days gap (accounts for weekends: Fri data on Mon = 3 days, fine)
+    if data_age_days > 3:
+        st.markdown(f"""
+        <div style="background: rgba(239,68,68,0.1); border: 1px solid #ef4444; border-radius: 10px; 
+                    padding: 0.75rem 1.25rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 1.4rem;">⚠️</span>
+            <div>
+                <span style="color: #ef4444; font-weight: 700;">Stale Data</span>
+                <span style="color: #888; font-size: 0.85rem;"> — Last data point is <b>{latest_date.strftime('%d %b %Y')}</b> ({data_age_days} days ago). 
+                Scores reflect the last available data, not current market state. Update your Google Sheet.</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with st.spinner("Calculating mood scores..."):
         selected_preds = st.session_state.get('active_predictors', tuple(DEPENDENT_VARS))
         mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
@@ -1275,6 +1403,62 @@ def main():
             <h4>Analysis Date</h4>
             <h2>{latest['DATE'].strftime('%d %b')}</h2>
             <div class="sub-metric">{latest['DATE'].strftime('%Y')}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # ── Diagnostics Row ─────────────────────────────────────────────────
+    d1, d2, d3, d4 = st.columns(4)
+    
+    current_regime = latest.get('Regime', 'Unknown')
+    regime_colors = {
+        'Trending': ('#10b981', 'success'),
+        'Volatile Trend': ('#f59e0b', 'warning'),
+        'Mean-Reverting': ('#06b6d4', 'info'),
+        'Choppy': ('#ef4444', 'danger'),
+        'Unknown': ('#888888', 'neutral'),
+    }
+    reg_color, reg_class = regime_colors.get(current_regime, ('#888888', 'neutral'))
+    
+    with d1:
+        st.markdown(f"""
+        <div class="metric-card {reg_class}">
+            <h4>Market Regime</h4>
+            <h2 style="font-size: 1.25rem;">{current_regime}</h2>
+            <div class="sub-metric">Hurst + Entropy</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with d2:
+        ou_hl = latest.get('OU_Half_Life', 0)
+        st.markdown(f"""
+        <div class="metric-card primary">
+            <h4>OU Half-Life</h4>
+            <h2>{ou_hl:.0f}d</h2>
+            <div class="sub-metric">Expected reversion time</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with d3:
+        h_val = latest.get('Hurst', 0.5)
+        h_label = 'Trending' if h_val > 0.55 else 'Random' if h_val > 0.45 else 'Reverting'
+        h_class = 'success' if h_val > 0.55 else 'neutral' if h_val > 0.45 else 'info'
+        st.markdown(f"""
+        <div class="metric-card {h_class}">
+            <h4>Hurst Exponent</h4>
+            <h2>{h_val:.2f}</h2>
+            <div class="sub-metric">{h_label}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with d4:
+        s_val = latest.get('Market_Entropy', 0.5)
+        s_label = 'Disordered' if s_val > 0.6 else 'Ordered' if s_val < 0.4 else 'Mixed'
+        s_class = 'danger' if s_val > 0.6 else 'success' if s_val < 0.4 else 'neutral'
+        st.markdown(f"""
+        <div class="metric-card {s_class}">
+            <h4>Market Entropy</h4>
+            <h2>{s_val:.2f}</h2>
+            <div class="sub-metric">{s_label}</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1365,6 +1549,25 @@ def render_historical_mood(mood_df, msf_df):
     # ROW 1: MOOD SCORE (Main Chart) - YELLOW
     # ─────────────────────────────────────────────────────────────────────────
     
+    # Kalman Confidence Band (±1.96σ, ~95% interval)
+    if 'Confidence_Upper' in df.columns and 'Confidence_Lower' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df['DATE'], y=df['Confidence_Upper'],
+                mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip',
+            ),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=df['DATE'], y=df['Confidence_Lower'],
+                mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip',
+                fill='tonexty', fillcolor='rgba(255,195,0,0.08)',
+                name='95% Confidence'
+            ),
+            row=1, col=1
+        )
+    
     # Mood Score Line
     fig.add_trace(
         go.Scattergl(
@@ -1398,6 +1601,73 @@ def render_historical_mood(mood_df, msf_df):
         font=dict(color='#FFC300', size=11),
         row=1, col=1
     )
+    
+    # ── OU Forward Projection (dotted line) ─────────────────────────────
+    # E[x(t+n)] = μ + (x_current − μ) · exp(−θ·n)
+    # This shows where the mood is expected to revert to over the next 90 days
+    ou_theta = float(last_point.get('OU_Theta', 0.05))
+    ou_mu = float(last_point.get('OU_Mu', 0.0))
+    ou_sigma = float(last_point.get('OU_Sigma', 1.0))
+    ou_stationary_std_proj = ou_sigma / np.sqrt(2.0 * max(ou_theta, 1e-4))
+    
+    current_mood_raw = last_point['Mood_Score']
+    last_date = last_point['DATE']
+    
+    projection_days = 90
+    proj_dates = pd.date_range(start=last_date, periods=projection_days + 1, freq='D')[1:]
+    proj_n = np.arange(1, projection_days + 1, dtype=np.float64)
+    
+    # Convert current mood back to OU-space, project, convert back
+    # The mood score = (rough_scaled - mu) / ou_stationary_std * 30
+    # So in OU-space: x = current_mood / 30 * ou_stationary_std + mu
+    x_current_ou = current_mood_raw / 30.0 * max(ou_stationary_std_proj, 1e-6) + ou_mu
+    proj_ou = ou_mu + (x_current_ou - ou_mu) * np.exp(-ou_theta * proj_n)
+    proj_mood = (proj_ou - ou_mu) / max(ou_stationary_std_proj, 1e-6) * 30.0
+    proj_mood = np.clip(proj_mood, -100, 100)
+    
+    fig.add_trace(
+        go.Scatter(
+            x=proj_dates, y=proj_mood,
+            mode='lines', name='OU Projection',
+            line=dict(color='#FFC300', width=1.5, dash='dot'),
+            opacity=0.5,
+            hovertemplate='<b>%{x|%d %b %Y}</b><br>Projected: %{y:.1f}<extra></extra>',
+        ),
+        row=1, col=1
+    )
+    
+    # OU equilibrium line
+    ou_eq_mood = 0.0  # μ maps to 0 in normalized space
+    fig.add_annotation(
+        x=proj_dates[-1], y=ou_eq_mood,
+        text=f"EQ ({last_point.get('OU_Half_Life', 0):.0f}d t½)",
+        showarrow=False,
+        font=dict(color='#888', size=9),
+        xanchor='left', xshift=5,
+        row=1, col=1
+    )
+    
+    # ── Regime Transition Markers ───────────────────────────────────────
+    if 'Regime' in df.columns:
+        regimes = df['Regime'].values
+        dates = df['DATE'].values
+        regime_colors_map = {
+            'Trending': '#10b981', 'Volatile Trend': '#f59e0b',
+            'Mean-Reverting': '#06b6d4', 'Choppy': '#ef4444',
+        }
+        for i in range(1, len(regimes)):
+            if regimes[i] != regimes[i - 1] and regimes[i] != 'Unknown':
+                fig.add_vline(
+                    x=dates[i], line_color=regime_colors_map.get(regimes[i], '#555'),
+                    line_width=1, line_dash='dot', opacity=0.5,
+                    row=1, col=1
+                )
+                fig.add_annotation(
+                    x=dates[i], y=df['Mood_Score'].values[i],
+                    text=regimes[i][:4], showarrow=False,
+                    font=dict(size=7, color=regime_colors_map.get(regimes[i], '#555')),
+                    yshift=12, row=1, col=1
+                )
     
     # ─────────────────────────────────────────────────────────────────────────
     # ROW 2: MSF SPREAD INDICATOR (Oscillator Pane) - CYAN
@@ -1621,18 +1891,62 @@ def render_historical_mood(mood_df, msf_df):
             <div class="sub-metric">{selected_tf} Period</div>
         </div>
         """, unsafe_allow_html=True)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # MSF COMPONENT DECOMPOSITION
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    st.markdown("""
+        <div style="margin-bottom: 0.75rem;">
+            <h4 style="color: #06b6d4; margin: 0;">MSF Component Breakdown</h4>
+            <p style="color: #888; font-size: 0.8rem; margin: 0;">Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Get latest MSF component values
+    msf_latest_idx = min(len(msf_filtered) - 1, len(df) - 1)
+    if msf_latest_idx >= 0 and not msf_filtered.empty:
+        comp_names = ['momentum', 'structure', 'regime', 'flow']
+        comp_labels = ['Momentum', 'Structure', 'Regime', 'Flow']
+        comp_colors = ['#f59e0b', '#a78bfa', '#10b981', '#06b6d4']
+        comp_icons = ['🚀', '🏗️', '📊', '🌊']
+        
+        c_cols = st.columns(4)
+        for j, (name, label, color, icon) in enumerate(zip(comp_names, comp_labels, comp_colors, comp_icons)):
+            val = msf_filtered[name].iloc[msf_latest_idx] if name in msf_filtered.columns else 0
+            # Compute period average for context
+            period_val = msf_filtered[name].mean() if name in msf_filtered.columns else 0
+            
+            bar_pct = (val + 10) / 20 * 100  # Map [-10, +10] → [0%, 100%]
+            bar_pct = max(0, min(100, bar_pct))
+            
+            with c_cols[j]:
+                st.markdown(f"""
+                <div style="background: #1A1A1A; border-radius: 10px; padding: 0.75rem; border: 1px solid #2A2A2A;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                        <span style="font-size: 0.75rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{icon} {label}</span>
+                        <span style="font-size: 1.1rem; font-weight: 700; color: {color};">{val:+.1f}</span>
+                    </div>
+                    <div style="height: 6px; background: #2A2A2A; border-radius: 3px; position: relative;">
+                        <div style="position: absolute; left: 50%; top: 0; width: 1px; height: 6px; background: #555;"></div>
+                        <div style="width: {bar_pct:.0f}%; height: 100%; background: {color}; border-radius: 3px; opacity: 0.8;"></div>
+                    </div>
+                    <div style="font-size: 0.65rem; color: #555; margin-top: 0.3rem;">Period avg: {period_val:+.1f}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SIMILAR PERIODS VIEW
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_similar_periods(mood_df):
-    """Render similar historical periods analysis."""
+    """Render similar historical periods with forward returns and backtest validation."""
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
             <h3 style="color: #FFC300; margin: 0;">🔍 Similar Historical Periods</h3>
-            <p style="color: #888888; font-size: 0.85rem; margin: 0;">AI-matched periods based on mood score and volatility patterns</p>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -1642,7 +1956,38 @@ def render_similar_periods(mood_df):
         st.warning("Not enough historical data to find similar periods.")
         return
     
-    # Display as cards
+    # ── Forward Return Summary ──────────────────────────────────────────
+    # Aggregate: "In N similar periods, what was the median NIFTY return?"
+    fwd_30 = [p['fwd_30d'] for p in similar_periods if p['fwd_30d'] is not None]
+    fwd_60 = [p['fwd_60d'] for p in similar_periods if p['fwd_60d'] is not None]
+    fwd_90 = [p['fwd_90d'] for p in similar_periods if p['fwd_90d'] is not None]
+    
+    if fwd_30 or fwd_60 or fwd_90:
+        sc1, sc2, sc3 = st.columns(3)
+        
+        def _fwd_card(col, horizon, values):
+            if not values:
+                return
+            median_ret = np.median(values)
+            positive_pct = sum(1 for v in values if v > 0) / len(values) * 100
+            ret_color = '#10b981' if median_ret > 0 else '#ef4444'
+            card_class = 'success' if median_ret > 0 else 'danger'
+            with col:
+                st.markdown(f"""
+                <div class="metric-card {card_class}">
+                    <h4>+{horizon}D Median Return</h4>
+                    <h2>{median_ret:+.1f}%</h2>
+                    <div class="sub-metric">{positive_pct:.0f}% positive ({len(values)} analogs)</div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        _fwd_card(sc1, 30, fwd_30)
+        _fwd_card(sc2, 60, fwd_60)
+        _fwd_card(sc3, 90, fwd_90)
+        
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    
+    # ── Period Cards with Forward Returns ───────────────────────────────
     cols = st.columns(2)
     for i, period in enumerate(similar_periods[:10]):
         col = cols[i % 2]
@@ -1650,6 +1995,16 @@ def render_similar_periods(mood_df):
             similarity_pct = period['similarity'] * 100
             mood_val = period['mood_score']
             mood_class = 'bullish' if mood_val > 20 else 'bearish' if mood_val < -20 else 'neutral'
+            
+            # Forward return badges
+            fwd_badges = ''
+            for horizon, key in [(30, 'fwd_30d'), (60, 'fwd_60d'), (90, 'fwd_90d')]:
+                val = period.get(key)
+                if val is not None:
+                    fwd_color = '#10b981' if val > 0 else '#ef4444'
+                    fwd_badges += f'<span style="font-size:0.7rem; color:{fwd_color}; margin-left:8px;">+{horizon}d: <b>{val:+.1f}%</b></span>'
+                else:
+                    fwd_badges += f'<span style="font-size:0.7rem; color:#555; margin-left:8px;">+{horizon}d: —</span>'
             
             st.markdown(f"""
             <div class="signal-card {mood_class}">
@@ -1662,8 +2017,110 @@ def render_similar_periods(mood_df):
                     <span>Mood: <b>{mood_val:.1f}</b></span>
                     <span>NIFTY: <b>{period['nifty']:,.0f}</b></span>
                 </div>
+                <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid #2A2A2A;">
+                    <span style="font-size: 0.7rem; color: #666;">NIFTY After:</span>{fwd_badges}
+                </div>
             </div>
             """, unsafe_allow_html=True)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # BACKTEST SANITY CHECK
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    st.markdown("""
+        <div style="margin-bottom: 1rem;">
+            <h3 style="color: #FFC300; margin: 0;">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">
+                Does today's mood score predict tomorrow's market? Each dot = one historical day.
+                If there's a relationship, the scatter should show a pattern.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Compute mood_score at T vs NIFTY return at T+30 for all historical points
+    n = len(mood_df)
+    horizon = 30
+    if n > horizon + 10:
+        bt_mood = mood_df['Mood_Score'].values[:n - horizon]
+        bt_nifty = mood_df['NIFTY'].values
+        bt_fwd_return = (bt_nifty[horizon:] / bt_nifty[:n - horizon] - 1) * 100
+        bt_dates = mood_df['DATE'].values[:n - horizon]
+        
+        # Remove NaN/Inf
+        valid = np.isfinite(bt_mood) & np.isfinite(bt_fwd_return)
+        bt_mood_clean = bt_mood[valid]
+        bt_fwd_clean = bt_fwd_return[valid]
+        
+        if len(bt_mood_clean) > 20:
+            # Compute correlation
+            bt_corr = np.corrcoef(bt_mood_clean, bt_fwd_clean)[0, 1] if len(bt_mood_clean) > 2 else 0
+            
+            # Color by mood: green if mood was positive, red if negative
+            colors = np.where(bt_mood_clean > 0, '#10b981', '#ef4444')
+            
+            fig_bt = go.Figure()
+            
+            fig_bt.add_trace(go.Scattergl(
+                x=bt_mood_clean, y=bt_fwd_clean,
+                mode='markers',
+                marker=dict(size=4, color=colors, opacity=0.5),
+                hovertemplate='Mood: %{x:.1f}<br>+30d Return: %{y:.1f}%<extra></extra>',
+                showlegend=False,
+            ))
+            
+            # Add regression line
+            if len(bt_mood_clean) > 10:
+                z = np.polyfit(bt_mood_clean, bt_fwd_clean, 1)
+                x_range = np.linspace(bt_mood_clean.min(), bt_mood_clean.max(), 50)
+                fig_bt.add_trace(go.Scatter(
+                    x=x_range, y=z[0] * x_range + z[1],
+                    mode='lines', line=dict(color='#FFC300', width=2, dash='dash'),
+                    name=f'ρ = {bt_corr:.2f}', showlegend=True,
+                ))
+            
+            # Zero lines
+            fig_bt.add_hline(y=0, line_color='#555', line_width=1, line_dash='dot')
+            fig_bt.add_vline(x=0, line_color='#555', line_width=1, line_dash='dot')
+            
+            fig_bt.update_layout(
+                height=400,
+                template='plotly_dark',
+                plot_bgcolor='#1A1A1A',
+                paper_bgcolor='#1A1A1A',
+                font=dict(color='#EAEAEA', family='Inter'),
+                xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor='#2A2A2A'),
+                yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor='#2A2A2A'),
+                margin=dict(l=60, r=20, t=30, b=50),
+                legend=dict(
+                    x=0.02, y=0.98,
+                    bgcolor='rgba(26,26,26,0.8)',
+                    bordercolor='#2A2A2A', borderwidth=1,
+                    font=dict(size=11)
+                ),
+            )
+            
+            st.plotly_chart(fig_bt, config={'displayModeBar': False})
+            
+            # Interpretation
+            if abs(bt_corr) > 0.3:
+                strength = 'strong' if abs(bt_corr) > 0.5 else 'moderate'
+                direction = 'positive' if bt_corr > 0 else 'negative'
+                st.markdown(f"""
+                <div class="info-box">
+                    <b>Correlation: ρ = {bt_corr:.2f}</b> — {strength} {direction} relationship.
+                    {'Higher mood scores have historically been followed by positive NIFTY returns.' if bt_corr > 0 else 'Higher mood scores have historically been followed by negative NIFTY returns (contrarian signal).'}
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="info-box">
+                    <b>Correlation: ρ = {bt_corr:.2f}</b> — weak linear relationship at 30-day horizon.
+                    The mood score's predictive power may be non-linear or work better at different horizons.
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.caption("Insufficient data points for backtest.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CORRELATION ANALYSIS VIEW
