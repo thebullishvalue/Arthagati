@@ -41,7 +41,7 @@ COMPANY = "Hemrek Capital"
 # ══════════════════════════════════════════════════════════════════════════════
 
 SHEET_ID = "1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c"
-SHEET_GID = "0"
+SHEET_GID = "1938234952"
 
 EXPECTED_COLUMNS = [
     'DATE', 'NIFTY', 'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'BREADTH', 'COUNT', 
