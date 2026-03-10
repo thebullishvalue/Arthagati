@@ -9,12 +9,16 @@ TradingView-style charting with institutional-grade analytics.
 import logging
 import time
 from datetime import datetime
+from io import StringIO
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import pytz
+import requests
 import streamlit as st
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2.service_account import Credentials
 from plotly.subplots import make_subplots
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -42,8 +46,12 @@ COMPANY      = "Hemrek Capital"
 # DATA SOURCE
 # ══════════════════════════════════════════════════════════════════════════════
 
-SHEET_ID  = "1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c"
-SHEET_GID = "1938234952"
+# Sheet credentials and document coordinates live exclusively in st.secrets —
+# see .streamlit/secrets.toml.example for the required structure.
+# SHEET_ID and SHEET_GID are never stored in source.
+
+# Google Sheets API scope (read-only)
+_SHEET_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 EXPECTED_COLUMNS = [
     'DATE', 'NIFTY',
@@ -747,77 +755,119 @@ def detect_regime_transitions(hurst_values, entropy_values, window=10):
 # DATA LOADING
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _fetch_sheet_csv() -> str:
+    """
+    Authenticate with a Google service account and return the sheet as raw CSV text.
+
+    Credentials and sheet coordinates are read exclusively from st.secrets:
+        [google_service_account]  — full service account JSON fields
+        [sheet]
+          id  = "<spreadsheet-id>"
+          gid = "<worksheet-gid>"
+
+    The service account email must have at least Viewer access to the sheet.
+    See .streamlit/secrets.toml.example for the required secret structure.
+    """
+    try:
+        creds_info = dict(st.secrets["google_service_account"])
+    except (FileNotFoundError, KeyError) as exc:
+        raise RuntimeError(
+            "Google service account credentials not found in Streamlit secrets. "
+            "Add a [google_service_account] section — see .streamlit/secrets.toml.example."
+        ) from exc
+
+    try:
+        sheet_id = st.secrets["sheet"]["id"]
+        sheet_gid = st.secrets["sheet"]["gid"]
+    except KeyError as exc:
+        raise RuntimeError(
+            "Sheet coordinates missing from secrets. "
+            "Add a [sheet] section with 'id' and 'gid' keys."
+        ) from exc
+
+    creds = Credentials.from_service_account_info(creds_info, scopes=_SHEET_SCOPES)
+    creds.refresh(GoogleAuthRequest())
+
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/export?format=csv&gid={sheet_gid}"
+    )
+    resp = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {creds.token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.text
+
+
 @st.cache_data(ttl=DATA_TTL, show_spinner=False)
-def load_data():
-    """Load market data from Google Sheets."""
+def load_data() -> pd.DataFrame | None:
+    """
+    Fetch and parse market data from the private Google Sheet.
+
+    Returns a clean DataFrame with:
+      - All columns present in the sheet (none fabricated from EXPECTED_COLUMNS)
+      - DATE parsed, all other columns coerced to float
+      - Derived columns: IN_TERM_SPREAD, US_TERM_SPREAD, NIFTY50_EY (if absent)
+      - Rows with NIFTY ≤ 0 or unparseable DATE dropped
+    """
     start_time = time.time()
     try:
-        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
-        df = pd.read_csv(url, dtype=str)
+        csv_text = _fetch_sheet_csv()
+        df = pd.read_csv(StringIO(csv_text), dtype=str)
 
-        # Clean column names: strip whitespace, drop unnamed columns
+        # Normalise column names: strip whitespace, drop unnamed padding columns
         df.columns = [c.strip() for c in df.columns]
         df = df[[c for c in df.columns if not c.startswith('Unnamed')]]
 
+        # Hard requirements — nothing works without these two
         if 'DATE' not in df.columns or 'NIFTY' not in df.columns:
-            raise ValueError("Required columns DATE and NIFTY not found in the Sheet.")
+            raise ValueError("Required columns DATE and NIFTY not found in the sheet.")
 
-        if not any(col in df.columns for col in EXPECTED_COLUMNS):
-            raise ValueError("None of the expected columns found in the Sheet.")
-
-        # Fill any missing EXPECTED_COLUMNS with 0
-        missing_columns = [col for col in EXPECTED_COLUMNS if col not in df.columns]
-        if missing_columns:
-            logging.warning(f"Missing columns: {missing_columns}. Setting to 0.0.")
-            for col in missing_columns:
-                df[col] = "0.0"
+        # Warn about any known-schema columns absent in the sheet, but do NOT fabricate them.
+        # The predictor dropdown will only show columns that genuinely exist in the data.
+        missing = [c for c in EXPECTED_COLUMNS if c not in df.columns]
+        if missing:
+            logging.warning("Columns in EXPECTED_COLUMNS but absent from sheet: %s", missing)
 
         df['DATE'] = pd.to_datetime(df['DATE'], format='%m/%d/%Y', errors='coerce')
 
-        # Convert all non-DATE columns to numeric
-        non_date_cols = [col for col in df.columns if col != 'DATE']
+        non_date_cols = [c for c in df.columns if c != 'DATE']
         df[non_date_cols] = df[non_date_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
 
         df = df[df['NIFTY'] > 0].dropna(subset=['DATE']).copy()
         if df.empty:
-            raise ValueError("No valid rows with positive NIFTY or valid DATE.")
+            raise ValueError("No valid rows after filtering on NIFTY > 0 and a parseable DATE.")
 
-        # Keep DATE and NIFTY first, then all other columns (preserving extra sheet columns)
-        core_cols = ['DATE', 'NIFTY']
-        extra_cols = [c for c in df.columns if c not in core_cols]
-        df = df[core_cols + extra_cols].sort_values('DATE').reset_index(drop=True)
-        
-        # v2.0: Ensure NIFTY50_EY has real data.
-        # EY (Earnings Yield) = 1/PE × 100. If the sheet has PE but EY is
-        # missing or constant (all zeros), derive it. This is the most common
-        # cause of "empty EY correlations" — the sheet simply doesn't populate it.
+        # Preserve column order: DATE and NIFTY first, then everything else
+        core = ['DATE', 'NIFTY']
+        df = df[core + [c for c in df.columns if c not in core]].sort_values('DATE').reset_index(drop=True)
+
+        # Derive NIFTY50_EY from PE if the sheet omits it or populates it as a constant.
+        # EY = 1/PE × 100.  Every US recession…
         if 'NIFTY50_PE' in df.columns and df['NIFTY50_PE'].gt(0).any():
             if 'NIFTY50_EY' not in df.columns or df['NIFTY50_EY'].nunique() <= 1:
                 df['NIFTY50_EY'] = (1.0 / df['NIFTY50_PE'].replace(0, np.nan) * 100).fillna(0)
                 logging.info("Derived NIFTY50_EY from NIFTY50_PE (1/PE × 100).")
-        
-        # v2.0: Derive yield curve term spreads.
-        # Formula: Term Spread = 10-Year Bond Yield − 2-Year Bond Yield
-        # IN_TERM_SPREAD = IN10Y − IN02Y  (India yield curve slope)
-        # US_TERM_SPREAD = US10Y − US02Y  (US yield curve slope)
-        # Positive = normal curve (expansion), Negative = inverted (recession signal).
-        # The 10Y−2Y spread is the single most validated macro predictor:
-        # every US recession since 1960 was preceded by inversion.
-        if 'IN10Y' in df.columns and 'IN02Y' in df.columns:
-            df['IN_TERM_SPREAD'] = df['IN10Y'] - df['IN02Y']
-        else:
-            df['IN_TERM_SPREAD'] = 0.0
-        
-        if 'US10Y' in df.columns and 'US02Y' in df.columns:
-            df['US_TERM_SPREAD'] = df['US10Y'] - df['US02Y']
-        else:
-            df['US_TERM_SPREAD'] = 0.0
-        
-        logging.info(f"Data loaded in {time.time() - start_time:.2f} seconds.")
+
+        # Derive yield-curve term spreads (10Y − 2Y).
+        # Positive = normal curve (expansion). Negative = inverted (recession signal).
+        df['IN_TERM_SPREAD'] = (
+            df['IN10Y'] - df['IN02Y']
+            if ('IN10Y' in df.columns and 'IN02Y' in df.columns) else 0.0
+        )
+        df['US_TERM_SPREAD'] = (
+            df['US10Y'] - df['US02Y']
+            if ('US10Y' in df.columns and 'US02Y' in df.columns) else 0.0
+        )
+
+        logging.info("Sheet loaded: %d rows, %d columns in %.2fs.", len(df), len(df.columns), time.time() - start_time)
         return df
-    except Exception as e:
-        logging.error(f"Failed to load data: {str(e)}")
-        st.error(f"Failed to load data. Ensure the Google Sheet is 'Public' and the ID is correct. Error: {str(e)}")
+
+    except Exception as exc:
+        logging.error("load_data failed: %s", exc)
+        st.error(f"Failed to load sheet data: {exc}")
         return None
 
 # ══════════════════════════════════════════════════════════════════════════════
