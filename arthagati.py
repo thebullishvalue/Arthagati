@@ -21,7 +21,11 @@ from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.service_account import Credentials
 from plotly.subplots import make_subplots
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s  %(levelname)-8s  %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIGURATION
@@ -1001,7 +1005,11 @@ def load_data() -> pd.DataFrame | None:
         # The predictor dropdown will only show columns that genuinely exist in the data.
         missing = [c for c in EXPECTED_COLUMNS if c not in df.columns]
         if missing:
-            logging.warning("Columns in EXPECTED_COLUMNS but absent from sheet: %s", missing)
+            logging.warning(
+                "Schema drift — %d expected column(s) absent from sheet: %s. "
+                "Predictor set will be built from columns that are actually present.",
+                len(missing), missing,
+            )
 
         df['DATE'] = pd.to_datetime(df['DATE'], format='%m/%d/%Y', errors='coerce')
 
@@ -1021,7 +1029,7 @@ def load_data() -> pd.DataFrame | None:
         if 'NIFTY50_PE' in df.columns and df['NIFTY50_PE'].gt(0).any():
             if 'NIFTY50_EY' not in df.columns or df['NIFTY50_EY'].nunique() <= 1:
                 df['NIFTY50_EY'] = (1.0 / df['NIFTY50_PE'].replace(0, np.nan) * 100).fillna(0)
-                logging.info("Derived NIFTY50_EY from NIFTY50_PE (1/PE × 100).")
+                logging.info("NIFTY50_EY absent or constant — derived from PE (EY = 1/PE × 100).")
 
         # Derive yield-curve term spreads (10Y − 2Y).
         # Positive = normal curve (expansion). Negative = inverted (recession signal).
@@ -1034,11 +1042,16 @@ def load_data() -> pd.DataFrame | None:
         else:
             df['US_TERM_SPREAD'] = 0.0
 
-        logging.info("Sheet loaded: %d rows, %d columns in %.2fs.", len(df), len(df.columns), time.time() - start_time)
+        elapsed = time.time() - start_time
+        date_range = f"{df['DATE'].iloc[0].strftime('%Y-%m-%d')} → {df['DATE'].iloc[-1].strftime('%Y-%m-%d')}"
+        logging.info(
+            "Data loaded — %d rows × %d columns | %s | %.2fs",
+            len(df), len(df.columns), date_range, elapsed,
+        )
         return df
 
     except Exception as exc:
-        logging.error("load_data failed: %s", exc)
+        logging.error("Data load failed — pipeline halted. Cause: %s", exc)
         st.error(f"Failed to load sheet data: {exc}")
         return None
 
@@ -1109,7 +1122,10 @@ def calculate_historical_mood(df, dependent_vars=None):
     start_time = time.time()
     
     if 'DATE' not in df.columns or 'NIFTY50_PE' not in df.columns or 'NIFTY50_EY' not in df.columns:
-        logging.error("Required columns missing.")
+        logging.error(
+            "Mood engine aborted — required anchor columns missing. "
+            "Sheet must contain DATE, NIFTY50_PE, and NIFTY50_EY."
+        )
         return pd.DataFrame(columns=['DATE', 'Mood_Score', 'Mood', 'Smoothed_Mood_Score', 'Mood_Volatility'])
     
     n = len(df)
@@ -1246,9 +1262,14 @@ def calculate_historical_mood(df, dependent_vars=None):
         'Regime': regime_labels,
     })
     
-    logging.info(f"v2.0 mood [{n} rows] in {time.time() - start_time:.2f}s | "
-                 f"θ={theta:.3f} μ={mu:.2f} t½={ou_half_life:.0f}d "
-                 f"H={hurst_vals[-1]:.2f} S={entropy_vals[-1]:.2f}")
+    logging.info(
+        "Mood engine complete — %d rows in %.2fs | "
+        "OU: θ=%.3f  μ=%.2f  t½=%.0fd | "
+        "Diagnostics: Hurst=%.2f  Entropy=%.2f  Regime=%s",
+        n, time.time() - start_time,
+        theta, mu, ou_half_life,
+        hurst_vals[-1], entropy_vals[-1], regime_labels[-1],
+    )
     return result_df
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1284,7 +1305,7 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     breadth_series = pd.Series(breadth, index=df.index)
     
     if n == 0:
-        logging.error("Empty data for MSF Spread calculation.")
+        logging.error("MSF Spread aborted — received an empty DataFrame; no rows to process.")
         return result
     
     # ── Component 1: Momentum (NIFTY ROC z-score) ──────────────────────
@@ -1351,8 +1372,11 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     result['regime']     = regime_norm    * MSF_SCALE
     result['flow']       = flow_norm      * MSF_SCALE
     
-    weight_str = ', '.join(f"{k}={v:.0%}" for k, v in weights.items())
-    logging.info(f"v2.0 MSF in {time.time() - start_time:.2f}s [{weight_str}]")
+    weight_str = '  '.join(f"{k}={v:.0%}" for k, v in weights.items())
+    logging.info(
+        "MSF Spread complete — %.2fs | Inverse-variance weights: %s",
+        time.time() - start_time, weight_str,
+    )
     return result
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1492,7 +1516,7 @@ def render_landing_page() -> None:
     # ── Main header ──────────────────────────────────────────────────
     st.markdown("""
     <div class="premium-header">
-        <h1>ARTHAGATI <span style="color: var(--primary-color);">|</span> Market Sentiment Analysis</h1>
+        <h1>ARTHAGATI <span style="color: var(--primary-color);">:</span> Market Sentiment Analysis</h1>
         <div class="tagline">Ornstein-Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
     </div>
     """, unsafe_allow_html=True)
