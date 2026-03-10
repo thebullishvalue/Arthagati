@@ -327,6 +327,143 @@ _DESIGN_CSS = """
     ::-webkit-scrollbar-track { background: var(--background-color); }
     ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+    /* ── Themed loading state ─────────────────────────────────────── */
+    @keyframes shimmer-sweep {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(500%); }
+    }
+    @keyframes pulse-glow {
+        0%, 100% { opacity: 0.6; }
+        50%       { opacity: 1.0; }
+    }
+    .loading-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-left: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+        margin: 0.75rem 0;
+        position: relative;
+        overflow: hidden;
+    }
+    .loading-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: radial-gradient(circle at 0% 50%, rgba(var(--primary-rgb), 0.06) 0%, transparent 60%);
+        pointer-events: none;
+    }
+    .loading-shimmer-bar {
+        position: absolute;
+        top: 0; left: 0;
+        width: 18%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.18), transparent);
+        animation: shimmer-sweep 1.6s ease-in-out infinite;
+    }
+    .loading-label {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        letter-spacing: 0.3px;
+        position: relative;
+    }
+    .loading-sub {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        margin-top: 0.2rem;
+        font-weight: 400;
+        position: relative;
+        letter-spacing: 0.2px;
+    }
+    .loading-dot {
+        display: inline-block;
+        width: 5px; height: 5px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        animation: pulse-glow 1.2s ease-in-out infinite;
+        margin-right: 0.6rem;
+        vertical-align: middle;
+        position: relative;
+        top: -1px;
+    }
+
+    /* ── Landing page ─────────────────────────────────────────────── */
+    .landing-hero {
+        text-align: center;
+        padding: 5rem 2rem 3rem;
+        max-width: 680px;
+        margin: 0 auto;
+    }
+    .landing-wordmark {
+        font-size: 4rem;
+        font-weight: 800;
+        color: var(--text-primary);
+        letter-spacing: -3px;
+        line-height: 1;
+        margin: 0;
+    }
+    .landing-wordmark span { color: var(--primary-color); }
+    .landing-devanagari {
+        font-size: 1rem;
+        color: var(--text-muted);
+        letter-spacing: 3px;
+        margin: 0.4rem 0 1.5rem;
+        font-weight: 300;
+    }
+    .landing-divider {
+        width: 48px;
+        height: 2px;
+        background: var(--primary-color);
+        margin: 0 auto 2rem;
+        border-radius: 2px;
+    }
+    .landing-tagline {
+        font-size: 0.95rem;
+        color: var(--text-muted);
+        line-height: 1.9;
+        margin-bottom: 2.5rem;
+        font-weight: 400;
+    }
+    .landing-feature-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        max-width: 640px;
+        margin: 2.5rem auto 0;
+        text-align: left;
+    }
+    .landing-feature-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        transition: border-color 0.25s;
+    }
+    .landing-feature-card:hover { border-color: var(--border-light); }
+    .landing-feature-icon { font-size: 1.3rem; margin-bottom: 0.4rem; }
+    .landing-feature-title {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.25rem;
+    }
+    .landing-feature-desc {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+    }
+    .landing-company {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        margin-bottom: 1.5rem;
+        font-weight: 600;
+    }
 </style>
 """
 
@@ -335,6 +472,41 @@ st.markdown(_DESIGN_CSS, unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _progress_bar(slot, pct: int, label: str, sub: str = "") -> None:
+    """
+    Render a themed progress card into an st.empty() slot.
+
+    Call with increasing pct values as each computation step completes.
+    Call slot.empty() when all steps are done.
+
+        slot = st.empty()
+        _progress_bar(slot, 10, "Fetching data", "Google Sheets")
+        df = load_data()
+        _progress_bar(slot, 70, "Running engine", "OU · Kalman")
+        mood_df = calculate_historical_mood(df)
+        _progress_bar(slot, 100, "Complete")
+        time.sleep(0.25)
+        slot.empty()
+    """
+    bar_color = C_GREEN if pct == 100 else C_PRIMARY
+    slot.markdown(f"""
+    <div class="loading-card">
+        <div class="loading-label">
+            <span class="loading-dot"></span>{label}
+        </div>
+        {"" if not sub else f'<div class="loading-sub">{sub}</div>'}
+        <div style="margin-top: 0.65rem; height: 3px; background: #2A2A2A; border-radius: 2px; overflow: hidden;">
+            <div style="width: {pct}%; height: 100%;
+                        background: linear-gradient(90deg, {bar_color}, {C_AMBER});
+                        border-radius: 2px; transition: width 0.3s ease;">
+            </div>
+        </div>
+        <div style="text-align: right; font-size: 0.65rem; color: #555; margin-top: 0.25rem; font-family: monospace;">
+            {pct}%
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 def sigmoid(x, scale=1.0):
     """Sigmoid normalization to [-1, 1] range"""
@@ -853,14 +1025,14 @@ def load_data() -> pd.DataFrame | None:
 
         # Derive yield-curve term spreads (10Y − 2Y).
         # Positive = normal curve (expansion). Negative = inverted (recession signal).
-        df['IN_TERM_SPREAD'] = (
-            df['IN10Y'] - df['IN02Y']
-            if ('IN10Y' in df.columns and 'IN02Y' in df.columns) else 0.0
-        )
-        df['US_TERM_SPREAD'] = (
-            df['US10Y'] - df['US02Y']
-            if ('US10Y' in df.columns and 'US02Y' in df.columns) else 0.0
-        )
+        if 'IN10Y' in df.columns and 'IN02Y' in df.columns:
+            df['IN_TERM_SPREAD'] = df['IN10Y'] - df['IN02Y']
+        else:
+            df['IN_TERM_SPREAD'] = 0.0
+        if 'US10Y' in df.columns and 'US02Y' in df.columns:
+            df['US_TERM_SPREAD'] = df['US10Y'] - df['US02Y']
+        else:
+            df['US_TERM_SPREAD'] = 0.0
 
         logging.info("Sheet loaded: %d rows, %d columns in %.2fs.", len(df), len(df.columns), time.time() - start_time)
         return df
@@ -874,7 +1046,7 @@ def load_data() -> pd.DataFrame | None:
 # MOOD SCORE CALCULATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def calculate_anchor_correlations(df, anchor, dependent_vars=None):
     """
     Layer 1: Exponential-decay-weighted Spearman rank correlations.
@@ -918,7 +1090,7 @@ def calculate_anchor_correlations(df, anchor, dependent_vars=None):
     
     return pd.DataFrame(correlations)
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def calculate_historical_mood(df, dependent_vars=None):
     """
     v2.0 Mood Score Engine — 5-layer architecture.
@@ -1083,7 +1255,7 @@ def calculate_historical_mood(df, dependent_vars=None):
 # MSF-ENHANCED SPREAD INDICATOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_col='AD_RATIO'):
     """
     v2.0 MSF-Enhanced Spread Indicator.
@@ -1187,7 +1359,7 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
 # SIMILAR PERIODS FINDER
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def find_similar_periods(df, top_n=10, recency_weight=0.1):
     """
     v2.0 Similar Period Finder.
@@ -1311,34 +1483,236 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
     return results
 
 # ══════════════════════════════════════════════════════════════════════════════
+# LANDING PAGE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def render_landing_page() -> None:
+    """Informational landing page — shown on first load; Run Analysis is in the sidebar."""
+
+    # ── Main header ──────────────────────────────────────────────────
+    st.markdown("""
+    <div class="premium-header">
+        <h1>ARTHAGATI <span style="color: var(--primary-color);">:</span> Market Sentiment Analysis</h1>
+        <div class="tagline">Ornstein-Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Feature cards — the 3 analysis views ────────────────────────
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("""
+        <div class='metric-card primary' style='min-height: 280px;'>
+            <h3 style='color: var(--primary-color); margin-bottom: 1rem;'>📈 Historical Mood</h3>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+                Full sentiment timeline with OU forward projection, Kalman confidence bands,
+                and regime transition markers on a TradingView-style chart.
+            </p>
+            <br>
+            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
+                <strong>Features:</strong><br>
+                • Mood Score −100 → +100<br>
+                • MSF Spread confirmation<br>
+                • 90-day OU mean-reversion path<br>
+                • Hurst · Entropy · Regime diagnostics
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("""
+        <div class='metric-card success' style='min-height: 280px;'>
+            <h3 style='color: var(--success-green); margin-bottom: 1rem;'>🔍 Similar Periods</h3>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+                Historical analog matching against the full dataset with forward-return
+                outcomes, aggregate win-rates, and a backtest scatter.
+            </p>
+            <br>
+            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
+                <strong>Features:</strong><br>
+                • Mahalanobis state matching (55%)<br>
+                • Trajectory shape similarity (35%)<br>
+                • Recency decay (10%)<br>
+                • 30 / 60 / 90-day forward returns
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown("""
+        <div class='metric-card info' style='min-height: 280px;'>
+            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>📋 Correlation Analysis</h3>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+                Full transparency into which variables drive the mood score and which
+                are noise, ranked by the engine's own quality formula.
+            </p>
+            <br>
+            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
+                <strong>Features:</strong><br>
+                • PE &amp; EY correlation bars<br>
+                • Shannon entropy quality score<br>
+                • Keep / Useful / Weak ranking<br>
+                • Dynamic from live sheet columns
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Analysis Methodology ─────────────────────────────────────────
+    st.markdown("### 📊 Analysis Methodology")
+
+    col_m1, col_m2, col_m3 = st.columns(3)
+
+    with col_m1:
+        st.markdown("""
+        <div class='signal-card bullish' style='padding: 1.5rem;'>
+            <h4 style='color: var(--success-green); margin-bottom: 1rem;'>Mood Engine — 5 Layers</h4>
+            <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
+                Physics-informed scoring pipeline:
+            </p>
+            <ul style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
+                <li><strong>Decay-Spearman</strong> correlations (504d HL)</li>
+                <li><strong>Entropy weighting</strong> — noisy vars suppressed</li>
+                <li><strong>Adaptive percentiles</strong> — decay-weighted CDF</li>
+                <li><strong>OU normalisation</strong> → [−100, +100]</li>
+                <li><strong>Kalman smoothing</strong> + ±1.96σ band</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_m2:
+        st.markdown("""
+        <div class='signal-card bearish' style='padding: 1.5rem;'>
+            <h4 style='color: var(--danger-red); margin-bottom: 1rem;'>MSF Spread — Confirmation</h4>
+            <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
+                Four-component oscillator −10 → +10:
+            </p>
+            <ul style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
+                <li><strong>Momentum</strong> — NIFTY ROC z-score (14d)</li>
+                <li><strong>Structure</strong> — mood trend divergence</li>
+                <li><strong>Flow</strong> — breadth participation</li>
+                <li><strong>Regime</strong> — adaptive directional count</li>
+                <li><strong>Weights</strong> — inverse-variance (Markowitz)</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_m3:
+        st.markdown("""
+        <div class='signal-card neutral' style='padding: 1.5rem;'>
+            <h4 style='color: var(--neutral); margin-bottom: 1rem;'>Regime Detection</h4>
+            <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
+                Hurst × Entropy quadrant classification:
+            </p>
+            <ul style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
+                <li><strong>Trending</strong> — momentum strategies favoured</li>
+                <li><strong>Volatile Trend</strong> — directional with swings</li>
+                <li><strong>Mean-Reverting</strong> — contrarian strategies</li>
+                <li><strong>Choppy</strong> — reduce size, avoid</li>
+                <li><strong>Output</strong> — scales MSF weights + OU horizon</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Mood Score Interpretation ────────────────────────────────────
+    st.markdown("### 🎯 Mood Score Interpretation")
+
+    col_s1, col_s2, col_s3 = st.columns(3)
+
+    with col_s1:
+        st.markdown("""
+        <div style='background: rgba(16,185,129,0.1); border: 1px solid var(--success-green);
+                    border-radius: 12px; padding: 1.25rem;'>
+            <h4 style='color: var(--success-green); margin-bottom: 0.75rem;'>🟢 Bullish Zone</h4>
+            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &gt; +20</p>
+            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
+                Positive sentiment. Trend-following strategies favoured.
+                At extremes (&gt;+60, Euphoric) mean-reversion risk rises sharply.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_s2:
+        st.markdown("""
+        <div style='background: rgba(136,136,136,0.1); border: 1px solid var(--neutral);
+                    border-radius: 12px; padding: 1.25rem;'>
+            <h4 style='color: var(--neutral); margin-bottom: 0.75rem;'>⚪ Neutral Zone</h4>
+            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score −20 to +20</p>
+            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
+                No strong directional bias. Await macro confirmation or use
+                MSF Spread and Similar Periods for additional context.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_s3:
+        st.markdown("""
+        <div style='background: rgba(239,68,68,0.1); border: 1px solid var(--danger-red);
+                    border-radius: 12px; padding: 1.25rem;'>
+            <h4 style='color: var(--danger-red); margin-bottom: 0.75rem;'>🔴 Bearish Zone</h4>
+            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &lt; −20</p>
+            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
+                Negative sentiment. Defensive positioning warranted.
+                At extremes (&lt;−60, Capitulation) contrarian signals may emerge.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── System Coverage ──────────────────────────────────────────────
+    st.markdown("### 📡 System Coverage")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        st.markdown('<div class="metric-card neutral"><h4>Score Anchors</h4><h2>2</h2><div class="sub-metric">PE · Earnings Yield</div></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div class="metric-card neutral"><h4>Predictors</h4><h2>{len(DEPENDENT_VARS)}</h2><div class="sub-metric">Macro + Breadth vars</div></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown('<div class="metric-card neutral"><h4>Math Primitives</h4><h2>11</h2><div class="sub-metric">Pure NumPy functions</div></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown('<div class="metric-card neutral"><h4>OU Projection</h4><h2>90d</h2><div class="sub-metric">Forward reversion path</div></div>', unsafe_allow_html=True)
+    with c5:
+        st.markdown('<div class="metric-card neutral"><h4>Analog Returns</h4><h2>3</h2><div class="sub-metric">30 · 60 · 90 day</div></div>', unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Getting Started ──────────────────────────────────────────────
+    st.markdown("""
+    <div class='info-box'>
+        <h4>🚀 Getting Started</h4>
+        <p style='color: var(--text-muted); line-height: 1.7;'>
+            Click <strong>▶ Run Analysis</strong> in the sidebar to fetch live data from Google Sheets
+            and run the full 5-layer sentiment pipeline. Once loaded, use the sidebar to switch
+            between <em>Historical Mood</em>, <em>Similar Periods</em>, and <em>Correlation Analysis</em>
+            views — or tune the active predictor set in <em>Model Configuration</em> and click
+            <strong>Apply</strong> to recompute with your custom variable selection.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN APPLICATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
     # ═══════════════════════════════════════════════════════════════════════════
-    # LOAD DATA FIRST — needed to populate dynamic predictor options
+    # SESSION STATE INIT — explicit defaults on every cold start
     # ═══════════════════════════════════════════════════════════════════════════
-    with st.spinner("Loading market data..."):
-        raw_df = load_data()
-
-    if raw_df is None:
-        st.stop()
-
-    available_predictors = [
-        col for col in raw_df.columns
-        if col not in NON_PREDICTOR_COLS and pd.api.types.is_numeric_dtype(raw_df[col])
-    ]
-
-    # Initialize or validate session-state predictors against actual columns
-    if 'active_predictors' not in st.session_state:
-        st.session_state['active_predictors'] = tuple(available_predictors)
-    else:
-        valid = tuple(p for p in st.session_state['active_predictors'] if p in available_predictors)
-        st.session_state['active_predictors'] = valid if valid else tuple(available_predictors)
+    st.session_state.setdefault('analysis_started', False)
+    st.session_state.setdefault('active_predictors', None)
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # SIDEBAR
+    # SIDEBAR — content differs between landing and analysis states
     # ═══════════════════════════════════════════════════════════════════════════
+    analysis_started = st.session_state['analysis_started']
+
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
@@ -1347,14 +1721,66 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
+
+        if not analysis_started:
+            # ── Landing sidebar: Run Analysis is the only action ──────
+            st.markdown('<div class="sidebar-title">▶ Start</div>', unsafe_allow_html=True)
+            if st.button("▶  Run Analysis", use_container_width=True, type="primary"):
+                st.session_state['analysis_started'] = True
+                st.rerun()
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class='info-box'>
+                <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
+                    <strong>Version:</strong> {VERSION}<br>
+                    <strong>Engine:</strong> OU · Kalman · Spearman<br>
+                    <strong>Data:</strong> {COMPANY}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── Landing page in main area ─────────────────────────────────────
+    if not analysis_started:
+        render_landing_page()
+        return
+
+    # ── Past this point: analysis is running ─────────────────────────
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # LOAD DATA FIRST — needed to populate dynamic predictor options
+    # ═══════════════════════════════════════════════════════════════════════════
+    _prog = st.empty()
+    _progress_bar(_prog, 5, "Fetching market data", "Google Sheets · service account auth · CSV decode")
+    raw_df = load_data()
+
+    if raw_df is None:
+        _prog.empty()
+        st.stop()
+
+    available_predictors = [
+        col for col in raw_df.columns
+        if col not in NON_PREDICTOR_COLS and pd.api.types.is_numeric_dtype(raw_df[col])
+    ]
+
+    # Initialize or validate session-state predictors against actual columns
+    current_preds = st.session_state.get('active_predictors')
+    if not current_preds:
+        st.session_state['active_predictors'] = tuple(available_predictors)
+    else:
+        valid = tuple(p for p in current_preds if p in available_predictors)
+        st.session_state['active_predictors'] = valid if valid else tuple(available_predictors)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SIDEBAR — analysis controls
+    # ═══════════════════════════════════════════════════════════════════════════
+    with st.sidebar:
         view_mode = st.radio(
             "View Mode",
             ["📈 Historical Mood", "🔍 Similar Periods", "📋 Correlation Analysis"],
             label_visibility="collapsed"
         )
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
+
         st.markdown('<div class="sidebar-title">⚙️ Controls</div>', unsafe_allow_html=True)
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
@@ -1425,19 +1851,6 @@ def main():
         </div>
         """, unsafe_allow_html=True)
     
-    # ═══════════════════════════════════════════════════════════════════════════
-    # HEADER
-    # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown(f"""
-        <div class="premium-header">
-            <h1>ARTHAGATI : Market Sentiment Analysis</h1>
-            <div class="tagline">Ornstein-Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Separator between header and cards
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
     # ── Data Staleness Check ────────────────────────────────────────────
     latest_date = raw_df['DATE'].max()
     ist_tz = pytz.timezone('Asia/Kolkata')
@@ -1458,17 +1871,24 @@ def main():
         </div>
         """, unsafe_allow_html=True)
     
-    with st.spinner("Calculating mood scores..."):
-        selected_preds = st.session_state.get('active_predictors', tuple(available_predictors))
-        mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
-    
+    _progress_bar(_prog, 40, "Computing correlations", "Decay-weighted Spearman · PE & EY anchors")
+    selected_preds = st.session_state.get('active_predictors', tuple(available_predictors))
+
+    _progress_bar(_prog, 65, "Running sentiment engine", "OU normalization · Kalman smoothing · 5-layer pipeline")
+    mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
+
     if mood_df.empty:
+        _prog.empty()
         st.error("Failed to calculate mood scores.")
         st.stop()
-    
-    # Calculate MSF Spread
+
+    _progress_bar(_prog, 88, "Computing MSF spread", "Momentum · Structure · Regime · Flow · inverse-variance weights")
     msf_df = calculate_msf_spread(mood_df)
     mood_df['MSF_Spread'] = msf_df['msf_spread'].values if not msf_df.empty else 0
+
+    _progress_bar(_prog, 100, "Ready", "All systems nominal")
+    time.sleep(0.25)
+    _prog.empty()
     
     # ═══════════════════════════════════════════════════════════════════════════
     # METRIC CARDS
@@ -1777,12 +2197,6 @@ def render_historical_mood(mood_df, msf_df):
                     x=dates[i], line_color=transition_color,
                     line_width=1, line_dash='dot', opacity=0.5,
                     row=1, col=1
-                )
-                fig.add_annotation(
-                    x=dates[i], y=df['Mood_Score'].values[i],
-                    text=regimes[i][:4], showarrow=False,
-                    font=dict(size=7, color=transition_color),
-                    yshift=12, row=1, col=1
                 )
     
     # ─────────────────────────────────────────────────────────────────────────
@@ -2397,5 +2811,4 @@ def render_correlation_analysis(raw_df):
 # RUN APPLICATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-if __name__ == "__main__":
-    main()
+main()
