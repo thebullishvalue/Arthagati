@@ -256,7 +256,6 @@ _DESIGN_CSS = """
     
     .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
     .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
-    .premium-header .product-badge { display: inline-block; background: rgba(var(--primary-rgb), 0.15); color: var(--primary-color); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem; }
     
     .metric-card {
         background-color: var(--bg-card);
@@ -333,10 +332,6 @@ _DESIGN_CSS = """
     ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
 
     /* ── Themed loading state ─────────────────────────────────────── */
-    @keyframes shimmer-sweep {
-        0%   { transform: translateX(-100%); }
-        100% { transform: translateX(500%); }
-    }
     @keyframes pulse-glow {
         0%, 100% { opacity: 0.6; }
         50%       { opacity: 1.0; }
@@ -357,14 +352,6 @@ _DESIGN_CSS = """
         top: 0; left: 0; right: 0; bottom: 0;
         background: radial-gradient(circle at 0% 50%, rgba(var(--primary-rgb), 0.06) 0%, transparent 60%);
         pointer-events: none;
-    }
-    .loading-shimmer-bar {
-        position: absolute;
-        top: 0; left: 0;
-        width: 18%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.18), transparent);
-        animation: shimmer-sweep 1.6s ease-in-out infinite;
     }
     .loading-label {
         font-size: 0.85rem;
@@ -393,81 +380,6 @@ _DESIGN_CSS = """
         top: -1px;
     }
 
-    /* ── Landing page ─────────────────────────────────────────────── */
-    .landing-hero {
-        text-align: center;
-        padding: 5rem 2rem 3rem;
-        max-width: 680px;
-        margin: 0 auto;
-    }
-    .landing-wordmark {
-        font-size: 4rem;
-        font-weight: 800;
-        color: var(--text-primary);
-        letter-spacing: -3px;
-        line-height: 1;
-        margin: 0;
-    }
-    .landing-wordmark span { color: var(--primary-color); }
-    .landing-devanagari {
-        font-size: 1rem;
-        color: var(--text-muted);
-        letter-spacing: 3px;
-        margin: 0.4rem 0 1.5rem;
-        font-weight: 300;
-    }
-    .landing-divider {
-        width: 48px;
-        height: 2px;
-        background: var(--primary-color);
-        margin: 0 auto 2rem;
-        border-radius: 2px;
-    }
-    .landing-tagline {
-        font-size: 0.95rem;
-        color: var(--text-muted);
-        line-height: 1.9;
-        margin-bottom: 2.5rem;
-        font-weight: 400;
-    }
-    .landing-feature-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-        max-width: 640px;
-        margin: 2.5rem auto 0;
-        text-align: left;
-    }
-    .landing-feature-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border-color);
-        border-radius: 12px;
-        padding: 1.1rem 1.25rem;
-        transition: border-color 0.25s;
-    }
-    .landing-feature-card:hover { border-color: var(--border-light); }
-    .landing-feature-icon { font-size: 1.3rem; margin-bottom: 0.4rem; }
-    .landing-feature-title {
-        font-size: 0.8rem;
-        font-weight: 700;
-        color: var(--text-primary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 0.25rem;
-    }
-    .landing-feature-desc {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        line-height: 1.5;
-    }
-    .landing-company {
-        font-size: 0.7rem;
-        color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 3px;
-        margin-bottom: 1.5rem;
-        font-weight: 600;
-    }
 </style>
 """
 
@@ -1516,7 +1428,7 @@ def render_landing_page() -> None:
     # ── Main header ──────────────────────────────────────────────────
     st.markdown("""
     <div class="premium-header">
-        <h1>ARTHAGATI <span style="color: var(--primary-color);">|</span> Market Sentiment Analysis</h1>
+        <h1>ARTHAGATI <span style="color: var(--primary-color);">:</span> Market Sentiment Analysis</h1>
         <div class="tagline">Ornstein-Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
     </div>
     """, unsafe_allow_html=True)
