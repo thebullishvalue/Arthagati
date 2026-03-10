@@ -845,7 +845,7 @@ def load_data() -> pd.DataFrame | None:
         df = df[core + [c for c in df.columns if c not in core]].sort_values('DATE').reset_index(drop=True)
 
         # Derive NIFTY50_EY from PE if the sheet omits it or populates it as a constant.
-        # EY = 1/PE × 100.  Every US recession…
+        # EY = 1/PE × 100.
         if 'NIFTY50_PE' in df.columns and df['NIFTY50_PE'].gt(0).any():
             if 'NIFTY50_EY' not in df.columns or df['NIFTY50_EY'].nunique() <= 1:
                 df['NIFTY50_EY'] = (1.0 / df['NIFTY50_PE'].replace(0, np.nan) * 100).fillna(0)
@@ -1060,7 +1060,7 @@ def calculate_historical_mood(df, dependent_vars=None):
         'Smoothed_Mood_Score': smoothed_mood_scores,
         'Mood_Volatility': mood_volatility.values,
         'NIFTY': df['NIFTY'].values,
-        'AD_RATIO': df['AD_RATIO'].values if 'AD_RATIO' in df.columns else 1.0,
+        'AD_RATIO': df['AD_RATIO'].values if 'AD_RATIO' in df.columns else np.ones(n),
         # v2.0 diagnostics
         'Hurst': hurst_vals,
         'Market_Entropy': entropy_vals,
@@ -1772,16 +1772,16 @@ def render_historical_mood(mood_df, msf_df):
         dates   = df['DATE'].values
         for i in range(1, len(regimes)):
             if regimes[i] != regimes[i - 1] and regimes[i] != 'Unknown':
-                reg_color = REGIME_STYLES.get(regimes[i], (C_MUTED, 'neutral'))[0]
+                transition_color = REGIME_STYLES.get(regimes[i], (C_MUTED, 'neutral'))[0]
                 fig.add_vline(
-                    x=dates[i], line_color=reg_color,
+                    x=dates[i], line_color=transition_color,
                     line_width=1, line_dash='dot', opacity=0.5,
                     row=1, col=1
                 )
                 fig.add_annotation(
                     x=dates[i], y=df['Mood_Score'].values[i],
                     text=regimes[i][:4], showarrow=False,
-                    font=dict(size=7, color=reg_color),
+                    font=dict(size=7, color=transition_color),
                     yshift=12, row=1, col=1
                 )
     
@@ -2118,7 +2118,7 @@ def render_similar_periods(mood_df):
     
     # Compute mood_score at T vs NIFTY return at T+30 for all historical points
     n = len(mood_df)
-    horizon = 30
+    horizon = BACKTEST_HORIZON
     if n > horizon + 10:
         bt_mood = mood_df['Mood_Score'].values[:n - horizon]
         bt_nifty = mood_df['NIFTY'].values

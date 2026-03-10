@@ -116,12 +116,25 @@ The app loads **all columns** present in the sheet — any column beyond `EXPECT
 
 ## Configuration
 
+### Secrets (never in source)
+
+Sheet credentials and document coordinates live exclusively in `.streamlit/secrets.toml` (local) or the Streamlit Cloud Secrets panel (deployed). See `.streamlit/secrets.toml.example` for the required structure.
+
+```toml
+[google_service_account]
+# Full service account JSON fields (type, project_id, private_key, client_email, …)
+
+[sheet]
+id  = "<spreadsheet-id>"   # long alphanumeric string in the Sheet URL
+gid = "<worksheet-gid>"    # numeric tab ID in the URL after #gid=
+```
+
+The service account email must have at least **Viewer** access to the sheet.
+
 ### Code Constants
 
 | Constant | Default | Description |
 |----------|---------|-------------|
-| `SHEET_ID` | `1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c` | Google Sheets document ID |
-| `SHEET_GID` | `1938234952` | Sheet tab GID (visible in the URL after `#gid=`) |
 | `DATA_TTL` | `3600` | Cache TTL for the Sheets fetch (seconds) |
 | `CORR_HALF_LIFE` | `504` | Spearman recency weight half-life (days) |
 | `PCT_HALF_LIFE` | `252` | Adaptive ECDF recency weight half-life (days) |
@@ -130,6 +143,7 @@ The app loads **all columns** present in the sheet — any column beyond `EXPECT
 | `OU_PROJ_DAYS` | `90` | OU forward projection horizon (calendar days) |
 | `MSF_WINDOW` | `20` | MSF rolling window (bars) |
 | `MSF_ROC_LEN` | `14` | NIFTY rate-of-change period (bars) |
+| `BACKTEST_HORIZON` | `30` | Forward-return horizon for backtest scatter (trading days) |
 
 ### Predictor Selection (Sidebar → Model Configuration)
 
@@ -213,10 +227,18 @@ Below the period summary, a breakdown shows each MSF component's current contrib
 
 ## Setup
 
-1. Set the Google Sheet (ID `SHEET_ID`, tab `SHEET_GID`) to **"Anyone with the link can view"**
-2. Populate columns per the schema above — extra columns are automatically picked up
+### Local
+
+1. Create a Google Cloud service account with Sheets read-only scope and share the target sheet with its email (Viewer is enough)
+2. Copy `.streamlit/secrets.toml.example` → `.streamlit/secrets.toml` and fill in the service account fields and sheet coordinates
 3. Install dependencies: `pip install -r requirements.txt`
 4. Run: `streamlit run arthagati.py`
+
+### Streamlit Cloud (GitHub deployment)
+
+1. Push the repo to GitHub — `secrets.toml` is gitignored and will not be committed
+2. In Streamlit Cloud: **App Settings → Secrets** — paste the full TOML content from your local `secrets.toml`
+3. Deploy — the app reads `st.secrets` identically in both environments; no code change needed
 
 ---
 

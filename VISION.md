@@ -288,4 +288,17 @@ The `export` endpoint returns a clean, direct CSV with no additional encoding, h
 
 ---
 
+**Q: Why service account authentication rather than a public "Anyone with link" sheet?**
+
+The Google Sheet is market intelligence — position data, macro inputs, and regime readings that are proprietary to Hemrek Capital. Making it public-readable is a data-leak risk regardless of whether the URL is obscure. A Google service account (`google-auth`, read-only Sheets scope) gives cryptographic access control: only the service account email can read the sheet, credentials live in `st.secrets` (never in source), and access can be revoked instantly by removing the service account from the sheet's sharing settings.
+
+The architecture is:
+- `_fetch_sheet_csv()` — authenticates and returns raw CSV text
+- `load_data()` — parses and transforms, knows nothing about auth
+- `st.secrets` — the only place credentials exist; `.gitignore` ensures they are never committed
+
+This is the same pattern used for any API key. The sheet is treated as a private API endpoint, not a public URL.
+
+---
+
 *© 2026 Arthagati · Hemrek Capital*
