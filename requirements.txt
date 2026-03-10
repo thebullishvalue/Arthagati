@@ -1,6 +1,21 @@
-streamlit
-pandas
-numpy
-plotly
-pandas_ta
-pytz
+# ──────────────────────────────────────────────────────────────────────────────
+# ARTHAGATI — Python Dependencies
+# Hemrek Capital · v2.1.0
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Install:  pip install -r requirements.txt
+# Python:   >= 3.10  (required for built-in type hints: dict[...], int | None)
+#
+
+# Web application framework
+streamlit >= 1.32.0
+
+# Data manipulation
+pandas    >= 2.1.0
+numpy     >= 1.26.0
+
+# Charting
+plotly    >= 5.20.0
+
+# Timezone utilities
+pytz      >= 2024.1

@@ -6,19 +6,17 @@ Quantitative market mood analysis with MSF-enhanced indicators.
 TradingView-style charting with institutional-grade analytics.
 """
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
-import pandas_ta as ta
-from io import BytesIO
 import logging
 import time
-import pytz
+from datetime import datetime
 
-# Configure logging
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import pytz
+import streamlit as st
+from plotly.subplots import make_subplots
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -32,48 +30,124 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-VERSION = "v2.1.0"
+# ══════════════════════════════════════════════════════════════════════════════
+# IDENTITY
+# ══════════════════════════════════════════════════════════════════════════════
+
+VERSION      = "v2.1.0"
 PRODUCT_NAME = "Arthagati"
-COMPANY = "Hemrek Capital"
+COMPANY      = "Hemrek Capital"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GOOGLE SHEETS CONFIGURATION
+# DATA SOURCE
 # ══════════════════════════════════════════════════════════════════════════════
 
-SHEET_ID = "1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c"
+SHEET_ID  = "1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c"
 SHEET_GID = "1938234952"
 
 EXPECTED_COLUMNS = [
-    'DATE', 'NIFTY', 'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'BREADTH', 'COUNT', 
-    'NIFTY50_PE', 'NIFTY50_EY', 'NIFTY50_DY', 'NIFTY50_PB', 'IN10Y', 'IN02Y', 'IN30Y', 
-    'INIRYY', 'REPO', 'CRR', 'US02Y', 'US10Y', 'US30Y', 'US_FED', 'PE_DEV', 'EY_DEV'
+    'DATE', 'NIFTY',
+    'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'BREADTH', 'COUNT',
+    'NIFTY50_PE', 'NIFTY50_EY', 'NIFTY50_DY', 'NIFTY50_PB',
+    'IN10Y', 'IN02Y', 'IN30Y', 'INIRYY',
+    'REPO', 'CRR',
+    'US02Y', 'US10Y', 'US30Y', 'US_FED',
+    'PE_DEV', 'EY_DEV',
 ]
 
 DEPENDENT_VARS = [
-    'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'BREADTH', 'COUNT', 'IN10Y', 'IN02Y', 
-    'IN30Y', 'INIRYY', 'REPO', 'CRR', 'US02Y', 'US30Y', 'US10Y', 'US_FED', 'NIFTY50_DY',
-    'NIFTY50_PB', 'PE_DEV', 'EY_DEV',
-    'IN_TERM_SPREAD', 'US_TERM_SPREAD'  # v2.0: derived yield curve slopes
+    'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'BREADTH', 'COUNT',
+    'IN10Y', 'IN02Y', 'IN30Y', 'INIRYY',
+    'REPO', 'CRR',
+    'US02Y', 'US10Y', 'US30Y', 'US_FED',
+    'NIFTY50_DY', 'NIFTY50_PB',
+    'PE_DEV', 'EY_DEV',
+    'IN_TERM_SPREAD', 'US_TERM_SPREAD',  # derived yield-curve slopes
 ]
 
-# Timeframe Configuration
-TIMEFRAMES = {
-    '1W': 7,
-    '1M': 30,
-    '3M': 90,
-    '6M': 180,
-    'YTD': None,
-    '1Y': 365,
-    '2Y': 730,
-    '5Y': 1825,
-    'MAX': None  # Show all data
+# Columns that are anchors or index keys, never predictors
+NON_PREDICTOR_COLS: frozenset[str] = frozenset({'DATE', 'NIFTY', 'NIFTY50_PE', 'NIFTY50_EY'})
+
+# Timeframe labels → calendar-day window (None = use all data / special handling)
+TIMEFRAMES: dict[str, int | None] = {
+    '1W':  7,
+    '1M':  30,
+    '3M':  90,
+    '6M':  180,
+    'YTD': None,   # computed at runtime from Jan 1
+    '1Y':  365,
+    '2Y':  730,
+    '5Y':  1825,
+    'MAX': None,   # all available rows
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HEMREK CAPITAL DESIGN SYSTEM (Nirnay-Grade)
+# COLOUR PALETTE  (mirrors CSS :root variables — keep both in sync)
 # ══════════════════════════════════════════════════════════════════════════════
 
-st.markdown("""
+C_PRIMARY = '#FFC300'
+C_GREEN   = '#10b981'
+C_RED     = '#ef4444'
+C_AMBER   = '#f59e0b'
+C_CYAN    = '#06b6d4'
+C_MUTED   = '#888888'
+C_BG_CARD = '#1A1A1A'
+C_BG_GRID = '#2A2A2A'
+C_TEXT    = '#EAEAEA'
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODEL HYPERPARAMETERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Correlation engine
+CORR_HALF_LIFE  = 504    # ~2 trading years; exponential recency weight for Spearman
+PCT_HALF_LIFE   = 252    # ~1 trading year;  recency weight for adaptive ECDF
+MOOD_SCALE      = 30.0   # maps OU-normalised signal → mood score
+KALMAN_CI_Z     = 1.96   # Kalman confidence band (≈95%)
+DATA_TTL        = 3600   # Streamlit cache TTL for the Google Sheets fetch (seconds)
+
+# MSF Spread indicator
+MSF_WINDOW      = 20     # rolling window for all MSF components
+MSF_ROC_LEN     = 14     # NIFTY rate-of-change period
+MSF_ZSCORE_CLIP = 3.0    # Z-score clipping threshold
+MSF_SCALE       = 10.0   # output scaling factor
+
+# Similar-period finder
+SIMILAR_W_MAHA  = 0.55   # Mahalanobis distance weight
+SIMILAR_W_TRAJ  = 0.35   # trajectory cosine-similarity weight
+SIMILAR_W_RECV  = 0.10   # recency decay weight
+TRAJ_WINDOW     = 20     # trajectory comparison window (trading days)
+BACKTEST_HORIZON = 30    # default forward-return horizon (trading days)
+
+# Chart display
+OU_PROJ_DAYS    = 90     # OU mean-reversion projection horizon (calendar days)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DOMAIN LOOK-UP TABLES
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Maps regime label → (hex colour, CSS card class)
+REGIME_STYLES: dict[str, tuple[str, str]] = {
+    'Trending':       (C_GREEN, 'success'),
+    'Volatile Trend': (C_AMBER, 'warning'),
+    'Mean-Reverting': (C_CYAN,  'info'),
+    'Choppy':         (C_RED,   'danger'),
+    'Unknown':        (C_MUTED, 'neutral'),
+}
+
+# Shared Plotly dark-theme base for all figures
+PLOTLY_BASE: dict = dict(
+    template='plotly_dark',
+    plot_bgcolor=C_BG_CARD,
+    paper_bgcolor=C_BG_CARD,
+    font=dict(color=C_TEXT, family='Inter'),
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DESIGN SYSTEM
+# ══════════════════════════════════════════════════════════════════════════════
+
+_DESIGN_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
     
@@ -246,7 +320,9 @@ st.markdown("""
     ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
 </style>
-""", unsafe_allow_html=True)
+"""
+
+st.markdown(_DESIGN_CSS, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
@@ -671,33 +747,45 @@ def detect_regime_transitions(hurst_values, entropy_values, window=10):
 # DATA LOADING
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=DATA_TTL, show_spinner=False)
 def load_data():
     """Load market data from Google Sheets."""
     start_time = time.time()
     try:
-        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid={SHEET_GID}"
-        df = pd.read_csv(url, usecols=lambda x: x in EXPECTED_COLUMNS, dtype=str)
-        
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
+        df = pd.read_csv(url, dtype=str)
+
+        # Clean column names: strip whitespace, drop unnamed columns
+        df.columns = [c.strip() for c in df.columns]
+        df = df[[c for c in df.columns if not c.startswith('Unnamed')]]
+
+        if 'DATE' not in df.columns or 'NIFTY' not in df.columns:
+            raise ValueError("Required columns DATE and NIFTY not found in the Sheet.")
+
         if not any(col in df.columns for col in EXPECTED_COLUMNS):
             raise ValueError("None of the expected columns found in the Sheet.")
-        
+
+        # Fill any missing EXPECTED_COLUMNS with 0
         missing_columns = [col for col in EXPECTED_COLUMNS if col not in df.columns]
         if missing_columns:
             logging.warning(f"Missing columns: {missing_columns}. Setting to 0.0.")
             for col in missing_columns:
                 df[col] = "0.0"
-        
+
         df['DATE'] = pd.to_datetime(df['DATE'], format='%m/%d/%Y', errors='coerce')
-        
-        numeric_cols = [col for col in EXPECTED_COLUMNS if col != 'DATE']
-        df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
-        
+
+        # Convert all non-DATE columns to numeric
+        non_date_cols = [col for col in df.columns if col != 'DATE']
+        df[non_date_cols] = df[non_date_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
+
         df = df[df['NIFTY'] > 0].dropna(subset=['DATE']).copy()
         if df.empty:
             raise ValueError("No valid rows with positive NIFTY or valid DATE.")
-        
-        df = df[EXPECTED_COLUMNS].sort_values('DATE').reset_index(drop=True)
+
+        # Keep DATE and NIFTY first, then all other columns (preserving extra sheet columns)
+        core_cols = ['DATE', 'NIFTY']
+        extra_cols = [c for c in df.columns if c not in core_cols]
+        df = df[core_cols + extra_cols].sort_values('DATE').reset_index(drop=True)
         
         # v2.0: Ensure NIFTY50_EY has real data.
         # EY (Earnings Yield) = 1/PE × 100. If the sheet has PE but EY is
@@ -759,7 +847,7 @@ def calculate_anchor_correlations(df, anchor, dependent_vars=None):
     
     anchor_vals = analysis_df[anchor].values
     n = len(anchor_vals)
-    half_life = min(504, n // 2) if n > 20 else max(n // 2, 5)
+    half_life = min(CORR_HALF_LIFE, n // 2) if n > 20 else max(n // 2, 5)
     weights = exponential_decay_weights(n, half_life)
     
     correlations = []
@@ -833,9 +921,9 @@ def calculate_historical_mood(df, dependent_vars=None):
     ey_weights = _build_weights(ey_corrs)
     
     # ── Layer 3: Adaptive Percentiles ───────────────────────────────────
-    # Half-life = 252 trading days (1 year). Recent market structure
+    # Half-life = PCT_HALF_LIFE trading days (~1 year). Recent market structure
     # matters more than ancient history for positioning.
-    pct_hl = min(252, n // 2) if n > 20 else max(n // 2, 5)
+    pct_hl = min(PCT_HALF_LIFE, n // 2) if n > 20 else max(n // 2, 5)
     
     pe_percentiles = adaptive_percentile(df['NIFTY50_PE'].values, half_life=pct_hl)
     ey_percentiles = adaptive_percentile(df['NIFTY50_EY'].values, half_life=pct_hl)
@@ -885,7 +973,7 @@ def calculate_historical_mood(df, dependent_vars=None):
     sigma_ou = max(sigma_ou, 1e-6)
     ou_stationary_std = max(sigma_ou / np.sqrt(2.0 * max(theta, 1e-4)), 1e-6)
     
-    mood_scores = np.clip((rough_scaled - mu) / ou_stationary_std * 30.0, -100, 100)
+    mood_scores = np.clip((rough_scaled - mu) / ou_stationary_std * MOOD_SCALE, -100, 100)
     
     # OU half-life: the expected time for the current deviation to halve
     ou_half_life = np.log(2) / max(theta, 1e-4)
@@ -893,10 +981,10 @@ def calculate_historical_mood(df, dependent_vars=None):
     # ── Layer 5: Kalman Smoothing ───────────────────────────────────────
     smoothed_mood_scores, kalman_gains, kalman_variances = kalman_filter_1d(mood_scores)
     
-    # Confidence band: ±1.96 * sqrt(variance) for ~95% interval
+    # Confidence band: ±KALMAN_CI_Z * sqrt(variance) for ~95% interval
     kalman_std = np.sqrt(np.maximum(kalman_variances, 0))
-    confidence_upper = smoothed_mood_scores + 1.96 * kalman_std
-    confidence_lower = smoothed_mood_scores - 1.96 * kalman_std
+    confidence_upper = smoothed_mood_scores + KALMAN_CI_Z * kalman_std
+    confidence_lower = smoothed_mood_scores - KALMAN_CI_Z * kalman_std
     
     # Traditional volatility (backward compatible)
     mood_volatility = pd.Series(mood_scores).rolling(window=30, min_periods=1).std().fillna(0)
@@ -962,11 +1050,6 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
         Stable components get more weight — minimum-variance portfolio of signals.
     """
     start_time = time.time()
-    
-    length = 20
-    roc_len = 14
-    clip = 3.0
-    
     result = pd.DataFrame(index=df.index)
     n = len(df)
     
@@ -983,37 +1066,37 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
         return result
     
     # ── Component 1: Momentum (NIFTY ROC z-score) ──────────────────────
-    roc_raw = nifty_series.pct_change(roc_len, fill_method=None)
-    roc_z = zscore_clipped(roc_raw, length, clip)
+    roc_raw = nifty_series.pct_change(MSF_ROC_LEN, fill_method=None)
+    roc_z = zscore_clipped(roc_raw, MSF_WINDOW, MSF_ZSCORE_CLIP)
     momentum_norm = sigmoid(roc_z, 1.5)
-    
+
     # ── Component 2: Structure (Mood trend divergence + acceleration) ──
     trend_fast = mood_series.rolling(5, min_periods=1).mean()
-    trend_slow = mood_series.rolling(length, min_periods=1).mean()
-    trend_diff_z = zscore_clipped(trend_fast - trend_slow, length, clip)
+    trend_slow = mood_series.rolling(MSF_WINDOW, min_periods=1).mean()
+    trend_diff_z = zscore_clipped(trend_fast - trend_slow, MSF_WINDOW, MSF_ZSCORE_CLIP)
     mood_accel_raw = mood_series.diff(5).diff(5)
-    mood_accel_z = zscore_clipped(mood_accel_raw, length, clip)
+    mood_accel_z = zscore_clipped(mood_accel_raw, MSF_WINDOW, MSF_ZSCORE_CLIP)
     structure_z = (trend_diff_z + mood_accel_z) / np.sqrt(2.0)
     structure_norm = sigmoid(structure_z, 1.5)
-    
+
     # ── Component 3: Regime (Adaptive threshold) ────────────────────────
     # v1.x: fixed 0.0033 threshold. v2.0: scales with local volatility.
     # A move is "directional" only if it exceeds half a local std.
     pct_change = nifty_series.pct_change(fill_method=None).fillna(0)
-    rolling_vol = pct_change.rolling(window=length, min_periods=5).std().fillna(0.003)
+    rolling_vol = pct_change.rolling(window=MSF_WINDOW, min_periods=5).std().fillna(0.003)
     adaptive_threshold = (rolling_vol * 0.5).clip(lower=0.001)
-    
+
     regime_signals = np.where(pct_change > adaptive_threshold, 1,
                      np.where(pct_change < -adaptive_threshold, -1, 0))
     regime_count = pd.Series(regime_signals, index=df.index).cumsum()
-    regime_raw = regime_count - regime_count.rolling(length, min_periods=1).mean()
-    regime_z = zscore_clipped(regime_raw, length, clip)
+    regime_raw = regime_count - regime_count.rolling(MSF_WINDOW, min_periods=1).mean()
+    regime_z = zscore_clipped(regime_raw, MSF_WINDOW, MSF_ZSCORE_CLIP)
     regime_norm = sigmoid(regime_z, 1.5)
-    
+
     # ── Component 4: Breadth Flow ───────────────────────────────────────
-    breadth_ma = breadth_series.rolling(length, min_periods=1).mean()
+    breadth_ma = breadth_series.rolling(MSF_WINDOW, min_periods=1).mean()
     breadth_ratio = breadth_series / breadth_ma.replace(0, 1)
-    breadth_z = zscore_clipped(breadth_ratio - 1, length, clip)
+    breadth_z = zscore_clipped(breadth_ratio - 1, MSF_WINDOW, MSF_ZSCORE_CLIP)
     flow_norm = sigmoid(breadth_z, 1.5)
     
     # ── Inverse-Variance Weighting ──────────────────────────────────────
@@ -1038,13 +1121,13 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     weights = {k: v / total_inv_var for k, v in inv_vars.items()}
     
     msf_raw = sum(weights[name] * comp for name, comp in components.items())
-    msf_spread = msf_raw * 10
-    
+    msf_spread = msf_raw * MSF_SCALE
+
     result['msf_spread'] = msf_spread
-    result['momentum'] = momentum_norm * 10
-    result['structure'] = structure_norm * 10
-    result['regime'] = regime_norm * 10
-    result['flow'] = flow_norm * 10
+    result['momentum']   = momentum_norm  * MSF_SCALE
+    result['structure']  = structure_norm * MSF_SCALE
+    result['regime']     = regime_norm    * MSF_SCALE
+    result['flow']       = flow_norm      * MSF_SCALE
     
     weight_str = ', '.join(f"{k}={v:.0%}" for k, v in weights.items())
     logging.info(f"v2.0 MSF in {time.time() - start_time:.2f}s [{weight_str}]")
@@ -1076,7 +1159,7 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
         return []
     
     # ── Build Feature Vectors ───────────────────────────────────────────
-    nifty_roc = df['NIFTY'].pct_change(14).fillna(0).values
+    nifty_roc = df['NIFTY'].pct_change(MSF_ROC_LEN).fillna(0).values
     
     feature_cols = ['Mood_Score', 'Mood_Volatility']
     current_features = [latest['Mood_Score'], latest['Mood_Volatility']]
@@ -1122,28 +1205,27 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
     max_dist = maha_dist.max() if maha_dist.max() > 0 else 1.0
     maha_sim = 1.0 - (maha_dist / max_dist)
     
-    # ── Part 2: Trajectory Cosine Similarity (35%) ──────────────────────
-    traj_window = 20
+    # ── Part 2: Trajectory Cosine Similarity (SIMILAR_W_TRAJ) ──────────
     traj_sim = np.zeros(len(historical))
-    
-    if n > traj_window:
-        current_traj = df['Mood_Score'].values[-traj_window:]
-        ct_detrended = current_traj - np.linspace(current_traj[0], current_traj[-1], traj_window)
-        
+
+    if n > TRAJ_WINDOW:
+        current_traj = df['Mood_Score'].values[-TRAJ_WINDOW:]
+        ct_detrended = current_traj - np.linspace(current_traj[0], current_traj[-1], TRAJ_WINDOW)
+
         for j, idx in enumerate(historical.index):
             pos = df.index.get_loc(idx)
-            if pos >= traj_window:
-                hist_traj = df['Mood_Score'].values[pos - traj_window:pos]
-                ht_detrended = hist_traj - np.linspace(hist_traj[0], hist_traj[-1], traj_window)
+            if pos >= TRAJ_WINDOW:
+                hist_traj = df['Mood_Score'].values[pos - TRAJ_WINDOW:pos]
+                ht_detrended = hist_traj - np.linspace(hist_traj[0], hist_traj[-1], TRAJ_WINDOW)
                 traj_sim[j] = (cosine_similarity(ct_detrended, ht_detrended) + 1) / 2
-    
-    # ── Part 3: Exponential Recency Decay (10%) ─────────────────────────
+
+    # ── Part 3: Exponential Recency Decay (SIMILAR_W_RECV) ──────────────
     days_since = (latest['DATE'] - historical['DATE']).dt.days.values.astype(float)
     recency = np.exp(-np.log(2) * days_since / 365.0) * recency_weight
     recency_norm = recency / max(recency.max(), 1e-6)
-    
+
     # ── Combined ────────────────────────────────────────────────────────
-    combined = 0.55 * maha_sim + 0.35 * traj_sim + 0.10 * recency_norm
+    combined = SIMILAR_W_MAHA * maha_sim + SIMILAR_W_TRAJ * traj_sim + SIMILAR_W_RECV * recency_norm
     
     historical = historical.copy()
     historical['similarity'] = combined
@@ -1184,6 +1266,27 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
 
 def main():
     # ═══════════════════════════════════════════════════════════════════════════
+    # LOAD DATA FIRST — needed to populate dynamic predictor options
+    # ═══════════════════════════════════════════════════════════════════════════
+    with st.spinner("Loading market data..."):
+        raw_df = load_data()
+
+    if raw_df is None:
+        st.stop()
+
+    available_predictors = [
+        col for col in raw_df.columns
+        if col not in NON_PREDICTOR_COLS and pd.api.types.is_numeric_dtype(raw_df[col])
+    ]
+
+    # Initialize or validate session-state predictors against actual columns
+    if 'active_predictors' not in st.session_state:
+        st.session_state['active_predictors'] = tuple(available_predictors)
+    else:
+        valid = tuple(p for p in st.session_state['active_predictors'] if p in available_predictors)
+        st.session_state['active_predictors'] = valid if valid else tuple(available_predictors)
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # SIDEBAR
     # ═══════════════════════════════════════════════════════════════════════════
     with st.sidebar:
@@ -1211,32 +1314,28 @@ def main():
         
         # ── Model Configuration ──
         st.markdown('<div class="sidebar-title">🧠 Model Configuration</div>', unsafe_allow_html=True)
-        
-        # Initialize active predictors on first run
-        if 'active_predictors' not in st.session_state:
-            st.session_state['active_predictors'] = tuple(DEPENDENT_VARS)
-        
+
         with st.expander("Predictor Columns", expanded=False):
             st.caption("Select predictors, then click Apply to recompute.")
-            
-            # Staging multiselect — user plays with this freely, no recompute
+
+            # Staging multiselect — options are all numeric columns from the sheet
             staging_predictors = st.multiselect(
                 "Predictor Columns",
-                options=DEPENDENT_VARS,
+                options=available_predictors,
                 default=list(st.session_state['active_predictors']),
                 label_visibility="collapsed",
                 help="These columns are used as dependent variables for PE & EY correlation-weighted mood scoring."
             )
-            
+
             if not staging_predictors:
                 st.warning("⚠️ Select at least one predictor.")
                 staging_predictors = list(st.session_state['active_predictors'])
-            
+
             # Show diff between staging and active
             staging_set = set(staging_predictors)
             active_set = set(st.session_state['active_predictors'])
             has_changes = staging_set != active_set
-            
+
             if has_changes:
                 added = staging_set - active_set
                 removed = active_set - staging_set
@@ -1246,7 +1345,7 @@ def main():
                 if removed:
                     changes.append(f"−{len(removed)} removed")
                 st.caption(f"Pending: {', '.join(changes)}")
-            
+
             # Apply button — only this triggers recomputation
             apply_clicked = st.button(
                 "✅ Apply Configuration" if has_changes else "No changes",
@@ -1254,14 +1353,14 @@ def main():
                 disabled=not has_changes,
                 type="primary" if has_changes else "secondary"
             )
-            
+
             if apply_clicked and has_changes:
                 st.session_state['active_predictors'] = tuple(staging_predictors)
                 st.cache_data.clear()
                 st.rerun()
-            
+
             active_count = len(st.session_state['active_predictors'])
-            total_count = len(DEPENDENT_VARS)
+            total_count = len(available_predictors)
             if active_count != total_count:
                 st.info(f"Active: {active_count}/{total_count} predictors")
         
@@ -1289,15 +1388,6 @@ def main():
     # Separator between header and cards
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     
-    # ═══════════════════════════════════════════════════════════════════════════
-    # DATA LOADING
-    # ═══════════════════════════════════════════════════════════════════════════
-    with st.spinner("Loading market data..."):
-        raw_df = load_data()
-    
-    if raw_df is None:
-        st.stop()
-    
     # ── Data Staleness Check ────────────────────────────────────────────
     latest_date = raw_df['DATE'].max()
     ist_tz = pytz.timezone('Asia/Kolkata')
@@ -1319,7 +1409,7 @@ def main():
         """, unsafe_allow_html=True)
     
     with st.spinner("Calculating mood scores..."):
-        selected_preds = st.session_state.get('active_predictors', tuple(DEPENDENT_VARS))
+        selected_preds = st.session_state.get('active_predictors', tuple(available_predictors))
         mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
     
     if mood_df.empty:
@@ -1378,11 +1468,10 @@ def main():
         """, unsafe_allow_html=True)
     
     with col2:
-        msf_color = '#06b6d4'  # Cyan to match trace
         st.markdown(f"""
         <div class="metric-card {msf_class}">
             <h4>MSF Spread</h4>
-            <h2 style="color: {msf_color};">{msf_spread:+.2f}</h2>
+            <h2 style="color: {C_CYAN};">{msf_spread:+.2f}</h2>
             <div class="sub-metric">{msf_label}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -1410,14 +1499,7 @@ def main():
     d1, d2, d3, d4 = st.columns(4)
     
     current_regime = latest.get('Regime', 'Unknown')
-    regime_colors = {
-        'Trending': ('#10b981', 'success'),
-        'Volatile Trend': ('#f59e0b', 'warning'),
-        'Mean-Reverting': ('#06b6d4', 'info'),
-        'Choppy': ('#ef4444', 'danger'),
-        'Unknown': ('#888888', 'neutral'),
-    }
-    reg_color, reg_class = regime_colors.get(current_regime, ('#888888', 'neutral'))
+    reg_color, reg_class = REGIME_STYLES.get(current_regime, (C_MUTED, 'neutral'))
     
     with d1:
         st.markdown(f"""
@@ -1549,7 +1631,7 @@ def render_historical_mood(mood_df, msf_df):
     # ROW 1: MOOD SCORE (Main Chart) - YELLOW
     # ─────────────────────────────────────────────────────────────────────────
     
-    # Kalman Confidence Band (±1.96σ, ~95% interval)
+    # Kalman Confidence Band (±KALMAN_CI_Z σ, ~95% interval)
     if 'Confidence_Upper' in df.columns and 'Confidence_Lower' in df.columns:
         fig.add_trace(
             go.Scatter(
@@ -1563,73 +1645,60 @@ def render_historical_mood(mood_df, msf_df):
                 x=df['DATE'], y=df['Confidence_Lower'],
                 mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip',
                 fill='tonexty', fillcolor='rgba(255,195,0,0.08)',
-                name='95% Confidence'
+                name='95% Confidence',
             ),
             row=1, col=1
         )
-    
-    # Mood Score Line
+
+    # Mood Score line
     fig.add_trace(
         go.Scattergl(
-            x=df['DATE'],
-            y=df['Mood_Score'],
-            mode='lines',
-            name='Mood Score',
-            line=dict(color='#FFC300', width=2),
+            x=df['DATE'], y=df['Mood_Score'],
+            mode='lines', name='Mood Score',
+            line=dict(color=C_PRIMARY, width=2),
             hovertemplate='<b>%{x|%d %b %Y}</b><br>Mood: %{y:.2f}<extra></extra>',
         ),
         row=1, col=1
     )
-    
-    # Only zero line reference
+
+    # Zero reference
     fig.add_hline(y=0, line_color='#757575', line_width=1, line_dash='dash', row=1, col=1)
-    
-    # Current value annotation
+
+    # Current-value annotation
     last_point = df.iloc[-1]
     fig.add_annotation(
-        x=last_point['DATE'],
-        y=last_point['Mood_Score'],
+        x=last_point['DATE'], y=last_point['Mood_Score'],
         text=f"<b>{last_point['Mood_Score']:.1f}</b>",
-        showarrow=True,
-        arrowhead=2,
-        arrowcolor='#FFC300',
-        ax=40,
-        ay=0,
-        bgcolor='#1A1A1A',
-        bordercolor='#FFC300',
-        borderwidth=1,
-        font=dict(color='#FFC300', size=11),
+        showarrow=True, arrowhead=2, arrowcolor=C_PRIMARY,
+        ax=40, ay=0,
+        bgcolor=C_BG_CARD, bordercolor=C_PRIMARY, borderwidth=1,
+        font=dict(color=C_PRIMARY, size=11),
         row=1, col=1
     )
     
     # ── OU Forward Projection (dotted line) ─────────────────────────────
     # E[x(t+n)] = μ + (x_current − μ) · exp(−θ·n)
-    # This shows where the mood is expected to revert to over the next 90 days
     ou_theta = float(last_point.get('OU_Theta', 0.05))
-    ou_mu = float(last_point.get('OU_Mu', 0.0))
+    ou_mu    = float(last_point.get('OU_Mu',    0.0))
     ou_sigma = float(last_point.get('OU_Sigma', 1.0))
     ou_stationary_std_proj = ou_sigma / np.sqrt(2.0 * max(ou_theta, 1e-4))
-    
-    current_mood_raw = last_point['Mood_Score']
+
     last_date = last_point['DATE']
-    
-    projection_days = 90
-    proj_dates = pd.date_range(start=last_date, periods=projection_days + 1, freq='D')[1:]
-    proj_n = np.arange(1, projection_days + 1, dtype=np.float64)
-    
-    # Convert current mood back to OU-space, project, convert back
-    # The mood score = (rough_scaled - mu) / ou_stationary_std * 30
-    # So in OU-space: x = current_mood / 30 * ou_stationary_std + mu
-    x_current_ou = current_mood_raw / 30.0 * max(ou_stationary_std_proj, 1e-6) + ou_mu
-    proj_ou = ou_mu + (x_current_ou - ou_mu) * np.exp(-ou_theta * proj_n)
-    proj_mood = (proj_ou - ou_mu) / max(ou_stationary_std_proj, 1e-6) * 30.0
-    proj_mood = np.clip(proj_mood, -100, 100)
-    
+    proj_dates = pd.date_range(start=last_date, periods=OU_PROJ_DAYS + 1, freq='D')[1:]
+    proj_n     = np.arange(1, OU_PROJ_DAYS + 1, dtype=np.float64)
+
+    # Convert current mood → OU-space, project, convert back.
+    # mood_score = (rough_scaled − μ) / ou_stationary_std × MOOD_SCALE
+    # → OU-space: x = mood / MOOD_SCALE × ou_stationary_std + μ
+    x_current_ou = last_point['Mood_Score'] / MOOD_SCALE * max(ou_stationary_std_proj, 1e-6) + ou_mu
+    proj_ou   = ou_mu + (x_current_ou - ou_mu) * np.exp(-ou_theta * proj_n)
+    proj_mood = np.clip((proj_ou - ou_mu) / max(ou_stationary_std_proj, 1e-6) * MOOD_SCALE, -100, 100)
+
     fig.add_trace(
         go.Scatter(
             x=proj_dates, y=proj_mood,
             mode='lines', name='OU Projection',
-            line=dict(color='#FFC300', width=1.5, dash='dot'),
+            line=dict(color=C_PRIMARY, width=1.5, dash='dot'),
             opacity=0.5,
             hovertemplate='<b>%{x|%d %b %Y}</b><br>Projected: %{y:.1f}<extra></extra>',
         ),
@@ -1650,22 +1719,19 @@ def render_historical_mood(mood_df, msf_df):
     # ── Regime Transition Markers ───────────────────────────────────────
     if 'Regime' in df.columns:
         regimes = df['Regime'].values
-        dates = df['DATE'].values
-        regime_colors_map = {
-            'Trending': '#10b981', 'Volatile Trend': '#f59e0b',
-            'Mean-Reverting': '#06b6d4', 'Choppy': '#ef4444',
-        }
+        dates   = df['DATE'].values
         for i in range(1, len(regimes)):
             if regimes[i] != regimes[i - 1] and regimes[i] != 'Unknown':
+                reg_color = REGIME_STYLES.get(regimes[i], (C_MUTED, 'neutral'))[0]
                 fig.add_vline(
-                    x=dates[i], line_color=regime_colors_map.get(regimes[i], '#555'),
+                    x=dates[i], line_color=reg_color,
                     line_width=1, line_dash='dot', opacity=0.5,
                     row=1, col=1
                 )
                 fig.add_annotation(
                     x=dates[i], y=df['Mood_Score'].values[i],
                     text=regimes[i][:4], showarrow=False,
-                    font=dict(size=7, color=regime_colors_map.get(regimes[i], '#555')),
+                    font=dict(size=7, color=reg_color),
                     yshift=12, row=1, col=1
                 )
     
@@ -1673,22 +1739,19 @@ def render_historical_mood(mood_df, msf_df):
     # ROW 2: MSF SPREAD INDICATOR (Oscillator Pane) - CYAN
     # ─────────────────────────────────────────────────────────────────────────
     
-    # MSF Spread Line
+    # MSF Spread line
     msf_values = msf_filtered['msf_spread'].values
-    
+
     fig.add_trace(
         go.Scattergl(
-            x=df['DATE'],
-            y=msf_values,
-            mode='lines',
-            name='MSF Spread',
-            line=dict(color='#06b6d4', width=2),
+            x=df['DATE'], y=msf_values,
+            mode='lines', name='MSF Spread',
+            line=dict(color=C_CYAN, width=2),
             hovertemplate='<b>%{x|%d %b %Y}</b><br>MSF: %{y:.2f}<extra></extra>',
         ),
         row=2, col=1
     )
-    
-    # Only zero line reference
+
     fig.add_hline(y=0, line_color='#757575', line_width=1, row=2, col=1)
     
     # ─────────────────────────────────────────────────────────────────────────
@@ -1738,42 +1801,26 @@ def render_historical_mood(mood_df, msf_df):
                 if mood_vals[i] > prev_mood_max and curr_msf_max < prev_msf_max:
                     green_signals.append(i)
     
-    # Add red triangles at y=5 (top, inverted)
+    # Red triangles at y=5 (bearish divergence, top)
     if red_signals:
         fig.add_trace(
             go.Scatter(
-                x=[df['DATE'].iloc[i] for i in red_signals],
-                y=[5] * len(red_signals),
-                mode='markers',
-                name='Bearish Signal',
-                marker=dict(
-                    symbol='triangle-down',
-                    size=8,
-                    color='#ef4444',
-                    line=dict(color='#ef4444', width=1)
-                ),
-                hoverinfo='skip',
-                showlegend=False
+                x=[df['DATE'].iloc[i] for i in red_signals], y=[5] * len(red_signals),
+                mode='markers', name='Bearish Signal',
+                marker=dict(symbol='triangle-down', size=8, color=C_RED, line=dict(color=C_RED, width=1)),
+                hoverinfo='skip', showlegend=False,
             ),
             row=2, col=1
         )
-    
-    # Add green triangles at y=-5 (bottom)
+
+    # Green triangles at y=-5 (bullish divergence, bottom)
     if green_signals:
         fig.add_trace(
             go.Scatter(
-                x=[df['DATE'].iloc[i] for i in green_signals],
-                y=[-5] * len(green_signals),
-                mode='markers',
-                name='Bullish Signal',
-                marker=dict(
-                    symbol='triangle-up',
-                    size=8,
-                    color='#10b981',
-                    line=dict(color='#10b981', width=1)
-                ),
-                hoverinfo='skip',
-                showlegend=False
+                x=[df['DATE'].iloc[i] for i in green_signals], y=[-5] * len(green_signals),
+                mode='markers', name='Bullish Signal',
+                marker=dict(symbol='triangle-up', size=8, color=C_GREEN, line=dict(color=C_GREEN, width=1)),
+                hoverinfo='skip', showlegend=False,
             ),
             row=2, col=1
         )
@@ -1783,40 +1830,21 @@ def render_historical_mood(mood_df, msf_df):
     # ─────────────────────────────────────────────────────────────────────────
     
     fig.update_layout(
+        **PLOTLY_BASE,
         height=750,
-        template='plotly_dark',
-        plot_bgcolor='#1A1A1A',
-        paper_bgcolor='#1A1A1A',
-        font=dict(color='#EAEAEA', family='Inter'),
         hovermode='x unified',
         showlegend=True,
-        legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=1.05,  # Moved up to avoid toolbar overlap
-            xanchor='right',
-            x=1,
-            font=dict(size=11)
-        ),
-        margin=dict(l=60, r=20, t=80, b=40),  # Increased top margin
-        xaxis2=dict(
-            showgrid=True,
-            gridcolor='#2A2A2A',
-            type='date'
-        ),
+        legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1, font=dict(size=11)),
+        margin=dict(l=60, r=20, t=80, b=40),
+        xaxis2=dict(showgrid=True, gridcolor=C_BG_GRID, type='date'),
         yaxis=dict(
-            title=dict(text='Mood Score', font=dict(size=11, color='#888888')),
-            showgrid=True,
-            gridcolor='#2A2A2A',
-            zeroline=False,
-            autorange='reversed'
+            title=dict(text='Mood Score', font=dict(size=11, color=C_MUTED)),
+            showgrid=True, gridcolor=C_BG_GRID, zeroline=False, autorange='reversed',
         ),
         yaxis2=dict(
-            title=dict(text='MSF Spread', font=dict(size=11, color='#888888')),
-            showgrid=True,
-            gridcolor='#2A2A2A',
-            zeroline=False
-        )
+            title=dict(text='MSF Spread', font=dict(size=11, color=C_MUTED)),
+            showgrid=True, gridcolor=C_BG_GRID, zeroline=False,
+        ),
     )
     
     # Add separator line between charts (horizontal line at the boundary)
@@ -1833,7 +1861,7 @@ def render_historical_mood(mood_df, msf_df):
     
     # Remove x-axis grid on row 1 for cleaner look
     fig.update_xaxes(showgrid=False, row=1, col=1)
-    fig.update_xaxes(showgrid=True, gridcolor='#2A2A2A', row=2, col=1)
+    fig.update_xaxes(showgrid=True, gridcolor=C_BG_GRID, row=2, col=1)
     
     st.plotly_chart(fig, config={
         'displayModeBar': True,
@@ -2056,8 +2084,7 @@ def render_similar_periods(mood_df):
             # Compute correlation
             bt_corr = np.corrcoef(bt_mood_clean, bt_fwd_clean)[0, 1] if len(bt_mood_clean) > 2 else 0
             
-            # Color by mood: green if mood was positive, red if negative
-            colors = np.where(bt_mood_clean > 0, '#10b981', '#ef4444')
+            colors = np.where(bt_mood_clean > 0, C_GREEN, C_RED)
             
             fig_bt = go.Figure()
             
@@ -2075,7 +2102,7 @@ def render_similar_periods(mood_df):
                 x_range = np.linspace(bt_mood_clean.min(), bt_mood_clean.max(), 50)
                 fig_bt.add_trace(go.Scatter(
                     x=x_range, y=z[0] * x_range + z[1],
-                    mode='lines', line=dict(color='#FFC300', width=2, dash='dash'),
+                    mode='lines', line=dict(color=C_PRIMARY, width=2, dash='dash'),
                     name=f'ρ = {bt_corr:.2f}', showlegend=True,
                 ))
             
@@ -2084,19 +2111,16 @@ def render_similar_periods(mood_df):
             fig_bt.add_vline(x=0, line_color='#555', line_width=1, line_dash='dot')
             
             fig_bt.update_layout(
+                **PLOTLY_BASE,
                 height=400,
-                template='plotly_dark',
-                plot_bgcolor='#1A1A1A',
-                paper_bgcolor='#1A1A1A',
-                font=dict(color='#EAEAEA', family='Inter'),
-                xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor='#2A2A2A'),
-                yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor='#2A2A2A'),
+                xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor=C_BG_GRID),
+                yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor=C_BG_GRID),
                 margin=dict(l=60, r=20, t=30, b=50),
                 legend=dict(
                     x=0.02, y=0.98,
                     bgcolor='rgba(26,26,26,0.8)',
-                    bordercolor='#2A2A2A', borderwidth=1,
-                    font=dict(size=11)
+                    bordercolor=C_BG_GRID, borderwidth=1,
+                    font=dict(size=11),
                 ),
             )
             
@@ -2129,7 +2153,11 @@ def render_similar_periods(mood_df):
 def render_correlation_analysis(raw_df):
     """Render correlation analysis with data diagnostics and predictor recommendations."""
     
-    active_preds = st.session_state.get('active_predictors', tuple(DEPENDENT_VARS))
+    all_avail = tuple(
+        c for c in raw_df.columns
+        if c not in NON_PREDICTOR_COLS and pd.api.types.is_numeric_dtype(raw_df[c])
+    )
+    active_preds = st.session_state.get('active_predictors', all_avail)
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
@@ -2210,7 +2238,7 @@ def render_correlation_analysis(raw_df):
     """, unsafe_allow_html=True)
     
     # Build quality scores for all predictors
-    all_vars = [col for col in DEPENDENT_VARS if col in raw_df.columns]
+    all_vars = [col for col in raw_df.columns if col not in NON_PREDICTOR_COLS and pd.api.types.is_numeric_dtype(raw_df[col])]
     
     quality_rows = []
     for var in all_vars:
