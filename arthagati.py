@@ -1686,7 +1686,7 @@ def main():
     # LOAD DATA FIRST — needed to populate dynamic predictor options
     # ═══════════════════════════════════════════════════════════════════════════
     _prog = st.empty()
-    _progress_bar(_prog, 5, "Fetching market data", "Google Sheets · service account auth · CSV decode")
+    _progress_bar(_prog, 5, "Fetching market data", "Google Sheets · Service Account Auth · CSV Decode")
     raw_df = load_data()
 
     if raw_df is None:
@@ -1810,7 +1810,7 @@ def main():
     _progress_bar(_prog, 40, "Computing correlations", "Decay-weighted Spearman · PE & EY anchors")
     selected_preds = st.session_state.get('active_predictors', tuple(available_predictors))
 
-    _progress_bar(_prog, 65, "Running sentiment engine", "OU normalization · Kalman smoothing · 5-layer pipeline")
+    _progress_bar(_prog, 65, "Running Sentiment Engine", "OU Normalization · Kalman Smoothing · 5-Layer Pipeline")
     mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
 
     if mood_df.empty:
@@ -1818,7 +1818,7 @@ def main():
         st.error("Failed to calculate mood scores.")
         st.stop()
 
-    _progress_bar(_prog, 88, "Computing MSF spread", "Momentum · Structure · Regime · Flow · inverse-variance weights")
+    _progress_bar(_prog, 88, "Computing MSF spread", "Momentum · Structure · Regime · Flow · Inverse-Variance Weights")
     msf_df = calculate_msf_spread(mood_df)
     mood_df['MSF_Spread'] = msf_df['msf_spread'].values if not msf_df.empty else 0
 
