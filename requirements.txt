@@ -1,6 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # ARTHAGATI — Python Dependencies
-# Hemrek Capital · v2.1.0
+# Hemrek Capital · v2.2.1
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # Install:  pip install -r requirements.txt

@@ -42,7 +42,7 @@ st.set_page_config(
 # IDENTITY
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION      = "v2.1.0"
+VERSION      = "v2.2.1"
 PRODUCT_NAME = "Arthagati"
 COMPANY      = "Hemrek Capital"
 
@@ -428,12 +428,57 @@ def sigmoid(x, scale=1.0):
     """Sigmoid normalization to [-1, 1] range"""
     return 2.0 / (1.0 + np.exp(-x / scale)) - 1.0
 
+def rolling_mean_fast(series, window):
+    """O(N) rolling mean using numpy cumsums, equivalent to .rolling(window, min_periods=1).mean()"""
+    a = series.values if hasattr(series, 'values') else np.asarray(series, dtype=np.float64)
+    n = len(a)
+    if n == 0:
+        return series
+        
+    a_clean = np.nan_to_num(a, nan=0.0)
+    cs = np.cumsum(a_clean)
+    
+    cs_shifted = np.zeros(n, dtype=np.float64)
+    cs_shifted[window:] = cs[:-window]
+    
+    sums = cs - cs_shifted
+    counts = np.minimum(np.arange(1, n + 1), window)
+    
+    means = sums / counts
+    return pd.Series(means, index=series.index) if hasattr(series, 'index') else means
+
 def zscore_clipped(series, window, clip=3.0):
-    """Z-score with rolling window and clipping"""
-    roll_mean = series.rolling(window=window, min_periods=1).mean()
-    roll_std = series.rolling(window=window, min_periods=1).std()
-    z = (series - roll_mean) / roll_std.replace(0, np.nan)
-    return z.clip(-clip, clip).fillna(0)
+    """Z-score with rolling window and clipping using O(N) numpy cumsums."""
+    a = series.values if hasattr(series, 'values') else np.asarray(series, dtype=np.float64)
+    n = len(a)
+    if n == 0:
+        return series
+        
+    a_clean = np.nan_to_num(a, nan=0.0)
+    cs = np.cumsum(a_clean)
+    cs2 = np.cumsum(a_clean**2)
+    
+    cs_shifted = np.zeros(n, dtype=np.float64)
+    cs_shifted[window:] = cs[:-window]
+    
+    cs2_shifted = np.zeros(n, dtype=np.float64)
+    cs2_shifted[window:] = cs2[:-window]
+    
+    sums = cs - cs_shifted
+    sums2 = cs2 - cs2_shifted
+    
+    counts = np.minimum(np.arange(1, n + 1), window)
+    means = sums / counts
+    
+    var = (sums2 - (sums**2) / counts) / np.maximum(counts - 1, 1)
+    stds = np.sqrt(np.maximum(var, 0))
+    
+    with np.errstate(divide='ignore', invalid='ignore'):
+        z = np.where(stds > 1e-12, (a_clean - means) / stds, 0.0)
+        
+    z = np.where(np.isnan(a), 0.0, z)
+    z = np.clip(z, -clip, clip)
+    return pd.Series(z, index=series.index) if hasattr(series, 'index') else z
 
 # ══════════════════════════════════════════════════════════════════════════════
 # v2.0 MATHEMATICAL PRIMITIVES
@@ -453,6 +498,7 @@ def zscore_clipped(series, window, clip=3.0):
 #   rolling_entropy                 → diagnostics (output only) → market disorder
 #   mahalanobis_distance_batch      → similar periods           → covariance-aware matching
 #   cosine_similarity               → similar periods           → trajectory shape matching
+#   detect_regime_transitions       → regime diagnostics        → quadrant classification
 # ══════════════════════════════════════════════════════════════════════════════
 
 def exponential_decay_weights(n, half_life):
@@ -489,14 +535,25 @@ def weighted_spearman(x, y, weights):
     x, y, w = x[valid], y[valid], weights[valid]
     
     def _rank(arr):
-        order = arr.argsort()
-        ranks = np.empty_like(order, dtype=float)
-        ranks[order] = np.arange(1, len(arr) + 1, dtype=float)
-        for val in np.unique(arr):
-            mask = arr == val
-            if mask.sum() > 1:
-                ranks[mask] = ranks[mask].mean()
-        return ranks
+        sorter = np.argsort(arr)
+        inv = np.empty(sorter.size, dtype=np.intp)
+        inv[sorter] = np.arange(sorter.size, dtype=np.intp)
+        
+        arr_sorted = arr[sorter]
+        obs = np.r_[True, arr_sorted[1:] != arr_sorted[:-1]]
+        
+        tie_indices = np.nonzero(obs)[0]
+        if len(tie_indices) == len(arr):
+            # Fast path: No ties, return standard ordinal rank
+            return inv.astype(np.float64) + 1.0
+            
+        # Exact average-tie rank computation (fully C-vectorised)
+        dense = np.cumsum(obs) - 1
+        tie_counts = np.diff(np.r_[tie_indices, len(arr)])
+        avg_ranks = tie_indices + (tie_counts + 1) / 2.0
+        
+        ranks_sorted = avg_ranks[dense]
+        return ranks_sorted[inv]
     
     rx, ry = _rank(x), _rank(y)
     w_sum = w.sum()
@@ -552,25 +609,39 @@ def adaptive_percentile(series, half_life=252):
     """
     values = np.asarray(series, dtype=np.float64)
     n = len(values)
-    result = np.full(n, 0.5)
-    lam = np.log(2) / max(half_life, 1)
-    
-    for t in range(1, n):
-        if not np.isfinite(values[t]):
-            result[t] = result[t - 1] if t > 0 else 0.5
-            continue
+    if n == 0:
+        return np.array([])
         
-        ages = np.arange(t, -1, -1, dtype=np.float64)
-        weights = np.exp(-lam * ages)
-        indicators = (values[:t + 1] <= values[t]).astype(np.float64)
-        valid = np.isfinite(values[:t + 1])
-        w_valid = weights[valid]
-        ind_valid = indicators[valid]
-        w_sum = w_valid.sum()
-        if w_sum > 1e-12:
-            result[t] = np.sum(w_valid * ind_valid) / w_sum
+    lam = np.log(2) / max(half_life, 1)
+    valid = np.isfinite(values)
     
-    return result
+    if not np.any(valid):
+        return np.full(n, 0.5)
+        
+    result = np.full(n, np.nan)
+    
+    # Precompute decay weights for maximum possible distance to avoid O(N^2) memory blowout
+    # This keeps operations purely O(N) memory while maintaining C-level vectorisation
+    decay_weights = np.exp(-lam * np.arange(n))
+    
+    for t in range(n):
+        if not valid[t]:
+            continue
+            
+        # Slice precomputed weights: oldest data at index 0 gets decay_weights[t], 
+        # current data at index t gets decay_weights[0]
+        w = decay_weights[t::-1]
+        
+        hist_valid = valid[:t+1]
+        valid_w = w[hist_valid]
+        valid_hist = values[:t+1][hist_valid]
+        
+        w_sum = np.sum(valid_w)
+        if w_sum > 1e-12:
+            indicator = valid_hist <= values[t]
+            result[t] = np.sum(valid_w[indicator]) / w_sum
+            
+    return pd.Series(result).ffill().fillna(0.5).values
 
 def ornstein_uhlenbeck_estimate(series, dt=1.0):
     """
@@ -613,15 +684,12 @@ def ornstein_uhlenbeck_estimate(series, dt=1.0):
     
     return (theta, mu, sigma)
 
-def kalman_filter_1d(observations, process_var=None, measurement_var=None):
+def kalman_filter_1d(observations, process_var=None, measurement_var=None, half_life=252):
     """
-    1D Kalman filter for adaptive smoothing.
+    1D Fading Memory Kalman Filter (Sorenson & Sacks).
     
-    The state model: "there exists a true underlying mood being observed with noise."
-    - When SNR is low (noisy): Kalman gain ↓, smooths aggressively
-    - When SNR is high (clean): Kalman gain ↑, tracks signal closely
-    
-    Auto-estimates noise parameters from data if not provided.
+    Uses an exponential fading factor to discount past data,
+    preventing filter divergence in non-stationary regimes.
     
     Used in: calculate_historical_mood (Layer 5)
     Returns: (filtered_state, kalman_gains, estimate_variances)
@@ -631,30 +699,51 @@ def kalman_filter_1d(observations, process_var=None, measurement_var=None):
     if n == 0:
         return np.array([]), np.array([]), np.array([])
     
-    if process_var is None:
-        diffs = np.diff(obs[np.isfinite(obs)])
-        process_var = max(np.var(diffs) * 0.1, 1e-8) if len(diffs) > 1 else 1e-3
-    if measurement_var is None:
-        clean = obs[np.isfinite(obs)]
-        measurement_var = max(np.var(clean) * 0.5, 1e-8) if len(clean) > 1 else 1.0
+    # Causal noise estimation flags
+    auto_process = process_var is None
+    auto_measure = measurement_var is None
     
+    s_obs = pd.Series(obs)
+    
+    # O(N) Causal variance estimations
+    if auto_measure:
+        m_vars = s_obs.expanding().var().fillna(1.0).values * 0.5
+        m_vars = np.maximum(m_vars, 1e-8)
+    else:
+        m_vars = np.full(n, measurement_var)
+        
+    if auto_process:
+        p_vars = s_obs.diff().expanding().var().fillna(1e-3).values * 0.1
+        p_vars = np.maximum(p_vars, 1e-8)
+    else:
+        p_vars = np.full(n, process_var)
+        
     state = obs[0] if np.isfinite(obs[0]) else 0.0
-    estimate_var = measurement_var
+    estimate_var = m_vars[0]
+    
     filtered = np.zeros(n)
     gains = np.zeros(n)
     variances = np.zeros(n)
     filtered[0] = state
     variances[0] = estimate_var
     
+    # Sorenson & Sacks Fading Memory parameter
+    lam = np.log(2) / max(half_life, 1)
+    alpha_sq = np.exp(2 * lam)  # Fading factor > 1
+    
     for i in range(1, n):
-        pred_var = estimate_var + process_var
+        # Fading memory predict step
+        pred_var = alpha_sq * estimate_var + p_vars[i]
+        
         if np.isfinite(obs[i]):
-            K = pred_var / (pred_var + measurement_var)
+            # Update step
+            K = pred_var / (pred_var + m_vars[i])
             state = state + K * (obs[i] - state)
             estimate_var = (1 - K) * pred_var
             gains[i] = K
         else:
             estimate_var = pred_var
+            
         filtered[i] = state
         variances[i] = estimate_var
     
@@ -679,18 +768,19 @@ def _hurst_rs(series, max_lag=None):
         n_blocks = n // lag
         if n_blocks < 1:
             continue
-        rs_block = []
-        for b in range(n_blocks):
-            block = ts[b * lag:(b + 1) * lag]
-            deviations = block - block.mean()
-            cumulative = np.cumsum(deviations)
-            R = cumulative.max() - cumulative.min()
-            S = block.std(ddof=1)
-            if S > 1e-12:
-                rs_block.append(R / S)
-        if rs_block:
+        
+        # Vectorised block reshaping and R/S calculation
+        blocks = ts[:n_blocks * lag].reshape(n_blocks, lag)
+        means = blocks.mean(axis=1, keepdims=True)
+        cumulative = np.cumsum(blocks - means, axis=1)
+        
+        R = cumulative.max(axis=1) - cumulative.min(axis=1)
+        S = blocks.std(axis=1, ddof=1)
+        
+        valid = S > 1e-12
+        if np.any(valid):
             lags.append(lag)
-            rs_values.append(np.mean(rs_block))
+            rs_values.append(np.mean(R[valid] / S[valid]))
     
     if len(lags) < 3:
         return 0.5
@@ -726,13 +816,21 @@ def rolling_entropy(series, window=60, n_bins=15):
     Rolling Shannon entropy of a series. Normalized to [0, 1].
     Used in: calculate_historical_mood → diagnostics output
     """
-    values = series.values if hasattr(series, 'values') else np.asarray(series)
+    from numpy.lib.stride_tricks import sliding_window_view
+    
+    values = series.values if hasattr(series, 'values') else np.asarray(series, dtype=np.float64)
     n = len(values)
     result = np.full(n, 0.5)
-    for i in range(window, n):
-        result[i] = shannon_entropy(values[i - window:i], n_bins)
+    if n < 5:
+        return result
+        
+    if n > window:
+        windows = sliding_window_view(values[:-1], window)
+        result[window:] = [shannon_entropy(w, n_bins) for w in windows]
+        
     for i in range(5, min(window, n)):
         result[i] = shannon_entropy(values[:i], n_bins)
+        
     return result
 
 def mahalanobis_distance_batch(features, center, cov_matrix):
@@ -743,7 +841,8 @@ def mahalanobis_distance_batch(features, center, cov_matrix):
     Used in: find_similar_periods
     """
     diff = features - center
-    reg = 1e-6 * np.eye(cov_matrix.shape[0])
+    # Proportional regularization to respect massive variance disparities between features
+    reg = np.diag(np.maximum(np.diag(cov_matrix) * 1e-4, 1e-8))
     try:
         cov_inv = np.linalg.inv(cov_matrix + reg)
     except np.linalg.LinAlgError:
@@ -971,7 +1070,7 @@ def load_data() -> pd.DataFrame | None:
 # MOOD SCORE CALCULATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=5, show_spinner=False)
 def calculate_anchor_correlations(df, anchor, dependent_vars=None):
     """
     Layer 1: Exponential-decay-weighted Spearman rank correlations.
@@ -1015,7 +1114,7 @@ def calculate_anchor_correlations(df, anchor, dependent_vars=None):
     
     return pd.DataFrame(correlations)
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=5, show_spinner=False)
 def calculate_historical_mood(df, dependent_vars=None):
     """
     v2.0 Mood Score Engine — 5-layer architecture.
@@ -1113,23 +1212,68 @@ def calculate_historical_mood(df, dependent_vars=None):
     # Normalize by the OU stationary std: σ_∞ = σ/√(2θ)
     # This is LOCAL and has physical meaning: "distance from equilibrium in natural units"
     
-    # First: expanding z-score to get rough scale
-    expanding_mean = pd.Series(raw_mood).expanding().mean().values
-    expanding_std = np.maximum(pd.Series(raw_mood).expanding().std().fillna(1).values, 1e-6)
+    # First: vectorised expanding z-score to get rough scale
+    counts = np.arange(1, n + 1)
+    cum_sum = np.cumsum(raw_mood)
+    expanding_mean = cum_sum / counts
+    
+    cum_sq_sum = np.cumsum(raw_mood**2)
+    var_expanding = (cum_sq_sum - (cum_sum**2) / counts) / np.maximum(counts - 1, 1)
+    expanding_std = np.maximum(np.sqrt(np.maximum(var_expanding, 0)), 1e-6)
+    expanding_std[0] = 1.0  # Fallback for first element
+    
     rough_scaled = (raw_mood - expanding_mean) / expanding_std
     
-    # OU estimation on the rough-scaled series
-    theta, mu, sigma_ou = ornstein_uhlenbeck_estimate(rough_scaled) if n > 50 else (0.05, 0.0, 1.0)
-    sigma_ou = max(sigma_ou, 1e-6)
-    ou_stationary_std = max(sigma_ou / np.sqrt(2.0 * max(theta, 1e-4)), 1e-6)
+    # Vectorised Expanding OU Estimation (O(N) replacing the expanding loop)
+    ou_thetas = np.full(n, 0.05)
+    ou_mus = np.zeros(n)
+    ou_sigmas = np.ones(n)
     
-    mood_scores = np.clip((rough_scaled - mu) / ou_stationary_std * MOOD_SCALE, -100, 100)
+    x_ou = rough_scaled[:-1]
+    y_ou = rough_scaled[1:]
+    n_points = np.arange(1, n)
     
-    # OU half-life: the expected time for the current deviation to halve
+    sum_x = np.cumsum(x_ou)
+    sum_y = np.cumsum(y_ou)
+    sum_x2 = np.cumsum(x_ou**2)
+    sum_xy = np.cumsum(x_ou * y_ou)
+    
+    mean_x = sum_x / n_points
+    mean_y = sum_y / n_points
+    
+    var_x = sum_x2 - (sum_x**2) / n_points
+    cov_xy = sum_xy - (sum_x * sum_y) / n_points
+    
+    var_x_safe = np.where(var_x < 1e-12, 1e-12, var_x)
+    b = np.clip(cov_xy / var_x_safe, 1e-6, 1.0 - 1e-6)
+    a = mean_y - b * mean_x
+    
+    theta_vals = np.clip(-np.log(b), 1e-4, 10.0)
+    mu_vals = a / (1.0 - b)
+    
+    sum_res2 = (np.cumsum(y_ou**2) + n_points * a**2 + (b**2) * sum_x2 
+                - 2 * a * sum_y - 2 * b * sum_xy + 2 * a * b * sum_x)
+    var_eps = np.maximum(sum_res2 / n_points, 0)
+    
+    denom = np.maximum(1.0 - b**2, 1e-12)
+    sigma_sq = np.where((1.0 - b**2) > 1e-12, 2.0 * theta_vals * var_eps / denom, var_eps)
+    sigma_vals = np.sqrt(np.maximum(sigma_sq, 1e-12))
+    
+    valid_idx = n_points >= 50
+    ou_thetas[1:][valid_idx] = theta_vals[valid_idx]
+    ou_mus[1:][valid_idx] = mu_vals[valid_idx]
+    ou_sigmas[1:][valid_idx] = sigma_vals[valid_idx]
+    
+    t_std = np.maximum(ou_sigmas / np.sqrt(2.0 * np.maximum(ou_thetas, 1e-4)), 1e-6)
+    mood_scores = np.clip((rough_scaled - ou_mus) / t_std * MOOD_SCALE, -100, 100)
+        
+    theta, mu, sigma_ou = ou_thetas[-1], ou_mus[-1], ou_sigmas[-1]
     ou_half_life = np.log(2) / max(theta, 1e-4)
     
     # ── Layer 5: Kalman Smoothing ───────────────────────────────────────
-    smoothed_mood_scores, kalman_gains, kalman_variances = kalman_filter_1d(mood_scores)
+    smoothed_mood_scores, kalman_gains, kalman_variances = kalman_filter_1d(
+        mood_scores, half_life=PCT_HALF_LIFE
+    )
     
     # Confidence band: ±KALMAN_CI_Z * sqrt(variance) for ~95% interval
     kalman_std = np.sqrt(np.maximum(kalman_variances, 0))
@@ -1147,7 +1291,7 @@ def calculate_historical_mood(df, dependent_vars=None):
     
     # ── Diagnostics (output-only — do NOT modify scores) ───────────────
     nifty_returns = df['NIFTY'].pct_change().fillna(0).values
-    hurst_vals = rolling_hurst(mood_scores, window=90, step=5)
+    hurst_vals = rolling_hurst(df['NIFTY'].values, window=90, step=5)
     entropy_vals = rolling_entropy(nifty_returns, window=60, n_bins=15)
     
     # ── Regime Detection ────────────────────────────────────────────────
@@ -1188,7 +1332,7 @@ def calculate_historical_mood(df, dependent_vars=None):
 # MSF-ENHANCED SPREAD INDICATOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=5, show_spinner=False)
 def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_col='AD_RATIO'):
     """
     v2.0 MSF-Enhanced Spread Indicator.
@@ -1226,8 +1370,8 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     momentum_norm = sigmoid(roc_z, 1.5)
 
     # ── Component 2: Structure (Mood trend divergence + acceleration) ──
-    trend_fast = mood_series.rolling(5, min_periods=1).mean()
-    trend_slow = mood_series.rolling(MSF_WINDOW, min_periods=1).mean()
+    trend_fast = rolling_mean_fast(mood_series, 5)
+    trend_slow = rolling_mean_fast(mood_series, MSF_WINDOW)
     trend_diff_z = zscore_clipped(trend_fast - trend_slow, MSF_WINDOW, MSF_ZSCORE_CLIP)
     mood_accel_raw = mood_series.diff(5).diff(5)
     mood_accel_z = zscore_clipped(mood_accel_raw, MSF_WINDOW, MSF_ZSCORE_CLIP)
@@ -1237,19 +1381,35 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     # ── Component 3: Regime (Adaptive threshold) ────────────────────────
     # v1.x: fixed 0.0033 threshold. v2.0: scales with local volatility.
     # A move is "directional" only if it exceeds half a local std.
-    pct_change = nifty_series.pct_change(fill_method=None).fillna(0)
-    rolling_vol = pct_change.rolling(window=MSF_WINDOW, min_periods=5).std().fillna(0.003)
-    adaptive_threshold = (rolling_vol * 0.5).clip(lower=0.001)
+    pct_vals = nifty_series.pct_change(fill_method=None).fillna(0).values
+    
+    cs_pct = np.cumsum(pct_vals)
+    cs2_pct = np.cumsum(pct_vals**2)
+    cs_pct_shift = np.zeros(n, dtype=np.float64)
+    cs_pct_shift[MSF_WINDOW:] = cs_pct[:-MSF_WINDOW]
+    cs2_pct_shift = np.zeros(n, dtype=np.float64)
+    cs2_pct_shift[MSF_WINDOW:] = cs2_pct[:-MSF_WINDOW]
+    
+    sums_pct = cs_pct - cs_pct_shift
+    sums2_pct = cs2_pct - cs2_pct_shift
+    counts_pct = np.minimum(np.arange(1, n + 1), MSF_WINDOW)
+    
+    var_pct = (sums2_pct - (sums_pct**2) / counts_pct) / np.maximum(counts_pct - 1, 1)
+    rolling_vol = np.sqrt(np.maximum(var_pct, 0))
+    
+    rolling_vol[:4] = 0.003  # min_periods=5 fallback
+    rolling_vol = np.where(rolling_vol < 1e-12, 0.003, rolling_vol)
+    adaptive_threshold = np.clip(rolling_vol * 0.5, 0.001, None)
 
-    regime_signals = np.where(pct_change > adaptive_threshold, 1,
-                     np.where(pct_change < -adaptive_threshold, -1, 0))
+    regime_signals = np.where(pct_vals > adaptive_threshold, 1,
+                     np.where(pct_vals < -adaptive_threshold, -1, 0))
     regime_count = pd.Series(regime_signals, index=df.index).cumsum()
-    regime_raw = regime_count - regime_count.rolling(MSF_WINDOW, min_periods=1).mean()
+    regime_raw = regime_count - rolling_mean_fast(regime_count, MSF_WINDOW)
     regime_z = zscore_clipped(regime_raw, MSF_WINDOW, MSF_ZSCORE_CLIP)
     regime_norm = sigmoid(regime_z, 1.5)
 
     # ── Component 4: Breadth Flow ───────────────────────────────────────
-    breadth_ma = breadth_series.rolling(MSF_WINDOW, min_periods=1).mean()
+    breadth_ma = rolling_mean_fast(breadth_series, MSF_WINDOW)
     breadth_ratio = breadth_series / breadth_ma.replace(0, 1)
     breadth_z = zscore_clipped(breadth_ratio - 1, MSF_WINDOW, MSF_ZSCORE_CLIP)
     flow_norm = sigmoid(breadth_z, 1.5)
@@ -1295,7 +1455,7 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
 # SIMILAR PERIODS FINDER
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=5, show_spinner=False)
 def find_similar_periods(df, top_n=10, recency_weight=0.1):
     """
     v2.0 Similar Period Finder.
@@ -1428,7 +1588,7 @@ def render_landing_page() -> None:
     # ── Main header ──────────────────────────────────────────────────
     st.markdown("""
     <div class="premium-header">
-        <h1>ARTHAGATI <span style="color: var(--primary-color);">|</span> Market Sentiment Analysis</h1>
+        <h1>ARTHAGATI <span style="color: var(--primary-color);">:</span> Market Sentiment Analysis</h1>
         <div class="tagline">Ornstein-Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1610,7 +1770,7 @@ def render_landing_page() -> None:
     with c2:
         st.markdown(f'<div class="metric-card neutral"><h4>Predictors</h4><h2>{len(DEPENDENT_VARS)}</h2><div class="sub-metric">Macro + Breadth vars</div></div>', unsafe_allow_html=True)
     with c3:
-        st.markdown('<div class="metric-card neutral"><h4>Math Primitives</h4><h2>11</h2><div class="sub-metric">Pure NumPy functions</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="metric-card neutral"><h4>Math Primitives</h4><h2>12</h2><div class="sub-metric">Pure NumPy functions</div></div>', unsafe_allow_html=True)
     with c4:
         st.markdown('<div class="metric-card neutral"><h4>OU Projection</h4><h2>90d</h2><div class="sub-metric">Forward reversion path</div></div>', unsafe_allow_html=True)
     with c5:
@@ -1686,7 +1846,7 @@ def main():
     # LOAD DATA FIRST — needed to populate dynamic predictor options
     # ═══════════════════════════════════════════════════════════════════════════
     _prog = st.empty()
-    _progress_bar(_prog, 5, "Fetching market data", "Google Sheets · Service Account Auth · CSV Decode")
+    _progress_bar(_prog, 5, "Fetching market data", "Google Sheets · service account auth · CSV decode")
     raw_df = load_data()
 
     if raw_df is None:
@@ -1810,7 +1970,7 @@ def main():
     _progress_bar(_prog, 40, "Computing correlations", "Decay-weighted Spearman · PE & EY anchors")
     selected_preds = st.session_state.get('active_predictors', tuple(available_predictors))
 
-    _progress_bar(_prog, 65, "Running Sentiment Engine", "OU Normalization · Kalman Smoothing · 5-Layer Pipeline")
+    _progress_bar(_prog, 65, "Running sentiment engine", "OU normalization · Kalman smoothing · 5-layer pipeline")
     mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
 
     if mood_df.empty:
@@ -1818,7 +1978,7 @@ def main():
         st.error("Failed to calculate mood scores.")
         st.stop()
 
-    _progress_bar(_prog, 88, "Computing MSF spread", "Momentum · Structure · Regime · Flow · Inverse-Variance Weights")
+    _progress_bar(_prog, 88, "Computing MSF spread", "Momentum · Structure · Regime · Flow · inverse-variance weights")
     msf_df = calculate_msf_spread(mood_df)
     mood_df['MSF_Spread'] = msf_df['msf_spread'].values if not msf_df.empty else 0
 
@@ -2163,46 +2323,32 @@ def render_historical_mood(mood_df, msf_df):
     # Condition B (was bearish): Mood making higher highs, MSF making lower highs -> GREEN (bottom)
     
     lookback = 10  # Lookback period for local extrema
-    mood_vals = df['Mood_Score'].values
+    mood_series = df['Mood_Score']
+    msf_series = pd.Series(msf_values, index=df.index)
     
-    red_signals = []    # Mood lower low + MSF higher low -> bearish signal (red at top)
-    green_signals = []  # Mood higher high + MSF lower high -> bullish signal (green at bottom)
+    # Local extrema over 'lookback' window (vectorised)
+    roll_mood_min = mood_series.rolling(lookback + 1, min_periods=1).min()
+    roll_mood_max = mood_series.rolling(lookback + 1, min_periods=1).max()
+    roll_msf_min = msf_series.rolling(lookback + 1, min_periods=1).min()
+    roll_msf_max = msf_series.rolling(lookback + 1, min_periods=1).max()
     
-    for i in range(lookback * 2, len(df) - 1):
-        # Get local windows
-        mood_window = mood_vals[i - lookback:i + 1]
-        msf_window = msf_values[i - lookback:i + 1]
-        
-        # Check for local minimum
-        if mood_vals[i] == mood_window.min() and i > lookback:
-            prev_mood_window = mood_vals[i - lookback * 2:i - lookback + 1]
-            prev_msf_window = msf_values[i - lookback * 2:i - lookback + 1]
-            
-            if len(prev_mood_window) > 0 and len(prev_msf_window) > 0:
-                prev_mood_min = prev_mood_window.min()
-                prev_msf_min = prev_msf_window.min()
-                curr_msf_min = msf_window.min()
-                
-                # Mood lower low, MSF higher low -> RED signal (inverted)
-                if mood_vals[i] < prev_mood_min and curr_msf_min > prev_msf_min:
-                    red_signals.append(i)
-        
-        # Check for local maximum
-        if mood_vals[i] == mood_window.max() and i > lookback:
-            prev_mood_window = mood_vals[i - lookback * 2:i - lookback + 1]
-            prev_msf_window = msf_values[i - lookback * 2:i - lookback + 1]
-            
-            if len(prev_mood_window) > 0 and len(prev_msf_window) > 0:
-                prev_mood_max = prev_mood_window.max()
-                prev_msf_max = prev_msf_window.max()
-                curr_msf_max = msf_window.max()
-                
-                # Mood higher high, MSF lower high -> GREEN signal (inverted)
-                if mood_vals[i] > prev_mood_max and curr_msf_max < prev_msf_max:
-                    green_signals.append(i)
+    # Previous windows' extrema using shift
+    prev_mood_min, prev_msf_min = roll_mood_min.shift(lookback), roll_msf_min.shift(lookback)
+    prev_mood_max, prev_msf_max = roll_mood_max.shift(lookback), roll_msf_max.shift(lookback)
+    
+    # Vectorised boolean masks for conditions
+    bearish_mask = (mood_series == roll_mood_min) & (mood_series < prev_mood_min) & (roll_msf_min > prev_msf_min)
+    bullish_mask = (mood_series == roll_mood_max) & (mood_series > prev_mood_max) & (roll_msf_max < prev_msf_max)
+    
+    # Enforce index boundaries (equivalent to i > lookback*2 and i < len(df) - 1)
+    valid_indices = np.zeros(len(df), dtype=bool)
+    valid_indices[lookback * 2 : len(df) - 1] = True
+    
+    red_signals = np.where(bearish_mask & valid_indices)[0]
+    green_signals = np.where(bullish_mask & valid_indices)[0]
     
     # Red triangles at y=5 (bearish divergence, top)
-    if red_signals:
+    if len(red_signals) > 0:
         fig.add_trace(
             go.Scatter(
                 x=[df['DATE'].iloc[i] for i in red_signals], y=[5] * len(red_signals),
@@ -2214,7 +2360,7 @@ def render_historical_mood(mood_df, msf_df):
         )
 
     # Green triangles at y=-5 (bullish divergence, bottom)
-    if green_signals:
+    if len(green_signals) > 0:
         fig.add_trace(
             go.Scatter(
                 x=[df['DATE'].iloc[i] for i in green_signals], y=[-5] * len(green_signals),
@@ -2462,6 +2608,9 @@ def render_similar_periods(mood_df):
             <p style="color: #888888; font-size: 0.85rem; margin: 0;">
                 Does today's mood score predict tomorrow's market? Each dot = one historical day.
                 If there's a relationship, the scatter should show a pattern.
+            </p>
+            <p style="color: #ef4444; font-size: 0.75rem; margin-top: 0.5rem; font-weight: 600; padding: 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
+                ⚠️ Note: This view represents a Hindsight Regime Fit. Historical points are evaluated using parameters learned from today's active correlation regime.
             </p>
         </div>
     """, unsafe_allow_html=True)

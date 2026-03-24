@@ -1,5 +1,5 @@
 # ARTHAGATI — Architecture & Design Vision
-### Hemrek Capital · Architect's Working Document · v2.1.0
+### Hemrek Capital · Architect's Working Document · v2.2.1
 
 ---
 
@@ -252,7 +252,7 @@ Feature vector = [mood, volatility, NIFTY_ROC, Hurst, entropy]
 | Entropy as MSF component | The MSF measures momentum ↔ sentiment alignment. Entropy dilutes this. Entropy belongs in diagnostics only. |
 | Hurst as MSF component | Same reasoning. Persistence is a meta-property of the signal, not a signal component. |
 | Fisher Information output | It is `1/rolling_variance`. Naming it, computing it, and surfacing it adds complexity for something the user can eyeball from the volatility column. |
-| 14 primitive functions | Reduced to 11. Each has exactly one callsite and one purpose. |
+| 14 primitive functions | Reduced to 12. Each has exactly one callsite and one purpose. |
 
 ---
 
@@ -298,6 +298,18 @@ The architecture is:
 - `st.secrets` — the only place credentials exist; `.gitignore` ensures they are never committed
 
 This is the same pattern used for any API key. The sheet is treated as a private API endpoint, not a public URL.
+
+---
+
+**Q: How is memory managed during rapid UI interactions?**
+
+Streamlit's `@st.cache_data` is used for all heavy mathematical pipelines. To prevent unbounded RAM growth when users frequently change predictor configurations, caches are strictly bounded using `max_entries=5`. This ensures the server holds only the most recent analytical states, automatically evicting old DataFrames.
+
+---
+
+**Q: Why use WebGL (`go.Scattergl`) with interleaved `None` for vertical lines instead of Plotly's `add_vline`?**
+
+Rendering hundreds of regime transitions via `add_vline` creates individual SVG layout shapes, causing severe DOM bloat and browser lag. Grouping lines by color and interleaving coordinates with `None` in a single WebGL trace offloads rendering to the GPU, making interactions (panning/zooming) instantaneous even over 15-year timeframes.
 
 ---
 
