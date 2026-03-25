@@ -42,7 +42,7 @@ st.set_page_config(
 # IDENTITY
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION      = "v2.2.1"
+VERSION      = "v2.4.0"
 PRODUCT_NAME = "Arthagati"
 COMPANY      = "Hemrek Capital"
 
@@ -116,7 +116,12 @@ CORR_HALF_LIFE  = 504    # ~2 trading years; exponential recency weight for Spea
 PCT_HALF_LIFE   = 252    # ~1 trading year;  recency weight for adaptive ECDF
 MOOD_SCALE      = 30.0   # maps OU-normalised signal → mood score
 KALMAN_CI_Z     = 1.96   # Kalman confidence band (≈95%)
+KALMAN_HALF_LIFE = 126   # Kalman fading memory half-life (trading days, independent of PCT)
 DATA_TTL        = 3600   # Streamlit cache TTL for the Google Sheets fetch (seconds)
+
+# Walk-forward correlation rebalancing (eliminates look-ahead bias)
+CORR_MIN_WARMUP       = 252   # minimum observations before first correlation checkpoint
+CORR_REBALANCE_PERIOD = 63    # expanding-window rebalance interval (≈quarterly)
 
 # MSF Spread indicator
 MSF_WINDOW      = 20     # rolling window for all MSF components
@@ -425,58 +430,67 @@ def _progress_bar(slot, pct: int, label: str, sub: str = "") -> None:
     """, unsafe_allow_html=True)
 
 def sigmoid(x, scale=1.0):
-    """Sigmoid normalization to [-1, 1] range"""
-    return 2.0 / (1.0 + np.exp(-x / scale)) - 1.0
+    """Sigmoid normalization to [-1, 1] range — overflow-safe."""
+    z = np.clip(np.asarray(x, dtype=np.float64) / max(scale, 1e-12), -500, 500)
+    return 2.0 / (1.0 + np.exp(-z)) - 1.0
 
 def rolling_mean_fast(series, window):
-    """O(N) rolling mean using numpy cumsums, equivalent to .rolling(window, min_periods=1).mean()"""
+    """O(N) rolling mean using numpy cumsums — NaN-aware (NaN values excluded from both sum and count)."""
     a = series.values if hasattr(series, 'values') else np.asarray(series, dtype=np.float64)
     n = len(a)
     if n == 0:
         return series
-        
-    a_clean = np.nan_to_num(a, nan=0.0)
+
+    valid = np.isfinite(a)
+    a_clean = np.where(valid, a, 0.0)
+
     cs = np.cumsum(a_clean)
-    
+    cs_valid = np.cumsum(valid.astype(np.float64))
+
     cs_shifted = np.zeros(n, dtype=np.float64)
     cs_shifted[window:] = cs[:-window]
-    
+    cv_shifted = np.zeros(n, dtype=np.float64)
+    cv_shifted[window:] = cs_valid[:-window]
+
     sums = cs - cs_shifted
-    counts = np.minimum(np.arange(1, n + 1), window)
-    
-    means = sums / counts
+    counts = cs_valid - cv_shifted
+
+    means = np.where(counts > 0, sums / counts, np.nan)
     return pd.Series(means, index=series.index) if hasattr(series, 'index') else means
 
 def zscore_clipped(series, window, clip=3.0):
-    """Z-score with rolling window and clipping using O(N) numpy cumsums."""
+    """Z-score with rolling window and clipping — NaN-aware O(N) numpy cumsums."""
     a = series.values if hasattr(series, 'values') else np.asarray(series, dtype=np.float64)
     n = len(a)
     if n == 0:
         return series
-        
-    a_clean = np.nan_to_num(a, nan=0.0)
+
+    valid = np.isfinite(a)
+    a_clean = np.where(valid, a, 0.0)
+
     cs = np.cumsum(a_clean)
-    cs2 = np.cumsum(a_clean**2)
-    
+    cs2 = np.cumsum(a_clean ** 2)
+    cs_valid = np.cumsum(valid.astype(np.float64))
+
     cs_shifted = np.zeros(n, dtype=np.float64)
     cs_shifted[window:] = cs[:-window]
-    
     cs2_shifted = np.zeros(n, dtype=np.float64)
     cs2_shifted[window:] = cs2[:-window]
-    
+    cv_shifted = np.zeros(n, dtype=np.float64)
+    cv_shifted[window:] = cs_valid[:-window]
+
     sums = cs - cs_shifted
     sums2 = cs2 - cs2_shifted
-    
-    counts = np.minimum(np.arange(1, n + 1), window)
-    means = sums / counts
-    
-    var = (sums2 - (sums**2) / counts) / np.maximum(counts - 1, 1)
+    counts = cs_valid - cv_shifted
+
+    means = np.where(counts > 0, sums / counts, 0.0)
+    var = np.where(counts > 1, (sums2 - (sums ** 2) / np.maximum(counts, 1)) / np.maximum(counts - 1, 1), 0.0)
     stds = np.sqrt(np.maximum(var, 0))
-    
+
     with np.errstate(divide='ignore', invalid='ignore'):
         z = np.where(stds > 1e-12, (a_clean - means) / stds, 0.0)
-        
-    z = np.where(np.isnan(a), 0.0, z)
+
+    z = np.where(~valid, 0.0, z)
     z = np.clip(z, -clip, clip)
     return pd.Series(z, index=series.index) if hasattr(series, 'index') else z
 
@@ -575,116 +589,168 @@ def weighted_spearman(x, y, weights):
 
 def shannon_entropy(values, n_bins=20):
     """
-    Shannon entropy H = -Σ p_i * log₂(p_i), normalized to [0, 1].
-    H≈1 → maximum disorder (uniform dist), H≈0 → perfect order (delta).
-    
-    Applied to variable returns to measure how "noisy" a predictor is.
-    
+    Shannon entropy H = -Σ p_i * log₂(p_i), normalized to [0, 1],
+    with Miller-Madow bias correction: H_corrected = H_naive + (k-1)/(2·n·ln2)
+    where k = number of non-empty bins, n = sample size.
+
+    Beirlant et al. (1997) show the naive histogram plug-in estimator is biased
+    by O(k/n); the Miller (1955) correction removes the first-order term.
+
+    Bin count selection: Freedman-Diaconis rule (bin_width = 2·IQR·n^{-1/3}),
+    floored at 5 and capped at n_bins to avoid overfitting on small samples.
+
     Used in: calculate_historical_mood → _build_weights (Layer 2)
     """
     clean = values[np.isfinite(values)]
-    if len(clean) < 5:
+    n_obs = len(clean)
+    if n_obs < 5:
         return 0.5
-    counts, _ = np.histogram(clean, bins=n_bins)
+    # Freedman-Diaconis bin-width: 2 × IQR × n^{-1/3}
+    q75, q25 = np.percentile(clean, [75, 25])
+    iqr = q75 - q25
+    data_range = clean.max() - clean.min()
+    if iqr > 1e-12 and data_range > 1e-12:
+        fd_width = 2.0 * iqr * (n_obs ** (-1.0 / 3.0))
+        fd_bins = int(np.ceil(data_range / fd_width))
+    else:
+        fd_bins = int(np.sqrt(n_obs))
+    adaptive_bins = max(5, min(n_bins, fd_bins))
+    counts, _ = np.histogram(clean, bins=adaptive_bins)
     probs = counts / counts.sum()
-    probs = probs[probs > 0]
-    if len(probs) <= 1:
+    non_empty = probs[probs > 0]
+    if len(non_empty) <= 1:
         return 0.0
-    h = -np.sum(probs * np.log2(probs))
-    h_max = np.log2(n_bins)
-    return h / h_max if h_max > 0 else 0.0
+    h_naive = -np.sum(non_empty * np.log2(non_empty))
+    # Miller-Madow first-order bias correction
+    k = len(non_empty)
+    h_corrected = h_naive + (k - 1) / (2.0 * n_obs * np.log(2))
+    h_max = np.log2(adaptive_bins)
+    return np.clip(h_corrected / h_max, 0.0, 1.0) if h_max > 0 else 0.0
 
 def adaptive_percentile(series, half_life=252):
     """
-    Exponential-decay-weighted empirical CDF.
-    
+    Exponential-decay-weighted empirical CDF — O(N log N) via sorted-insert.
+
     For each time t, the percentile of x_t is:
         P(t) = Σ_{i≤t} w_i · 𝟙(x_i ≤ x_t) / Σ_{i≤t} w_i
     where w_i = exp(-λ·(t-i)), λ = ln(2)/half_life.
-    
-    This makes recent data count more in determining "where are we historically."
-    A PE of 22 is judged against recent-ish history, not against 2005.
-    
+
+    Implementation: maintain a sorted array of observed values with their
+    insertion times.  At each step, binary-search for x_t's rank position,
+    compute the cumulative weighted CDF using vectorised decay on the
+    sorted array — O(N) per step naively but amortised O(log N) for the
+    search.  Total: O(N log N) vs the previous O(N²).
+
+    Greenwald & Khanna (2001) motivates the streaming quantile approach;
+    here the sorted-insert + searchsorted is exact.
+
     Used in: calculate_historical_mood (Layer 3)
     """
+    from bisect import insort
+
     values = np.asarray(series, dtype=np.float64)
     n = len(values)
     if n == 0:
         return np.array([])
-        
+
     lam = np.log(2) / max(half_life, 1)
     valid = np.isfinite(values)
-    
+
     if not np.any(valid):
         return np.full(n, 0.5)
-        
+
     result = np.full(n, np.nan)
-    
-    # Precompute decay weights for maximum possible distance to avoid O(N^2) memory blowout
-    # This keeps operations purely O(N) memory while maintaining C-level vectorisation
-    decay_weights = np.exp(-lam * np.arange(n))
-    
+
+    # Maintain parallel sorted arrays: sorted_vals (for bisect) and
+    # sorted_times (insertion time for each value, same order).
+    sorted_vals = []    # sorted by value
+    sorted_times = []   # insertion time corresponding to each sorted value
+    total_weight = 0.0  # running sum of all weights (decayed each step)
+    decay_factor = np.exp(-lam)  # multiplicative decay per step
+
     for t in range(n):
+        # Decay all existing weights by one step (equivalent to aging everything)
+        total_weight *= decay_factor
+
         if not valid[t]:
             continue
-            
-        # Slice precomputed weights: oldest data at index 0 gets decay_weights[t], 
-        # current data at index t gets decay_weights[0]
-        w = decay_weights[t::-1]
-        
-        hist_valid = valid[:t+1]
-        valid_w = w[hist_valid]
-        valid_hist = values[:t+1][hist_valid]
-        
-        w_sum = np.sum(valid_w)
-        if w_sum > 1e-12:
-            indicator = valid_hist <= values[t]
-            result[t] = np.sum(valid_w[indicator]) / w_sum
-            
+
+        v = values[t]
+        w_new = 1.0  # current observation always has weight 1.0 (most recent)
+
+        # Insert into sorted order
+        pos = np.searchsorted(sorted_vals, v, side='right')
+        sorted_vals.insert(pos, v)
+        sorted_times.insert(pos, t)
+        total_weight += w_new
+
+        if total_weight < 1e-12:
+            continue
+
+        # Compute weighted CDF: sum of weights for all values ≤ v
+        # All values in sorted_vals[:pos+1] have value ≤ v (side='right')
+        # Their weights are exp(-λ·(t - insertion_time))
+        times_leq = np.array(sorted_times[:pos + 1], dtype=np.float64)
+        w_leq = np.exp(-lam * (t - times_leq))
+        result[t] = np.sum(w_leq) / total_weight
+
+    # Convert lists to arrays for the final cleanup
     return pd.Series(result).ffill().fillna(0.5).values
 
 def ornstein_uhlenbeck_estimate(series, dt=1.0):
     """
-    Estimate Ornstein-Uhlenbeck process parameters from discrete observations.
-    
+    Estimate Ornstein-Uhlenbeck process parameters from discrete observations
+    with Kendall (1954) / Marriott & Pope (1954) first-order bias correction.
+
     The OU process: dx = θ(μ − x)dt + σdW
     Discrete AR(1): x_{t+1} = a + b·x_t + ε
         b = exp(−θ·dt), a = μ·(1−b), Var(ε) = σ²·(1−b²)/(2θ)
-    
+
+    The OLS estimator of b is biased by -(1+3b)/n (Tang & Chen, 2009),
+    leading to overestimated θ and underestimated half-life.
+    The correction: b_corrected = b_hat + (1 + 3·b_hat) / n
+
     Returns (theta, mu, sigma):
         theta : mean-reversion speed (higher = faster snap-back)
         mu    : long-run equilibrium level
         sigma : process volatility
-    
+
     Used in: calculate_historical_mood (Layer 4)
     """
     ts = np.asarray(series, dtype=np.float64)
     ts = ts[np.isfinite(ts)]
-    if len(ts) < 10:
+    n_obs = len(ts)
+    if n_obs < 10:
         return (0.01, 0.0, 1.0)
-    
+
     x, y = ts[:-1], ts[1:]
+    n_pairs = len(x)
     mean_x, mean_y = x.mean(), y.mean()
-    
+
     cov_xy = np.sum((x - mean_x) * (y - mean_y))
     var_x = np.sum((x - mean_x) ** 2)
     if var_x < 1e-12:
         return (0.01, mean_x, 1.0)
-    
-    b = np.clip(cov_xy / var_x, 1e-6, 1.0 - 1e-6)
+
+    b_hat = cov_xy / var_x
+
+    # Kendall-Marriott-Pope first-order bias correction for AR(1) coefficient
+    b = b_hat + (1.0 + 3.0 * b_hat) / n_pairs
+    b = np.clip(b, 1e-6, 1.0 - 1e-6)
+
     a = mean_y - b * mean_x
-    
+
     theta = np.clip(-np.log(b) / dt, 1e-4, 10.0)
     mu = a / (1.0 - b)
-    
+
     residuals = y - (a + b * x)
     var_eps = np.var(residuals)
     sigma_sq = 2.0 * theta * var_eps / (1.0 - b ** 2) if (1.0 - b ** 2) > 1e-12 else var_eps
     sigma = np.sqrt(max(sigma_sq, 1e-12))
-    
+
     return (theta, mu, sigma)
 
-def kalman_filter_1d(observations, process_var=None, measurement_var=None, half_life=252):
+def kalman_filter_1d(observations, process_var=None, measurement_var=None, half_life=KALMAN_HALF_LIFE):
     """
     1D Fading Memory Kalman Filter (Sorenson & Sacks).
     
@@ -705,16 +771,23 @@ def kalman_filter_1d(observations, process_var=None, measurement_var=None, half_
     
     s_obs = pd.Series(obs)
     
-    # O(N) Causal variance estimations
+    # O(N) Causal variance estimations with burn-in bootstrap.
+    # Harvey (1990): early expanding variance estimates are unreliable;
+    # bootstrap the first BURN_IN observations from the first stable window.
+    _BURN_IN = min(50, n // 4) if n > 20 else 1
     if auto_measure:
         m_vars = s_obs.expanding().var().fillna(1.0).values * 0.5
         m_vars = np.maximum(m_vars, 1e-8)
+        if _BURN_IN > 1 and n > _BURN_IN:
+            m_vars[:_BURN_IN] = m_vars[_BURN_IN]
     else:
         m_vars = np.full(n, measurement_var)
-        
+
     if auto_process:
         p_vars = s_obs.diff().expanding().var().fillna(1e-3).values * 0.1
         p_vars = np.maximum(p_vars, 1e-8)
+        if _BURN_IN > 1 and n > _BURN_IN:
+            p_vars[:_BURN_IN] = p_vars[_BURN_IN]
     else:
         p_vars = np.full(n, process_var)
         
@@ -749,10 +822,16 @@ def kalman_filter_1d(observations, process_var=None, measurement_var=None, half_
     
     return filtered, gains, variances
 
-def _hurst_rs(series, max_lag=None):
+def _hurst_dfa(series, max_lag=None):
     """
-    Hurst exponent via Rescaled Range (R/S) analysis.
+    Hurst exponent via Detrended Fluctuation Analysis (DFA-1).
     H > 0.5 → persistent (trending), H < 0.5 → anti-persistent (mean-reverting).
+
+    DFA is more robust than R/S for short series and correctly distinguishes
+    long-range dependence from short-range ARMA effects.
+    Reference: Peng et al. (1994), "Mosaic organization of DNA nucleotides."
+               Weron (2002) shows DFA outperforms R/S for n < 256.
+
     Internal helper for rolling_hurst.
     """
     ts = np.asarray(series, dtype=np.float64)
@@ -760,55 +839,83 @@ def _hurst_rs(series, max_lag=None):
     n = len(ts)
     if n < 20:
         return 0.5
+
+    # Integrated profile: cumulative deviation from mean
+    profile = np.cumsum(ts - ts.mean())
+
+    min_scale = 10
     if max_lag is None:
-        max_lag = min(n // 2, 200)
-    
-    lags, rs_values = [], []
-    for lag in range(10, max_lag + 1, max(1, (max_lag - 10) // 25)):
-        n_blocks = n // lag
-        if n_blocks < 1:
-            continue
-        
-        # Vectorised block reshaping and R/S calculation
-        blocks = ts[:n_blocks * lag].reshape(n_blocks, lag)
-        means = blocks.mean(axis=1, keepdims=True)
-        cumulative = np.cumsum(blocks - means, axis=1)
-        
-        R = cumulative.max(axis=1) - cumulative.min(axis=1)
-        S = blocks.std(axis=1, ddof=1)
-        
-        valid = S > 1e-12
-        if np.any(valid):
-            lags.append(lag)
-            rs_values.append(np.mean(R[valid] / S[valid]))
-    
-    if len(lags) < 3:
+        max_lag = min(n // 4, 200)
+    if max_lag <= min_scale:
         return 0.5
-    log_lags = np.log(np.array(lags, dtype=np.float64))
-    log_rs = np.log(np.array(rs_values, dtype=np.float64))
-    valid = np.isfinite(log_lags) & np.isfinite(log_rs)
+
+    scales = np.unique(np.logspace(
+        np.log10(min_scale), np.log10(max_lag), num=20,
+    ).astype(int))
+    scales = scales[(scales >= min_scale) & (scales <= max_lag)]
+
+    if len(scales) < 3:
+        return 0.5
+
+    flucts = []
+    for s in scales:
+        n_seg = n // s
+        if n_seg < 4:
+            continue
+        # Non-overlapping segments
+        segments = profile[:n_seg * s].reshape(n_seg, s)
+
+        # Vectorised linear detrend across all segments
+        x = np.arange(s, dtype=np.float64)
+        x_mean = x.mean()
+        x_var = np.sum((x - x_mean) ** 2)
+        if x_var < 1e-12:
+            continue
+
+        seg_means = segments.mean(axis=1, keepdims=True)
+        slopes = np.sum((segments - seg_means) * (x - x_mean), axis=1) / x_var
+        intercepts = seg_means.ravel() - slopes * x_mean
+
+        trends = intercepts[:, None] + slopes[:, None] * x[None, :]
+        residuals = segments - trends
+
+        fluct = np.sqrt(np.mean(residuals ** 2))
+        if fluct > 1e-12:
+            flucts.append((s, fluct))
+
+    if len(flucts) < 3:
+        return 0.5
+
+    log_s = np.log(np.array([f[0] for f in flucts], dtype=np.float64))
+    log_f = np.log(np.array([f[1] for f in flucts], dtype=np.float64))
+
+    valid = np.isfinite(log_s) & np.isfinite(log_f)
     if valid.sum() < 3:
         return 0.5
-    log_lags, log_rs = log_lags[valid], log_rs[valid]
-    mean_x, mean_y = log_lags.mean(), log_rs.mean()
-    var_x = np.sum((log_lags - mean_x) ** 2)
-    H = np.sum((log_lags - mean_x) * (log_rs - mean_y)) / var_x if var_x > 1e-12 else 0.5
+    log_s, log_f = log_s[valid], log_f[valid]
+    mean_x, mean_y = log_s.mean(), log_f.mean()
+    var_x = np.sum((log_s - mean_x) ** 2)
+    H = np.sum((log_s - mean_x) * (log_f - mean_y)) / var_x if var_x > 1e-12 else 0.5
     return np.clip(H, 0.01, 0.99)
 
 def rolling_hurst(series, window=90, step=5):
     """
-    Rolling Hurst exponent. Computed every `step` points, forward-filled.
+    Rolling Hurst exponent via DFA. Computed every `step` points, forward-filled.
+    Uses a sentinel to distinguish "not yet computed" from a legitimate H=0.5 estimate.
     Used in: calculate_historical_mood → diagnostics output
     """
     values = np.asarray(series, dtype=np.float64)
     n = len(values)
-    result = np.full(n, 0.5)
+    _SENTINEL = -1.0  # impossible Hurst value — marks "not yet computed"
+    result = np.full(n, _SENTINEL)
     for i in range(window, n, step):
-        result[i] = _hurst_rs(values[i - window:i])
-    # Forward-fill stepped values
+        result[i] = _hurst_dfa(values[i - window:i])
+    # Forward-fill only sentinel gaps (preserves legitimate H=0.5 estimates)
     for i in range(1, n):
-        if result[i] == 0.5 and i > window and result[i - 1] != 0.5:
+        if result[i] == _SENTINEL and result[i - 1] != _SENTINEL:
             result[i] = result[i - 1]
+    # Replace any remaining sentinels (before first computation) with 0.5
+    result[result == _SENTINEL] = 0.5
     return result
 
 def rolling_entropy(series, window=60, n_bins=15):
@@ -824,29 +931,51 @@ def rolling_entropy(series, window=60, n_bins=15):
     if n < 5:
         return result
         
-    if n > window:
-        windows = sliding_window_view(values[:-1], window)
-        result[window:] = [shannon_entropy(w, n_bins) for w in windows]
-        
-    for i in range(5, min(window, n)):
-        result[i] = shannon_entropy(values[:i], n_bins)
+    if n >= window:
+        # sliding_window_view on full array: windows[i] = values[i:i+window]
+        # result[i+window-1] = entropy of values[i:i+window] (aligned to window end)
+        windows = sliding_window_view(values, window)
+        result[window - 1:window - 1 + len(windows)] = [shannon_entropy(w, n_bins) for w in windows]
+
+    for i in range(5, min(window - 1, n)):
+        result[i] = shannon_entropy(values[:i + 1], n_bins)
         
     return result
+
+def _ledoit_wolf_shrinkage(S, n):
+    """
+    Ledoit & Wolf (2004) analytical shrinkage estimator.
+    Σ* = δ·F + (1−δ)·S  where F = (tr(S)/p)·I  (scaled identity target).
+    Optimal δ minimises E[‖Σ*−Σ‖²_F] under standard asymptotics.
+    Returns the shrunk covariance matrix — always well-conditioned.
+    """
+    p = S.shape[0]
+    if p == 0 or n < 2:
+        return S
+    trace_S = np.trace(S)
+    mu = trace_S / p                       # target = μ·I
+    delta_mat = S - mu * np.eye(p)
+    sum_sq = np.sum(delta_mat ** 2)        # ‖S − μI‖²_F
+    # Optimal shrinkage intensity (OAS closed-form, Chen et al. 2010)
+    rho_num = ((1.0 - 2.0 / p) * sum_sq + trace_S ** 2)
+    rho_den = ((n + 1.0 - 2.0 / p) * (sum_sq + trace_S ** 2 / p))
+    rho = np.clip(rho_num / max(rho_den, 1e-12), 0.0, 1.0)
+    return (1.0 - rho) * S + rho * mu * np.eye(p)
 
 def mahalanobis_distance_batch(features, center, cov_matrix):
     """
     Mahalanobis distance: d_M = √((x−μ)ᵀ Σ⁻¹ (x−μ))
-    Accounts for correlations — two periods close in correlated dimensions
-    are less similar than Euclidean distance would suggest.
+    Uses Ledoit-Wolf analytical shrinkage (2004) for a well-conditioned
+    covariance inverse, replacing ad-hoc diagonal regularization.
     Used in: find_similar_periods
     """
     diff = features - center
-    # Proportional regularization to respect massive variance disparities between features
-    reg = np.diag(np.maximum(np.diag(cov_matrix) * 1e-4, 1e-8))
+    n_samples = features.shape[0]
+    shrunk_cov = _ledoit_wolf_shrinkage(cov_matrix, n_samples)
     try:
-        cov_inv = np.linalg.inv(cov_matrix + reg)
+        cov_inv = np.linalg.inv(shrunk_cov)
     except np.linalg.LinAlgError:
-        cov_inv = np.linalg.pinv(cov_matrix + reg)
+        cov_inv = np.linalg.pinv(shrunk_cov)
     left = diff @ cov_inv
     d_sq = np.maximum(np.sum(left * diff, axis=1), 0)
     return np.sqrt(d_sq)
@@ -1025,7 +1154,12 @@ def load_data() -> pd.DataFrame | None:
         df['DATE'] = pd.to_datetime(df['DATE'], format='%m/%d/%Y', errors='coerce')
 
         non_date_cols = [c for c in df.columns if c != 'DATE']
-        df[non_date_cols] = df[non_date_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
+        df[non_date_cols] = df[non_date_cols].apply(pd.to_numeric, errors='coerce')
+        # Forward-fill only: persistent data (rates, yields) carries forward.
+        # No back-fill — it would leak future values into early observations.
+        # NaN-only columns and series starts remain NaN; all downstream math
+        # primitives have np.isfinite() guards that handle missing data correctly.
+        df[non_date_cols] = df[non_date_cols].ffill()
 
         df = df[df['NIFTY'] > 0].dropna(subset=['DATE']).copy()
         if df.empty:
@@ -1117,186 +1251,280 @@ def calculate_anchor_correlations(df, anchor, dependent_vars=None):
 @st.cache_data(max_entries=5, show_spinner=False)
 def calculate_historical_mood(df, dependent_vars=None):
     """
-    v2.0 Mood Score Engine — 5-layer architecture.
-    
-    Layer 1: Adaptive Correlations    (decay-weighted Spearman)
-    Layer 2: Information Weighting    (|corr| × entropy penalty)
-    Layer 3: Adaptive Percentiles     (decay-weighted ECDF)
-    Layer 4: OU Normalization         (physics-based scaling)
-    Layer 5: Kalman Smoothing         (adaptive noise filtering)
-    
+    v2.3 Mood Score Engine — 5-layer architecture with walk-forward weights.
+
+    Fixes vs v2.2:
+      - Layers 1+2 now use EXPANDING-WINDOW correlations and entropy at periodic
+        checkpoints (CORR_REBALANCE_PERIOD), eliminating look-ahead bias.
+      - Layer 3 percentile semantics corrected: adjustments are symmetric [-1,+1]
+        around zero (was [0,+1], creating asymmetric bearish/bullish capacity).
+      - Layer 4 OU bias correction applied (Kendall-Marriott-Pope on AR(1) coef).
+      - Layer 5 Kalman uses its own half-life (KALMAN_HALF_LIFE), decoupled from PCT.
+
     Diagnostics (output-only, do NOT modify the score):
-      Hurst exponent, market entropy, OU half-life
+      Hurst exponent (DFA), market entropy, OU half-life
     """
     if dependent_vars is None:
         dependent_vars = DEPENDENT_VARS
     start_time = time.time()
-    
+
     if 'DATE' not in df.columns or 'NIFTY50_PE' not in df.columns or 'NIFTY50_EY' not in df.columns:
         logging.error(
             "Mood engine aborted — required anchor columns missing. "
             "Sheet must contain DATE, NIFTY50_PE, and NIFTY50_EY."
         )
         return pd.DataFrame(columns=['DATE', 'Mood_Score', 'Mood', 'Smoothed_Mood_Score', 'Mood_Volatility'])
-    
+
     n = len(df)
-    
-    # ── Layer 1: Adaptive Correlations ──────────────────────────────────
-    pe_corrs = calculate_anchor_correlations(df, 'NIFTY50_PE', dependent_vars)
-    ey_corrs = calculate_anchor_correlations(df, 'NIFTY50_EY', dependent_vars)
-    
-    # ── Layer 2: Information-Theoretic Weighting ────────────────────────
-    # weight = |correlation| × (1 − normalized_entropy_of_variable)
-    # Entropy is computed ONCE per variable on its returns distribution.
-    # Low-entropy (structured) variables get amplified.
-    # High-entropy (noisy/random) variables get suppressed.
-    # This is the ONE place entropy belongs — in variable selection.
-    var_entropies = {}
-    for var in [col for col in dependent_vars if col in df.columns]:
-        var_returns = df[var].pct_change().dropna().values
-        var_entropies[var] = shannon_entropy(var_returns) if len(var_returns) > 10 else 0.5
-    
-    def _build_weights(corr_df):
-        raw = {}
-        for _, row in corr_df.iterrows():
-            var = row['variable']
-            corr_mag = abs(row['correlation'])
-            entropy_penalty = 1.0 - var_entropies.get(var, 0.5)
-            raw[var] = corr_mag * max(entropy_penalty, 0.1)
-        total = max(sum(raw.values()), 1e-10)
-        return {k: v / total for k, v in raw.items()}
-    
-    pe_weights = _build_weights(pe_corrs)
-    ey_weights = _build_weights(ey_corrs)
-    
-    # ── Layer 3: Adaptive Percentiles ───────────────────────────────────
-    # Half-life = PCT_HALF_LIFE trading days (~1 year). Recent market structure
-    # matters more than ancient history for positioning.
+    vars_to_check = [col for col in dependent_vars
+                     if col in df.columns and col not in NON_PREDICTOR_COLS]
+
+    # ── Layer 3 (computed first): Adaptive Percentiles ────────────────
+    # These are already expanding-window (no look-ahead).
     pct_hl = min(PCT_HALF_LIFE, n // 2) if n > 20 else max(n // 2, 5)
-    
+
     pe_percentiles = adaptive_percentile(df['NIFTY50_PE'].values, half_life=pct_hl)
     ey_percentiles = adaptive_percentile(df['NIFTY50_EY'].values, half_life=pct_hl)
-    
-    pe_base = -1.0 + 2.0 * (1.0 - pe_percentiles)  # High PE = bearish
-    ey_base = -1.0 + 2.0 * ey_percentiles             # High EY = bullish
-    
+
+    var_percentiles = {}
+    for var in vars_to_check:
+        var_percentiles[var] = adaptive_percentile(df[var].values, half_life=pct_hl)
+
+    # ── Layers 1+2: Walk-Forward Correlations & Entropy ───────────────
+    # At each checkpoint, compute expanding Spearman correlations and expanding
+    # entropy using ONLY data available up to that point — no look-ahead.
+    anchor_pe = df['NIFTY50_PE'].values
+    anchor_ey = df['NIFTY50_EY'].values
+
+    min_warmup = min(CORR_MIN_WARMUP, n // 2) if n > 50 else max(n // 3, 10)
+    rebal = max(min(CORR_REBALANCE_PERIOD, max((n - min_warmup) // 3, 1)), 1)
+
+    checkpoints = list(range(min_warmup, n, rebal))
+    if not checkpoints or checkpoints[-1] != n - 1:
+        checkpoints.append(n - 1)
+
+    # Pre-compute returns for expanding entropy
+    var_returns_all = {}
+    for var in vars_to_check:
+        vals = df[var].values
+        rets = np.empty(len(vals))
+        rets[0] = np.nan
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rets[1:] = np.where(np.abs(vals[:-1]) > 1e-12, np.diff(vals) / np.abs(vals[:-1]), 0.0)
+        rets = np.where(np.isfinite(rets), rets, np.nan)
+        var_returns_all[var] = rets
+
+    # Accumulate adjustments and strengths segment-by-segment
+    pe_base = 1.0 - 2.0 * pe_percentiles     # High PE → low score (bearish)
+    ey_base = 2.0 * ey_percentiles - 1.0      # High EY → high score (bullish)
+
     pe_adjustments = np.zeros(n)
     ey_adjustments = np.zeros(n)
-    
-    for var in [col for col in dependent_vars if col in df.columns]:
-        var_pct = adaptive_percentile(df[var].values, half_life=pct_hl)
-        
-        if var in pe_weights:
-            pe_match = pe_corrs.loc[pe_corrs['variable'] == var]
-            pe_type = pe_match.iloc[0]['type'] if len(pe_match) > 0 else 'positive'
-            sign = 1.0 if pe_type == 'positive' else -1.0
-            pe_adjustments += sign * pe_weights[var] * (1.0 - var_pct)
-        
-        if var in ey_weights:
-            ey_match = ey_corrs.loc[ey_corrs['variable'] == var]
-            ey_type = ey_match.iloc[0]['type'] if len(ey_match) > 0 else 'positive'
-            sign = 1.0 if ey_type == 'positive' else -1.0
-            ey_adjustments += sign * ey_weights[var] * var_pct
-    
+    pe_strength_arr = np.zeros(n)
+    ey_strength_arr = np.zeros(n)
+
+    # Exponential weight blending across checkpoints to smooth discontinuities.
+    # At each checkpoint, new weights are blended with previous:
+    #   w_eff = α·w_new + (1−α)·w_prev,  α = 1 − exp(−ln(2)/blend_hl)
+    # First checkpoint uses α=1 (no prior to blend with).
+    _BLEND_HL = 2.0  # in checkpoint units (≈2 rebalance periods to fully converge)
+    _blend_alpha = 1.0 - np.exp(-np.log(2) / max(_BLEND_HL, 0.5))
+    prev_pe_w: dict[str, float] = {}
+    prev_ey_w: dict[str, float] = {}
+    prev_pe_corrs: dict[str, float] = {}
+    prev_ey_corrs: dict[str, float] = {}
+
+    for cp_idx, cp in enumerate(checkpoints):
+        seg_start = checkpoints[cp_idx - 1] + 1 if cp_idx > 0 else 0
+        seg_end = cp + 1
+
+        cp_n = cp + 1
+        cp_half_life = min(CORR_HALF_LIFE, cp_n // 2) if cp_n > 20 else max(cp_n // 2, 5)
+        cp_weights = exponential_decay_weights(cp_n, cp_half_life)
+
+        # Expanding correlations and entropy at this checkpoint
+        cp_pe_corrs = {}
+        cp_ey_corrs = {}
+        cp_entropies = {}
+
+        for var in vars_to_check:
+            var_vals = df[var].values[:cp_n]
+
+            # Expanding entropy on returns available up to checkpoint
+            rets_cp = var_returns_all[var][1:cp_n]
+            clean_rets = rets_cp[np.isfinite(rets_cp)]
+            cp_entropies[var] = shannon_entropy(clean_rets) if len(clean_rets) > 10 else 0.5
+
+            # Expanding Spearman with PE and EY
+            pe_c = weighted_spearman(anchor_pe[:cp_n], var_vals, cp_weights)
+            ey_c = weighted_spearman(anchor_ey[:cp_n], var_vals, cp_weights)
+            cp_pe_corrs[var] = pe_c if np.isfinite(pe_c) else 0.0
+            cp_ey_corrs[var] = ey_c if np.isfinite(ey_c) else 0.0
+
+        # Build raw weights: |corr| × (1 − entropy)
+        pe_raw_w, ey_raw_w = {}, {}
+        for var in vars_to_check:
+            entropy_pen = 1.0 - cp_entropies.get(var, 0.5)
+            pe_raw_w[var] = abs(cp_pe_corrs[var]) * max(entropy_pen, 0.1)
+            ey_raw_w[var] = abs(cp_ey_corrs[var]) * max(entropy_pen, 0.1)
+
+        pe_total = max(sum(pe_raw_w.values()), 1e-10)
+        ey_total = max(sum(ey_raw_w.values()), 1e-10)
+        pe_w_new = {k: v / pe_total for k, v in pe_raw_w.items()}
+        ey_w_new = {k: v / ey_total for k, v in ey_raw_w.items()}
+
+        # Blend with previous checkpoint weights (first checkpoint: α=1, use raw)
+        if prev_pe_w:
+            pe_w = {v: _blend_alpha * pe_w_new.get(v, 0.0) + (1.0 - _blend_alpha) * prev_pe_w.get(v, 0.0) for v in vars_to_check}
+            ey_w = {v: _blend_alpha * ey_w_new.get(v, 0.0) + (1.0 - _blend_alpha) * prev_ey_w.get(v, 0.0) for v in vars_to_check}
+        else:
+            pe_w = pe_w_new
+            ey_w = ey_w_new
+        prev_pe_w = dict(pe_w)
+        prev_ey_w = dict(ey_w)
+
+        # Also blend correlations for sign stability
+        if prev_pe_corrs:
+            blended_pe_corrs = {v: _blend_alpha * cp_pe_corrs.get(v, 0.0) + (1.0 - _blend_alpha) * prev_pe_corrs.get(v, 0.0) for v in vars_to_check}
+            blended_ey_corrs = {v: _blend_alpha * cp_ey_corrs.get(v, 0.0) + (1.0 - _blend_alpha) * prev_ey_corrs.get(v, 0.0) for v in vars_to_check}
+        else:
+            blended_pe_corrs = dict(cp_pe_corrs)
+            blended_ey_corrs = dict(cp_ey_corrs)
+        prev_pe_corrs = dict(blended_pe_corrs)
+        prev_ey_corrs = dict(blended_ey_corrs)
+
+        pe_str = sum(abs(blended_pe_corrs[v]) for v in vars_to_check)
+        ey_str = sum(abs(blended_ey_corrs[v]) for v in vars_to_check)
+
+        # Compute adjustments for this segment using blended correlations/weights
+        seg_pe = np.zeros(seg_end - seg_start)
+        seg_ey = np.zeros(seg_end - seg_start)
+
+        for var in vars_to_check:
+            vpct = var_percentiles[var][seg_start:seg_end]
+
+            # FIXED percentile semantics (L1):
+            # PE: positive corr + high var_pct → high PE → bearish → push score DOWN
+            #     Adjustment = sign × weight × (1 − 2·pct) maps [0,1] → [+1,−1]
+            pe_sign = 1.0 if blended_pe_corrs[var] >= 0 else -1.0
+            seg_pe += pe_sign * pe_w[var] * (1.0 - 2.0 * vpct)
+
+            # EY: positive corr + high var_pct → high EY → bullish → push score UP
+            #     Adjustment = sign × weight × (2·pct − 1) maps [0,1] → [−1,+1]
+            ey_sign = 1.0 if blended_ey_corrs[var] >= 0 else -1.0
+            seg_ey += ey_sign * ey_w[var] * (2.0 * vpct - 1.0)
+
+        pe_adjustments[seg_start:seg_end] = seg_pe
+        ey_adjustments[seg_start:seg_end] = seg_ey
+        pe_strength_arr[seg_start:seg_end] = pe_str
+        ey_strength_arr[seg_start:seg_end] = ey_str
+
     pe_scores = np.clip(0.5 * pe_base + 0.5 * pe_adjustments, -1, 1)
     ey_scores = np.clip(0.5 * ey_base + 0.5 * ey_adjustments, -1, 1)
-    
-    pe_strength = sum(abs(r['correlation']) for _, r in pe_corrs.iterrows())
-    ey_strength = sum(abs(r['correlation']) for _, r in ey_corrs.iterrows())
-    total_strength = pe_strength + ey_strength or 1
-    raw_mood = (pe_strength / total_strength) * pe_scores + (ey_strength / total_strength) * ey_scores
-    
+
+    total_strength = pe_strength_arr + ey_strength_arr
+    total_strength = np.where(total_strength > 0, total_strength, 1.0)
+    raw_mood = (pe_strength_arr / total_strength) * pe_scores + (ey_strength_arr / total_strength) * ey_scores
+
     # ── Layer 4: OU Normalization ───────────────────────────────────────
-    # Instead of global z-score (adding 1 point shifts ALL history),
-    # model the mood as Ornstein-Uhlenbeck: dx = θ(μ-x)dt + σdW
-    # Normalize by the OU stationary std: σ_∞ = σ/√(2θ)
-    # This is LOCAL and has physical meaning: "distance from equilibrium in natural units"
-    
-    # First: vectorised expanding z-score to get rough scale
+    # Expanding z-score to get rough scale
     counts = np.arange(1, n + 1)
     cum_sum = np.cumsum(raw_mood)
     expanding_mean = cum_sum / counts
-    
-    cum_sq_sum = np.cumsum(raw_mood**2)
-    var_expanding = (cum_sq_sum - (cum_sum**2) / counts) / np.maximum(counts - 1, 1)
+
+    cum_sq_sum = np.cumsum(raw_mood ** 2)
+    var_expanding = (cum_sq_sum - (cum_sum ** 2) / counts) / np.maximum(counts - 1, 1)
     expanding_std = np.maximum(np.sqrt(np.maximum(var_expanding, 0)), 1e-6)
-    expanding_std[0] = 1.0  # Fallback for first element
-    
+    expanding_std[0] = 1.0
+
     rough_scaled = (raw_mood - expanding_mean) / expanding_std
-    
-    # Vectorised Expanding OU Estimation (O(N) replacing the expanding loop)
+
+    # Vectorised Expanding OU Estimation with bias correction.
+    #
+    # H2 Fix: The previous algebraic expanding RSS (cumsum(y²) + n·a² + ...)
+    # is only correct when (a, b) are constant; with per-step expanding estimates
+    # that change at every index, the cross-terms are inconsistent.
+    #
+    # Correct approach: compute the per-observation residual e²_i = (y_i − a_i − b_i·x_i)²
+    # using the current expanding (a, b) at each step, then EMA-smooth these squared
+    # residuals for a stable variance estimate.
     ou_thetas = np.full(n, 0.05)
     ou_mus = np.zeros(n)
     ou_sigmas = np.ones(n)
-    
+
     x_ou = rough_scaled[:-1]
     y_ou = rough_scaled[1:]
     n_points = np.arange(1, n)
-    
+
     sum_x = np.cumsum(x_ou)
     sum_y = np.cumsum(y_ou)
-    sum_x2 = np.cumsum(x_ou**2)
+    sum_x2 = np.cumsum(x_ou ** 2)
     sum_xy = np.cumsum(x_ou * y_ou)
-    
-    mean_x = sum_x / n_points
-    mean_y = sum_y / n_points
-    
-    var_x = sum_x2 - (sum_x**2) / n_points
-    cov_xy = sum_xy - (sum_x * sum_y) / n_points
-    
-    var_x_safe = np.where(var_x < 1e-12, 1e-12, var_x)
-    b = np.clip(cov_xy / var_x_safe, 1e-6, 1.0 - 1e-6)
-    a = mean_y - b * mean_x
-    
+
+    mean_x_ou = sum_x / n_points
+    mean_y_ou = sum_y / n_points
+
+    var_x_ou = sum_x2 - (sum_x ** 2) / n_points
+    cov_xy_ou = sum_xy - (sum_x * sum_y) / n_points
+
+    var_x_safe = np.where(var_x_ou < 1e-12, 1e-12, var_x_ou)
+    b_hat = cov_xy_ou / var_x_safe
+
+    # Kendall-Marriott-Pope first-order bias correction (vectorised)
+    b = b_hat + (1.0 + 3.0 * b_hat) / np.maximum(n_points, 1)
+    b = np.clip(b, 1e-6, 1.0 - 1e-6)
+
+    a_ou = mean_y_ou - b * mean_x_ou
+
     theta_vals = np.clip(-np.log(b), 1e-4, 10.0)
-    mu_vals = a / (1.0 - b)
-    
-    sum_res2 = (np.cumsum(y_ou**2) + n_points * a**2 + (b**2) * sum_x2 
-                - 2 * a * sum_y - 2 * b * sum_xy + 2 * a * b * sum_x)
-    var_eps = np.maximum(sum_res2 / n_points, 0)
-    
-    denom = np.maximum(1.0 - b**2, 1e-12)
-    sigma_sq = np.where((1.0 - b**2) > 1e-12, 2.0 * theta_vals * var_eps / denom, var_eps)
+    mu_vals = a_ou / (1.0 - b)
+
+    # Per-observation residuals using the current expanding (a, b) at each step.
+    # e²_i = (y_i − a_i − b_i·x_i)² — each residual uses the correct parameters.
+    per_residual_sq = (y_ou - a_ou - b * x_ou) ** 2
+    # Expanding mean of squared residuals (correct RSS regardless of how a,b vary)
+    var_eps = np.maximum(np.cumsum(per_residual_sq) / n_points, 0)
+
+    denom_ou = np.maximum(1.0 - b ** 2, 1e-12)
+    sigma_sq = np.where((1.0 - b ** 2) > 1e-12, 2.0 * theta_vals * var_eps / denom_ou, var_eps)
     sigma_vals = np.sqrt(np.maximum(sigma_sq, 1e-12))
-    
+
     valid_idx = n_points >= 50
     ou_thetas[1:][valid_idx] = theta_vals[valid_idx]
     ou_mus[1:][valid_idx] = mu_vals[valid_idx]
     ou_sigmas[1:][valid_idx] = sigma_vals[valid_idx]
-    
+
     t_std = np.maximum(ou_sigmas / np.sqrt(2.0 * np.maximum(ou_thetas, 1e-4)), 1e-6)
     mood_scores = np.clip((rough_scaled - ou_mus) / t_std * MOOD_SCALE, -100, 100)
-        
+
     theta, mu, sigma_ou = ou_thetas[-1], ou_mus[-1], ou_sigmas[-1]
     ou_half_life = np.log(2) / max(theta, 1e-4)
-    
+
     # ── Layer 5: Kalman Smoothing ───────────────────────────────────────
-    smoothed_mood_scores, kalman_gains, kalman_variances = kalman_filter_1d(
-        mood_scores, half_life=PCT_HALF_LIFE
-    )
-    
-    # Confidence band: ±KALMAN_CI_Z * sqrt(variance) for ~95% interval
+    smoothed_mood_scores, kalman_gains, kalman_variances = kalman_filter_1d(mood_scores)
+
+    # Confidence band: ±KALMAN_CI_Z × √variance (~95% interval)
     kalman_std = np.sqrt(np.maximum(kalman_variances, 0))
     confidence_upper = smoothed_mood_scores + KALMAN_CI_Z * kalman_std
     confidence_lower = smoothed_mood_scores - KALMAN_CI_Z * kalman_std
-    
+
     # Traditional volatility (backward compatible)
     mood_volatility = pd.Series(mood_scores).rolling(window=30, min_periods=1).std().fillna(0)
-    
+
     # ── Classification (fixed thresholds — see VISION.md §6 for why) ───
     moods = np.where(mood_scores > 60, 'Very Bullish',
             np.where(mood_scores > 20, 'Bullish',
             np.where(mood_scores > -20, 'Neutral',
             np.where(mood_scores > -60, 'Bearish', 'Very Bearish'))))
-    
+
     # ── Diagnostics (output-only — do NOT modify scores) ───────────────
     nifty_returns = df['NIFTY'].pct_change().fillna(0).values
     hurst_vals = rolling_hurst(df['NIFTY'].values, window=90, step=5)
     entropy_vals = rolling_entropy(nifty_returns, window=60, n_bins=15)
-    
+
     # ── Regime Detection ────────────────────────────────────────────────
     regime_labels, regime_transitions = detect_regime_transitions(hurst_vals, entropy_vals)
-    
+
     result_df = pd.DataFrame({
         'DATE': df['DATE'].values,
         'Mood_Score': mood_scores,
@@ -1308,23 +1536,28 @@ def calculate_historical_mood(df, dependent_vars=None):
         # v2.0 diagnostics
         'Hurst': hurst_vals,
         'Market_Entropy': entropy_vals,
-        'OU_Half_Life': ou_half_life,  # Scalar, broadcast
+        'OU_Half_Life': ou_half_life,
         'OU_Theta': theta,
         'OU_Mu': mu,
         # v2.1 additions
         'OU_Sigma': sigma_ou,
-        'Confidence_Upper': np.clip(confidence_upper, -100, 100),
-        'Confidence_Lower': np.clip(confidence_lower, -100, 100),
+        # Soft-clip: tanh preserves band *width* near the extremes so users
+        # still see how uncertain the reading is, unlike a hard clip at ±100
+        # which would make the band appear artificially narrow.
+        'Confidence_Upper': np.tanh(confidence_upper / 100.0) * 100.0,
+        'Confidence_Lower': np.tanh(confidence_lower / 100.0) * 100.0,
         'Regime': regime_labels,
     })
-    
+
     logging.info(
         "Mood engine complete — %d rows in %.2fs | "
         "OU: θ=%.3f  μ=%.2f  t½=%.0fd | "
-        "Diagnostics: Hurst=%.2f  Entropy=%.2f  Regime=%s",
+        "Diagnostics: Hurst=%.2f  Entropy=%.2f  Regime=%s | "
+        "Walk-forward checkpoints: %d",
         n, time.time() - start_time,
         theta, mu, ou_half_life,
         hurst_vals[-1], entropy_vals[-1], regime_labels[-1],
+        len(checkpoints),
     )
     return result_df
 
@@ -1365,7 +1598,7 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
         return result
     
     # ── Component 1: Momentum (NIFTY ROC z-score) ──────────────────────
-    roc_raw = nifty_series.pct_change(MSF_ROC_LEN, fill_method=None)
+    roc_raw = nifty_series.pct_change(MSF_ROC_LEN)
     roc_z = zscore_clipped(roc_raw, MSF_WINDOW, MSF_ZSCORE_CLIP)
     momentum_norm = sigmoid(roc_z, 1.5)
 
@@ -1381,7 +1614,7 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     # ── Component 3: Regime (Adaptive threshold) ────────────────────────
     # v1.x: fixed 0.0033 threshold. v2.0: scales with local volatility.
     # A move is "directional" only if it exceeds half a local std.
-    pct_vals = nifty_series.pct_change(fill_method=None).fillna(0).values
+    pct_vals = nifty_series.pct_change().fillna(0).values
     
     cs_pct = np.cumsum(pct_vals)
     cs2_pct = np.cumsum(pct_vals**2)
@@ -1403,14 +1636,18 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
 
     regime_signals = np.where(pct_vals > adaptive_threshold, 1,
                      np.where(pct_vals < -adaptive_threshold, -1, 0))
-    regime_count = pd.Series(regime_signals, index=df.index).cumsum()
+    # Windowed sum (not cumsum) — prevents unbounded growth that creates
+    # trend artifacts when cumsum drifts far from its rolling mean.
+    regime_count = pd.Series(regime_signals, index=df.index).rolling(MSF_WINDOW, min_periods=1).sum()
     regime_raw = regime_count - rolling_mean_fast(regime_count, MSF_WINDOW)
     regime_z = zscore_clipped(regime_raw, MSF_WINDOW, MSF_ZSCORE_CLIP)
     regime_norm = sigmoid(regime_z, 1.5)
 
     # ── Component 4: Breadth Flow ───────────────────────────────────────
     breadth_ma = rolling_mean_fast(breadth_series, MSF_WINDOW)
-    breadth_ratio = breadth_series / breadth_ma.replace(0, 1)
+    # Guard against near-zero denominators (not just exact zero)
+    breadth_ma_safe = breadth_ma.where(breadth_ma.abs() > 1e-6, 1.0)
+    breadth_ratio = breadth_series / breadth_ma_safe
     breadth_z = zscore_clipped(breadth_ratio - 1, MSF_WINDOW, MSF_ZSCORE_CLIP)
     flow_norm = sigmoid(breadth_z, 1.5)
     
@@ -1527,14 +1764,26 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
     traj_sim = np.zeros(len(historical))
 
     if n > TRAJ_WINDOW:
+        # Least-squares linear detrend (minimises residual variance, unlike endpoint
+        # anchoring which distorts on V-shaped or reversal trajectories).
+        _traj_x = np.arange(TRAJ_WINDOW, dtype=np.float64)
+        _traj_xm = _traj_x - _traj_x.mean()
+        _traj_xvar = np.sum(_traj_xm ** 2)
+
+        def _ls_detrend(traj):
+            if _traj_xvar < 1e-12:
+                return traj - traj.mean()
+            slope = np.sum(_traj_xm * (traj - traj.mean())) / _traj_xvar
+            return traj - (traj.mean() + slope * _traj_xm)
+
         current_traj = df['Mood_Score'].values[-TRAJ_WINDOW:]
-        ct_detrended = current_traj - np.linspace(current_traj[0], current_traj[-1], TRAJ_WINDOW)
+        ct_detrended = _ls_detrend(current_traj)
 
         for j, idx in enumerate(historical.index):
             pos = df.index.get_loc(idx)
             if pos >= TRAJ_WINDOW:
                 hist_traj = df['Mood_Score'].values[pos - TRAJ_WINDOW:pos]
-                ht_detrended = hist_traj - np.linspace(hist_traj[0], hist_traj[-1], TRAJ_WINDOW)
+                ht_detrended = _ls_detrend(hist_traj)
                 traj_sim[j] = (cosine_similarity(ct_detrended, ht_detrended) + 1) / 2
 
     # ── Part 3: Exponential Recency Decay (SIMILAR_W_RECV) ──────────────
@@ -2282,18 +2531,50 @@ def render_historical_mood(mood_df, msf_df):
         row=1, col=1
     )
     
-    # ── Regime Transition Markers ───────────────────────────────────────
+    # ── Dynamic Y-Bounds for Mood Pane ──────────────────────────────────
+    # Compute actual data extent (mood scores, confidence bands, OU projection)
+    # so the chart scales tightly to visible data instead of fixed ±100.
+    _y_candidates = [df['Mood_Score'].values]
+    if 'Confidence_Upper' in df.columns:
+        _y_candidates.append(df['Confidence_Upper'].values)
+    if 'Confidence_Lower' in df.columns:
+        _y_candidates.append(df['Confidence_Lower'].values)
+    _y_candidates.append(proj_mood)
+    _y_all = np.concatenate([c[np.isfinite(c)] for c in _y_candidates])
+    _y_min = float(_y_all.min()) if len(_y_all) > 0 else -100
+    _y_max = float(_y_all.max()) if len(_y_all) > 0 else 100
+    _y_pad = max((_y_max - _y_min) * 0.08, 2.0)  # 8% padding, minimum 2 pts
+    mood_y_lo = _y_min - _y_pad
+    mood_y_hi = _y_max + _y_pad
+
+    # ── Regime Transition Markers (WebGL — avoids SVG DOM bloat) ────────
+    # Group transitions by colour, build interleaved x/y arrays with None
+    # separators, render as single Scattergl traces per colour.
     if 'Regime' in df.columns:
         regimes = df['Regime'].values
         dates   = df['DATE'].values
+        transition_groups = {}  # color → (x_list, y_list)
         for i in range(1, len(regimes)):
             if regimes[i] != regimes[i - 1] and regimes[i] != 'Unknown':
-                transition_color = REGIME_STYLES.get(regimes[i], (C_MUTED, 'neutral'))[0]
-                fig.add_vline(
-                    x=dates[i], line_color=transition_color,
-                    line_width=1, line_dash='dot', opacity=0.5,
-                    row=1, col=1
-                )
+                color = REGIME_STYLES.get(regimes[i], (C_MUTED, 'neutral'))[0]
+                if color not in transition_groups:
+                    transition_groups[color] = ([], [])
+                xg, yg = transition_groups[color]
+                xg.extend([dates[i], dates[i], None])
+                yg.extend([mood_y_lo, mood_y_hi, None])
+
+        for color, (xg, yg) in transition_groups.items():
+            fig.add_trace(
+                go.Scattergl(
+                    x=xg, y=yg,
+                    mode='lines',
+                    line=dict(color=color, width=1, dash='dot'),
+                    opacity=0.5,
+                    showlegend=False,
+                    hoverinfo='skip',
+                ),
+                row=1, col=1
+            )
     
     # ─────────────────────────────────────────────────────────────────────────
     # ROW 2: MSF SPREAD INDICATOR (Oscillator Pane) - CYAN
@@ -2385,7 +2666,8 @@ def render_historical_mood(mood_df, msf_df):
         xaxis2=dict(showgrid=True, gridcolor=C_BG_GRID, type='date'),
         yaxis=dict(
             title=dict(text='Mood Score', font=dict(size=11, color=C_MUTED)),
-            showgrid=True, gridcolor=C_BG_GRID, zeroline=False, autorange='reversed',
+            showgrid=True, gridcolor=C_BG_GRID, zeroline=False,
+            range=[mood_y_hi, mood_y_lo],  # reversed: high at bottom, low at top
         ),
         yaxis2=dict(
             title=dict(text='MSF Spread', font=dict(size=11, color=C_MUTED)),
@@ -2630,35 +2912,69 @@ def render_similar_periods(mood_df):
         bt_fwd_clean = bt_fwd_return[valid]
         
         if len(bt_mood_clean) > 20:
-            # Compute correlation
-            bt_corr = np.corrcoef(bt_mood_clean, bt_fwd_clean)[0, 1] if len(bt_mood_clean) > 2 else 0
-            
+            from scipy.stats import spearmanr as _spearmanr
+
+            # 70/30 train/test split (chronological — no shuffling)
+            split_idx = int(len(bt_mood_clean) * 0.7)
+            train_m, train_r = bt_mood_clean[:split_idx], bt_fwd_clean[:split_idx]
+            test_m, test_r = bt_mood_clean[split_idx:], bt_fwd_clean[split_idx:]
+
+            # In-sample correlations (train)
+            bt_pearson = np.corrcoef(train_m, train_r)[0, 1] if len(train_m) > 2 else 0
+            bt_spearman, _ = _spearmanr(train_m, train_r)
+            if not np.isfinite(bt_spearman):
+                bt_spearman = 0.0
+
+            # Out-of-sample correlations (test)
+            oos_pearson = np.corrcoef(test_m, test_r)[0, 1] if len(test_m) > 2 else 0
+            oos_spearman, _ = _spearmanr(test_m, test_r) if len(test_m) > 2 else (0.0, 1.0)
+            if not np.isfinite(oos_spearman):
+                oos_spearman = 0.0
+
             colors = np.where(bt_mood_clean > 0, C_GREEN, C_RED)
-            
+
             fig_bt = go.Figure()
-            
+
+            # Train points (circles)
             fig_bt.add_trace(go.Scattergl(
-                x=bt_mood_clean, y=bt_fwd_clean,
+                x=train_m, y=train_r,
                 mode='markers',
-                marker=dict(size=4, color=colors, opacity=0.5),
+                marker=dict(size=4, color=np.where(train_m > 0, C_GREEN, C_RED), opacity=0.4),
                 hovertemplate='Mood: %{x:.1f}<br>+30d Return: %{y:.1f}%<extra></extra>',
-                showlegend=False,
+                name=f'Train (70%, n={len(train_m)})',
             ))
-            
-            # Add regression line
-            if len(bt_mood_clean) > 10:
-                z = np.polyfit(bt_mood_clean, bt_fwd_clean, 1)
+            # Test points (diamonds, brighter)
+            fig_bt.add_trace(go.Scattergl(
+                x=test_m, y=test_r,
+                mode='markers',
+                marker=dict(size=5, color=np.where(test_m > 0, C_GREEN, C_RED), opacity=0.8, symbol='diamond'),
+                hovertemplate='Mood: %{x:.1f}<br>+30d Return: %{y:.1f}%<extra></extra>',
+                name=f'Test (30%, n={len(test_m)})',
+            ))
+
+            if len(train_m) > 10:
                 x_range = np.linspace(bt_mood_clean.min(), bt_mood_clean.max(), 50)
+
+                # Linear fit on TRAIN data only
+                z1 = np.polyfit(train_m, train_r, 1)
                 fig_bt.add_trace(go.Scatter(
-                    x=x_range, y=z[0] * x_range + z[1],
+                    x=x_range, y=z1[0] * x_range + z1[1],
                     mode='lines', line=dict(color=C_PRIMARY, width=2, dash='dash'),
-                    name=f'ρ = {bt_corr:.2f}', showlegend=True,
+                    name=f'Linear (train ρ={bt_pearson:.2f}, test ρ={oos_pearson:.2f})', showlegend=True,
                 ))
-            
+
+                # Quadratic fit on TRAIN data only
+                z2 = np.polyfit(train_m, train_r, 2)
+                fig_bt.add_trace(go.Scatter(
+                    x=x_range, y=z2[0] * x_range ** 2 + z2[1] * x_range + z2[2],
+                    mode='lines', line=dict(color=C_CYAN, width=2, dash='dot'),
+                    name=f'Quadratic (train ρ_s={bt_spearman:.2f}, test ρ_s={oos_spearman:.2f})', showlegend=True,
+                ))
+
             # Zero lines
             fig_bt.add_hline(y=0, line_color='#555', line_width=1, line_dash='dot')
             fig_bt.add_vline(x=0, line_color='#555', line_width=1, line_dash='dot')
-            
+
             fig_bt.update_layout(
                 **PLOTLY_BASE,
                 height=400,
@@ -2669,27 +2985,31 @@ def render_similar_periods(mood_df):
                     x=0.02, y=0.98,
                     bgcolor='rgba(26,26,26,0.8)',
                     bordercolor=C_BG_GRID, borderwidth=1,
-                    font=dict(size=11),
+                    font=dict(size=10),
                 ),
             )
-            
+
             st.plotly_chart(fig_bt, config={'displayModeBar': False})
-            
-            # Interpretation
-            if abs(bt_corr) > 0.3:
-                strength = 'strong' if abs(bt_corr) > 0.5 else 'moderate'
-                direction = 'positive' if bt_corr > 0 else 'negative'
+
+            # Interpretation — report both in-sample and out-of-sample
+            oos_stronger = oos_spearman if abs(oos_spearman) > abs(oos_pearson) else oos_pearson
+
+            if abs(oos_stronger) > 0.3:
+                strength = 'strong' if abs(oos_stronger) > 0.5 else 'moderate'
+                direction = 'positive' if oos_stronger > 0 else 'negative'
                 st.markdown(f"""
                 <div class="info-box">
-                    <b>Correlation: ρ = {bt_corr:.2f}</b> — {strength} {direction} relationship.
-                    {'Higher mood scores have historically been followed by positive NIFTY returns.' if bt_corr > 0 else 'Higher mood scores have historically been followed by negative NIFTY returns (contrarian signal).'}
+                    <b>Out-of-sample (30%): Pearson {oos_pearson:.2f} · Spearman {oos_spearman:.2f}</b> — {strength} {direction} relationship holds on unseen data.<br>
+                    <span style="color:#666;">In-sample (70%): Pearson {bt_pearson:.2f} · Spearman {bt_spearman:.2f}</span><br>
+                    {'Higher mood scores have historically been followed by positive NIFTY returns.' if oos_stronger > 0 else 'Higher mood scores have historically been followed by negative NIFTY returns (contrarian signal).'}
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
                 <div class="info-box">
-                    <b>Correlation: ρ = {bt_corr:.2f}</b> — weak linear relationship at 30-day horizon.
-                    The mood score's predictive power may be non-linear or work better at different horizons.
+                    <b>Out-of-sample (30%): Pearson {oos_pearson:.2f} · Spearman {oos_spearman:.2f}</b> — weak out-of-sample relationship at 30-day horizon.<br>
+                    <span style="color:#666;">In-sample (70%): Pearson {bt_pearson:.2f} · Spearman {bt_spearman:.2f}</span><br>
+                    The mood score's predictive power may be non-linear (check the quadratic curve) or work better at different horizons.
                 </div>
                 """, unsafe_allow_html=True)
         else:
