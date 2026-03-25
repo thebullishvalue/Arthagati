@@ -1,9 +1,10 @@
-# ARTHAGATI (अर्थगति) · v2.2.1
+# ARTHAGATI (अर्थगति) · v2.4.0
 
 **Market Sentiment Analysis Engine** — A Hemrek Capital Product
 
 Quantitative market mood scoring built on physics-informed mathematics:
-Ornstein-Uhlenbeck normalization, Kalman filtering, and decay-weighted Spearman correlations.
+Ornstein-Uhlenbeck mean-reversion, Kalman filtering with burn-in bootstrap,
+walk-forward correlations, and Ledoit-Wolf covariance shrinkage.
 
 ---
 
@@ -30,48 +31,51 @@ It ingests macro, breadth, and valuation data from a Google Sheet and produces:
 Google Sheet Data
        │
        ▼
-Layer 1: Adaptive Correlations
-       │  Exponential-decay-weighted Spearman rank correlation
+Layer 1: Walk-Forward Correlations
+       │  Expanding-window decay-weighted Spearman at quarterly checkpoints
        │  Half-life: CORR_HALF_LIFE = 504 days (~2 trading years)
-       │  Spearman over Pearson: robust to outliers, captures monotonic nonlinear relationships
+       │  Exponential weight blending across checkpoints (α ≈ 0.29, HL = 2)
        ▼
 Layer 2: Information-Theoretic Weighting
-       │  weight = |correlation| × (1 − Shannon_entropy_of_variable_returns)
+       │  weight = |correlation| × (1 − Shannon_entropy)
+       │  Entropy bins via Freedman-Diaconis rule (2·IQR·n^{-1/3})
        │  High-entropy (noisy) variables suppressed. Structured signals amplified.
        ▼
-Layer 3: Adaptive Percentiles
-       │  Decay-weighted empirical CDF  (half-life: PCT_HALF_LIFE = 252 days)
+Layer 3: Adaptive Percentiles — O(N log N)
+       │  Sorted-insert + binary search (np.searchsorted) on decay-weighted CDF
+       │  Half-life: PCT_HALF_LIFE = 252 days
        │  "Where is PE today vs recent history?" — not vs all-time
        ▼
 Layer 4: Ornstein-Uhlenbeck Normalization
        │  Models mood as mean-reverting diffusion: dx = θ(μ − x)dt + σdW
+       │  Per-observation residual RSS (correct under expanding AR(1) coefficients)
+       │  Kendall-Marriott-Pope first-order bias correction on AR(1) coefficient
        │  Normalizes by stationary std: (x − μ) / (σ/√2θ) × MOOD_SCALE → [−100, +100]
-       │  Diagnostic: OU half-life = ln(2)/θ days
        ▼
 Layer 5: Kalman Smoothing
-       │  1D Kalman filter with auto-estimated noise parameters
-       │  High noise → more smoothing. Low noise → tracks signal closely.
-       │  Confidence band: ±KALMAN_CI_Z × √variance (~95% interval)
+       │  1D fading-memory Kalman filter (Sorenson-Sacks)
+       │  Harvey (1990) burn-in bootstrap: first 50 obs calibrated from first stable window
+       │  Confidence band: tanh soft-clip ±KALMAN_CI_Z × √variance (~95% interval)
        ▼
   Mood Score + Diagnostics (Hurst, Entropy, OU parameters)
 ```
 
 ### MSF Spread — Confirmation Oscillator
 
-| Component | Measures | v2.0 Change |
-|-----------|----------|-------------|
+| Component | Measures | Method |
+|-----------|----------|--------|
 | Momentum  | NIFTY rate-of-change z-score (`MSF_ROC_LEN` = 14 days) | — |
 | Structure | Mood trend divergence + acceleration | — |
-| Regime    | Directional move count | Adaptive threshold (scales with local vol; was: fixed 0.0033) |
+| Regime    | Windowed directional count | `rolling(MSF_WINDOW).sum()` — prevents cumsum drift artifact |
 | Flow      | Breadth participation divergence | — |
-| **Weighting** | Component allocation | **Inverse-variance** (Markowitz for signals; was: fixed 30/25/25/20) |
+| **Weighting** | Component allocation | **Inverse-variance** (Markowitz for signals) |
 
 ### Similar Periods — Matching Engine
 
 | Component | Weight | Method |
 |-----------|--------|--------|
-| State match | `SIMILAR_W_MAHA` = 55% | Mahalanobis distance on 5-feature vector (mood, volatility, momentum, Hurst, entropy) |
-| Trajectory | `SIMILAR_W_TRAJ` = 35% | Cosine similarity on detrended `TRAJ_WINDOW` = 20-day mood path shape |
+| State match | `SIMILAR_W_MAHA` = 55% | Mahalanobis distance (Ledoit-Wolf OAS shrinkage covariance) on 5-feature vector |
+| Trajectory | `SIMILAR_W_TRAJ` = 35% | Cosine similarity on least-squares detrended `TRAJ_WINDOW` = 20-day mood path |
 | Recency    | `SIMILAR_W_RECV` = 10% | Exponential decay (365-day half-life) |
 
 ---
@@ -160,22 +164,23 @@ Available options are populated dynamically from the actual sheet columns — an
 
 ## Mathematical Primitives
 
-Twelve pure-NumPy functions — each with exactly one callsite and one purpose:
+Thirteen pure-NumPy functions — each with exactly one callsite and one purpose:
 
 | Function | Used In | Purpose |
 |----------|---------|---------|
 | `exponential_decay_weights` | Correlations | Recency weighting |
 | `weighted_spearman` | Correlations | Robust rank correlation with decay |
-| `shannon_entropy` | Variable weighting | Penalize noisy predictors |
-| `adaptive_percentile` | Mood scoring | Decay-weighted historical positioning |
-| `ornstein_uhlenbeck_estimate` | Normalization | Physics-based scaling + half-life |
-| `kalman_filter_1d` | Smoothing | Adaptive noise filtering |
-| `rolling_hurst` | Diagnostics | Trending vs mean-reverting character |
+| `shannon_entropy` | Variable weighting | Freedman-Diaconis bin-width entropy estimation |
+| `adaptive_percentile` | Mood scoring | O(N log N) sorted-insert decay-weighted CDF |
+| `ornstein_uhlenbeck_estimate` | Normalization | Per-observation residual RSS + bias-corrected AR(1) |
+| `kalman_filter_1d` | Smoothing | Fading-memory filter with burn-in bootstrap |
+| `rolling_hurst` | Diagnostics | DFA-1 with minimum 4-segment guard |
 | `rolling_entropy` | Diagnostics | Market disorder measurement |
-| `mahalanobis_distance_batch` | Similar periods | Covariance-aware state matching |
-| `cosine_similarity` | Similar periods | Trajectory shape matching |
+| `_ledoit_wolf_shrinkage` | Similar periods | Analytical OAS covariance shrinkage (Chen et al. 2010) |
+| `mahalanobis_distance_batch` | Similar periods | Shrinkage-regularized state matching |
+| `cosine_similarity` | Similar periods | Least-squares detrended trajectory shape matching |
 | `detect_regime_transitions` | Diagnostics | Hurst × Entropy quadrant classification |
-| `_hurst_rs` | Internal | Rescaled Range Hurst estimation |
+| `_hurst_dfa` | Internal | Detrended Fluctuation Analysis (Peng et al. 1994) |
 
 ---
 

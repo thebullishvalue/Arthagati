@@ -455,7 +455,8 @@ def rolling_mean_fast(series, window):
     sums = cs - cs_shifted
     counts = cs_valid - cv_shifted
 
-    means = np.where(counts > 0, sums / counts, np.nan)
+    # np.maximum prevents 0/0 division evaluation before np.where masks it
+    means = np.where(counts > 0, sums / np.maximum(counts, 1.0), np.nan)
     return pd.Series(means, index=series.index) if hasattr(series, 'index') else means
 
 def zscore_clipped(series, window, clip=3.0):
@@ -483,7 +484,7 @@ def zscore_clipped(series, window, clip=3.0):
     sums2 = cs2 - cs2_shifted
     counts = cs_valid - cv_shifted
 
-    means = np.where(counts > 0, sums / counts, 0.0)
+    means = np.where(counts > 0, sums / np.maximum(counts, 1.0), 0.0)
     var = np.where(counts > 1, (sums2 - (sums ** 2) / np.maximum(counts, 1)) / np.maximum(counts - 1, 1), 0.0)
     stds = np.sqrt(np.maximum(var, 0))
 
@@ -636,17 +637,17 @@ def adaptive_percentile(series, half_life=252):
     where w_i = exp(-λ·(t-i)), λ = ln(2)/half_life.
 
     Implementation: maintain a sorted array of observed values with their
-    insertion times.  At each step, binary-search for x_t's rank position,
+    insertion times. At each step, binary-search for x_t's rank position,
     compute the cumulative weighted CDF using vectorised decay on the
-    sorted array — O(N) per step naively but amortised O(log N) for the
-    search.  Total: O(N log N) vs the previous O(N²).
+    sorted array. The search is O(log N), but list insertion is O(N).
+    Total time complexity: O(N²).
 
     Greenwald & Khanna (2001) motivates the streaming quantile approach;
     here the sorted-insert + searchsorted is exact.
 
     Used in: calculate_historical_mood (Layer 3)
     """
-    from bisect import insort
+    from bisect import bisect_right
 
     values = np.asarray(series, dtype=np.float64)
     n = len(values)
@@ -679,7 +680,7 @@ def adaptive_percentile(series, half_life=252):
         w_new = 1.0  # current observation always has weight 1.0 (most recent)
 
         # Insert into sorted order
-        pos = np.searchsorted(sorted_vals, v, side='right')
+        pos = bisect_right(sorted_vals, v)
         sorted_vals.insert(pos, v)
         sorted_times.insert(pos, t)
         total_weight += w_new
@@ -697,7 +698,7 @@ def adaptive_percentile(series, half_life=252):
     # Convert lists to arrays for the final cleanup
     return pd.Series(result).ffill().fillna(0.5).values
 
-def ornstein_uhlenbeck_estimate(series, dt=1.0):
+def ornstein_uhlenbeck_estimate(series: np.ndarray | pd.Series, dt: float = 1.0) -> tuple[float, float, float]:
     """
     Estimate Ornstein-Uhlenbeck process parameters from discrete observations
     with Kendall (1954) / Marriott & Pope (1954) first-order bias correction.
