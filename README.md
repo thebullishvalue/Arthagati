@@ -1,4 +1,4 @@
-# ARTHAGATI (अर्थगति) · v2.4.0
+# ARTHAGATI (अर्थगति) · v2.5.0
 
 **Market Sentiment Analysis Engine** — A Hemrek Capital Product
 
@@ -164,7 +164,7 @@ Available options are populated dynamically from the actual sheet columns — an
 
 ## Mathematical Primitives
 
-Thirteen pure-NumPy functions — each with exactly one callsite and one purpose:
+Twelve pure-NumPy functions — each with exactly one callsite and one purpose:
 
 | Function | Used In | Purpose |
 |----------|---------|---------|
@@ -172,7 +172,6 @@ Thirteen pure-NumPy functions — each with exactly one callsite and one purpose
 | `weighted_spearman` | Correlations | Robust rank correlation with decay |
 | `shannon_entropy` | Variable weighting | Freedman-Diaconis bin-width entropy estimation |
 | `adaptive_percentile` | Mood scoring | O(N log N) sorted-insert decay-weighted CDF |
-| `ornstein_uhlenbeck_estimate` | Normalization | Per-observation residual RSS + bias-corrected AR(1) |
 | `kalman_filter_1d` | Smoothing | Fading-memory filter with burn-in bootstrap |
 | `rolling_hurst` | Diagnostics | DFA-1 with minimum 4-segment guard |
 | `rolling_entropy` | Diagnostics | Market disorder measurement |
@@ -259,6 +258,7 @@ Below the period summary, a breakdown shows each MSF component's current contrib
 | v2.0.0 | Decay-Spearman correlations · Adaptive percentiles · OU normalization · Kalman smoothing · Inverse-variance MSF · Mahalanobis similarity · Predictor quality assessment · Apply-button config · EY auto-derivation · Yield term spreads |
 | v2.1.0 | OU forward projection (90d) · Kalman confidence bands (±1.96σ) · Data staleness warning · MSF component decomposition · Forward returns in similar periods (30/60/90d) · Backtest scatter · Regime transition detection · Diagnostic cards row · Dynamic predictor options from sheet columns · Named constants for all hyperparameters |
 | v2.2.0 | Performance Architecture Rewrite: Complete C-level NumPy vectorization of mathematical primitives · Replaced Python expanding/rolling loops with O(N) cumulative sums · Memory-optimized 1D slice lookbacks for adaptive percentiles (preventing O(N²) memory blowout) · Vectorized Ornstein-Uhlenbeck estimation, Kalman filter variances, and Mahalanobis similarity via array striding · 99%+ reduction in engine execution time |
+| v2.5.0 | Production Readiness & Code Cleanup: Removed dead `ornstein_uhlenbeck_estimate()` function · Removed unused `kalman_gains` return value · Added type hints · Version consistency |
 | v2.2.1 | UI Rendering & Memory Optimizations: Migrated regime transitions to WebGL (`go.Scattergl`) to prevent DOM bloat · Bounded Streamlit caching (`max_entries=5`) to prevent server RAM blowout |
 
 ---

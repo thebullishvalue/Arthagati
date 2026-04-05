@@ -42,7 +42,7 @@ st.set_page_config(
 # IDENTITY
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION      = "v2.4.0"
+VERSION      = "v2.5.0"
 PRODUCT_NAME = "Arthagati"
 COMPANY      = "Hemrek Capital"
 
@@ -507,7 +507,6 @@ def zscore_clipped(series, window, clip=3.0):
 #   weighted_spearman               → correlations              → robust rank correlation
 #   shannon_entropy                 → variable weighting        → penalize noisy variables
 #   adaptive_percentile             → mood scoring              → decay-weighted CDF
-#   ornstein_uhlenbeck_estimate     → mood normalization        → physics-based scaling
 #   kalman_filter_1d                → mood smoothing            → adaptive noise filtering
 #   rolling_hurst                   → diagnostics (output only) → trending vs reverting
 #   rolling_entropy                 → diagnostics (output only) → market disorder
@@ -698,68 +697,21 @@ def adaptive_percentile(series, half_life=252):
     # Convert lists to arrays for the final cleanup
     return pd.Series(result).ffill().fillna(0.5).values
 
-def ornstein_uhlenbeck_estimate(series: np.ndarray | pd.Series, dt: float = 1.0) -> tuple[float, float, float]:
-    """
-    Estimate Ornstein-Uhlenbeck process parameters from discrete observations
-    with Kendall (1954) / Marriott & Pope (1954) first-order bias correction.
-
-    The OU process: dx = θ(μ − x)dt + σdW
-    Discrete AR(1): x_{t+1} = a + b·x_t + ε
-        b = exp(−θ·dt), a = μ·(1−b), Var(ε) = σ²·(1−b²)/(2θ)
-
-    The OLS estimator of b is biased by -(1+3b)/n (Tang & Chen, 2009),
-    leading to overestimated θ and underestimated half-life.
-    The correction: b_corrected = b_hat + (1 + 3·b_hat) / n
-
-    Returns (theta, mu, sigma):
-        theta : mean-reversion speed (higher = faster snap-back)
-        mu    : long-run equilibrium level
-        sigma : process volatility
-
-    Used in: calculate_historical_mood (Layer 4)
-    """
-    ts = np.asarray(series, dtype=np.float64)
-    ts = ts[np.isfinite(ts)]
-    n_obs = len(ts)
-    if n_obs < 10:
-        return (0.01, 0.0, 1.0)
-
-    x, y = ts[:-1], ts[1:]
-    n_pairs = len(x)
-    mean_x, mean_y = x.mean(), y.mean()
-
-    cov_xy = np.sum((x - mean_x) * (y - mean_y))
-    var_x = np.sum((x - mean_x) ** 2)
-    if var_x < 1e-12:
-        return (0.01, mean_x, 1.0)
-
-    b_hat = cov_xy / var_x
-
-    # Kendall-Marriott-Pope first-order bias correction for AR(1) coefficient
-    b = b_hat + (1.0 + 3.0 * b_hat) / n_pairs
-    b = np.clip(b, 1e-6, 1.0 - 1e-6)
-
-    a = mean_y - b * mean_x
-
-    theta = np.clip(-np.log(b) / dt, 1e-4, 10.0)
-    mu = a / (1.0 - b)
-
-    residuals = y - (a + b * x)
-    var_eps = np.var(residuals)
-    sigma_sq = 2.0 * theta * var_eps / (1.0 - b ** 2) if (1.0 - b ** 2) > 1e-12 else var_eps
-    sigma = np.sqrt(max(sigma_sq, 1e-12))
-
-    return (theta, mu, sigma)
-
-def kalman_filter_1d(observations, process_var=None, measurement_var=None, half_life=KALMAN_HALF_LIFE):
+def kalman_filter_1d(
+    observations: np.ndarray | pd.Series,
+    process_var: float | None = None,
+    measurement_var: float | None = None,
+    half_life: int = KALMAN_HALF_LIFE,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     1D Fading Memory Kalman Filter (Sorenson & Sacks).
-    
+
     Uses an exponential fading factor to discount past data,
     preventing filter divergence in non-stationary regimes.
-    
-    Used in: calculate_historical_mood (Layer 5)
-    Returns: (filtered_state, kalman_gains, estimate_variances)
+
+    Returns:
+        filtered_state: Smoothed state estimates for each observation.
+        estimate_variances: Posterior variance estimates (used for confidence bands).
     """
     obs = np.asarray(observations, dtype=np.float64)
     n = len(obs)
@@ -796,32 +748,30 @@ def kalman_filter_1d(observations, process_var=None, measurement_var=None, half_
     estimate_var = m_vars[0]
     
     filtered = np.zeros(n)
-    gains = np.zeros(n)
     variances = np.zeros(n)
     filtered[0] = state
     variances[0] = estimate_var
-    
+
     # Sorenson & Sacks Fading Memory parameter
     lam = np.log(2) / max(half_life, 1)
     alpha_sq = np.exp(2 * lam)  # Fading factor > 1
-    
+
     for i in range(1, n):
         # Fading memory predict step
         pred_var = alpha_sq * estimate_var + p_vars[i]
-        
+
         if np.isfinite(obs[i]):
             # Update step
             K = pred_var / (pred_var + m_vars[i])
             state = state + K * (obs[i] - state)
             estimate_var = (1 - K) * pred_var
-            gains[i] = K
         else:
             estimate_var = pred_var
-            
+
         filtered[i] = state
         variances[i] = estimate_var
-    
-    return filtered, gains, variances
+
+    return filtered, variances
 
 def _hurst_dfa(series, max_lag=None):
     """
@@ -1502,7 +1452,7 @@ def calculate_historical_mood(df, dependent_vars=None):
     ou_half_life = np.log(2) / max(theta, 1e-4)
 
     # ── Layer 5: Kalman Smoothing ───────────────────────────────────────
-    smoothed_mood_scores, kalman_gains, kalman_variances = kalman_filter_1d(mood_scores)
+    smoothed_mood_scores, kalman_variances = kalman_filter_1d(mood_scores)
 
     # Confidence band: ±KALMAN_CI_Z × √variance (~95% interval)
     kalman_std = np.sqrt(np.maximum(kalman_variances, 0))

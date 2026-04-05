@@ -1,5 +1,5 @@
 # ARTHAGATI — Architecture & Design Vision
-### Hemrek Capital · Architect's Working Document · v2.2.1
+### Hemrek Capital · Architect's Working Document · v2.5.0
 
 ---
 
@@ -252,7 +252,7 @@ Feature vector = [mood, volatility, NIFTY_ROC, Hurst, entropy]
 | Entropy as MSF component | The MSF measures momentum ↔ sentiment alignment. Entropy dilutes this. Entropy belongs in diagnostics only. |
 | Hurst as MSF component | Same reasoning. Persistence is a meta-property of the signal, not a signal component. |
 | Fisher Information output | It is `1/rolling_variance`. Naming it, computing it, and surfacing it adds complexity for something the user can eyeball from the volatility column. |
-| 14 primitive functions | Reduced to 12. Each has exactly one callsite and one purpose. |
+| 12 primitive functions | Reduced to 11. Each has exactly one callsite and one purpose. |
 
 ---
 

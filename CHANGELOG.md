@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v2.5.0] - Production Readiness & Code Cleanup
+
+### Removed
+- **Dead Function — `ornstein_uhlenbeck_estimate()`**: Removed 42-line standalone OU estimator that had zero traceable callsites across the entire codebase. OU estimation is performed inline (vectorized expanding OU with bias correction) within `calculate_historical_mood()`. Confirmed via full import/call-graph tracing.
+- **Dead Return Value — `kalman_gains`**: Removed unused Kalman gain array from `kalman_filter_1d()` return tuple. Only `filtered_state` and `estimate_variances` are consumed downstream. Updated function signature to return `tuple[np.ndarray, np.ndarray]`.
+
+### Changed
+- **Type Hint Modernization**: Added comprehensive PEP 604/696 type hints to `kalman_filter_1d()` (`np.ndarray | pd.Series`, `float | None`, `tuple[np.ndarray, np.ndarray]`).
+- **Mathematical Primitives Count**: Updated internal documentation from 12 to 11 primitives (reflecting actual function count after dead-code removal).
+- **VISION.md Version Sync**: Updated architecture document version from v2.2.1 → v2.5.0 to match current release.
+- **requirements.txt Version Sync**: Updated header comment from v2.4.0 → v2.5.0.
+
+### Fixed
+- **Version Consistency**: Aligned version numbers across `arthagati.py`, `README.md`, `requirements.txt`, and `VISION.md` (previously VISION.md lagged at v2.2.1).
+
 ## [v2.4.0] - Adversarial Audit Resolution
 
 ### Fixed
