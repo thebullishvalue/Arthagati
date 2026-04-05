@@ -2,83 +2,158 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v2.5.0] - Production Readiness & Code Cleanup
+The format is based on [Keep a Changelog](https://keepachangelog.com/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### Removed
-- **Dead Function — `ornstein_uhlenbeck_estimate()`**: Removed 42-line standalone OU estimator that had zero traceable callsites across the entire codebase. OU estimation is performed inline (vectorized expanding OU with bias correction) within `calculate_historical_mood()`. Confirmed via full import/call-graph tracing.
-- **Dead Return Value — `kalman_gains`**: Removed unused Kalman gain array from `kalman_filter_1d()` return tuple. Only `filtered_state` and `estimate_variances` are consumed downstream. Updated function signature to return `tuple[np.ndarray, np.ndarray]`.
+---
 
-### Changed
-- **Type Hint Modernization**: Added comprehensive PEP 604/696 type hints to `kalman_filter_1d()` (`np.ndarray | pd.Series`, `float | None`, `tuple[np.ndarray, np.ndarray]`).
-- **Mathematical Primitives Count**: Updated internal documentation from 12 to 11 primitives (reflecting actual function count after dead-code removal).
-- **VISION.md Version Sync**: Updated architecture document version from v2.2.1 → v2.5.0 to match current release.
-- **requirements.txt Version Sync**: Updated header comment from v2.4.0 → v2.5.0.
+## [v2.5.0] — 2026-04-05
 
-### Fixed
-- **Version Consistency**: Aligned version numbers across `arthagati.py`, `README.md`, `requirements.txt`, and `VISION.md` (previously VISION.md lagged at v2.2.1).
+### Production Readiness & Code Cleanup
 
-## [v2.4.0] - Adversarial Audit Resolution
+Production-focused release. Dead code elimination, API surface reduction, and cross-file version synchronization. No behavioral changes to the sentiment engine or UI.
 
-### Fixed
-- **OU Residual Sum of Squares (H2)**: Replaced algebraic expanding RSS formula (incorrect when expanding AR(1) coefficients vary per step) with per-observation residuals `e²_i = (y_i − a_i − b_i·x_i)²` accumulated via expanding mean. Sigma and half-life diagnostics are now mathematically correct.
-- **Backward Information Leakage (M5)**: Removed `bfill()` from data imputation. Only `ffill()` is applied; early NaN values remain NaN and are handled by `np.isfinite()` guards in all math primitives. Prevents future data leaking into early observations.
-- **DFA Segment Guard (M1)**: Increased minimum segment count from 1 to 4 per Peng et al. (1994) recommendation, preventing degenerate single-segment Hurst estimates.
-- **MSF Regime Trend Artifact (M4)**: Replaced unbounded `cumsum()` with windowed `rolling(MSF_WINDOW).sum()` to prevent directional count drift that created false regime signals over long histories.
-- **Rolling Entropy Off-by-One (L3)**: Fixed `sliding_window_view` scope and result index alignment so `result[i]` correctly corresponds to entropy of the window ending at index `i`.
-- **Sigmoid Overflow (L4)**: Added input clipping (`±500`) before `np.exp()` to prevent overflow for extreme z-scores.
-- **rolling_mean_fast NaN Semantics (L6)**: Returns `NaN` instead of `0.0` for all-NaN windows, preventing downstream consumers from treating missing data as zero.
+#### Removed
+- Dead function `ornstein_uhlenbeck_estimate()` (42 lines) — zero traceable callsites; OU estimation is performed inline via vectorized expanding AR(1) within `calculate_historical_mood()`
+- Unused `kalman_gains` return value from `kalman_filter_1d()` — only `filtered_state` and `estimate_variances` are consumed by the smoothing layer
+- Stale `ornstein_uhlenbeck_estimate` entry from mathematical primitives documentation table
 
-### Changed
-- **O(N log N) Adaptive Percentiles (H1)**: Replaced O(N²) inner loop with sorted-insert + `np.searchsorted` binary search. Maintains a sorted value array with insertion times; computes weighted CDF via vectorised decay on the sorted subset. Inspired by Greenwald & Khanna (2001) streaming quantile approach.
-- **Kalman Warm-Up Bootstrap (H3)**: Early expanding variance estimates (first 50 observations) are bootstrapped from the first stable window per Harvey (1990), preventing poorly calibrated Kalman gains during warm-up.
-- **Freedman-Diaconis Entropy Bins (M2)**: Shannon entropy bin count now uses Freedman-Diaconis rule (`bin_width = 2·IQR·n^{-1/3}`) instead of capped `sqrt(N)`, providing data-adaptive bin selection.
-- **Ledoit-Wolf Covariance Shrinkage (M3)**: Mahalanobis distance now uses analytical Ledoit-Wolf shrinkage (OAS variant, Chen et al. 2010) instead of ad-hoc diagonal regularization. Always well-conditioned.
-- **Walk-Forward Weight Blending (M6)**: Checkpoint correlation weights are exponentially blended with previous checkpoint (`α ≈ 0.29`, half-life = 2 checkpoints) to eliminate discontinuous jumps at segment boundaries.
-- **Confidence Band Soft-Clip (L2)**: Replaced hard `np.clip(±100)` with `tanh(x/100)·100` so band width is preserved near score extremes, maintaining visual uncertainty information.
-- **Least-Squares Trajectory Detrend (L5)**: Similar-period trajectory matching now uses least-squares linear detrend (minimises residual variance) instead of endpoint anchoring, which distorted V-shaped or reversal trajectories.
-- **Backtest Train/Test Split (L1)**: Backtest scatter now shows 70/30 chronological train/test split with separate in-sample and out-of-sample Pearson and Spearman correlations. Fit lines are trained on the 70% only.
+#### Changed
+- `kalman_filter_1d()` signature modernized with PEP 604 type hints: `np.ndarray | pd.Series`, `float | None`, returns `tuple[np.ndarray, np.ndarray]`
+- Mathematical primitives count updated: 12 → 11 functions across source code and documentation
+- `COMPANY` constant in `arthagati.py` updated to `@thebullishvalue` (branding alignment)
+- Version numbers synchronized across all files: `arthagati.py`, `README.md`, `requirements.txt`, `VISION.md` (VISION.md had lagged at v2.2.1 since v2.3.0)
 
-## [v2.3.0] - Walk-Forward Correlations & Bias Corrections
+#### Fixed
+- Cross-file version consistency: all version identifiers now point to a single source of truth (`VERSION` in `arthagati.py`)
 
-### Fixed
-- **Look-Ahead Bias (C1/C2)**: Restructured Layer 1-2 to use expanding-window walk-forward correlations at quarterly checkpoints instead of full-sample.
-- **Percentile Semantics (L1)**: Symmetric [-1,+1] adjustments for PE and EY anchors, fixing asymmetric bearish/bullish capacity.
-- **Hurst Bias (M2)**: Replaced R/S with DFA-1 (Peng et al. 1994, Weron 2002).
-- **OU AR(1) Bias (M1)**: Applied Kendall-Marriott-Pope first-order correction to expanding AR(1) coefficient.
-- **Dynamic Y-Axis**: Mood chart scales to actual data bounds with 8% padding.
+---
 
-## [v2.2.1] - UI Rendering & Memory Optimizations
+## [v2.4.0]
 
-### Changed
-- **WebGL Chart Rendering**: Grouped and migrated regime transition markers from individual SVG layout shapes (`add_vline`) to interleaved WebGL traces (`go.Scattergl`). This eliminates DOM bloat and restores smooth panning/zooming, especially on the 'MAX' timeframe.
+### Adversarial Audit Resolution
 
-### Fixed
-- **Cache Memory Bloat**: Applied `max_entries=5` to all heavy `@st.cache_data` decorators. This strictly caps the server memory footprint, preventing RAM blowout when users rapidly toggle different predictor configurations.
+Major correctness release. Seven mathematical fixes and nine algorithmic improvements identified through adversarial audit. The sentiment engine now produces mathematically sound scores with no look-ahead bias, correct variance estimation, and stable regime detection.
 
-## [v2.2.0] - Performance & Vectorization Architecture Rewrite
+#### Fixed — Correctness
+- **OU Residual Sum of Squares** — Replaced incorrect algebraic expanding RSS formula with per-observation residuals `e²_i = (y_i − a_i − b_i·x_i)²` accumulated via expanding mean; sigma and half-life diagnostics are now correct under time-varying AR(1) coefficients
+- **Backward Information Leakage** — Removed `bfill()` from data imputation; only `ffill()` applied, early NaN values remain NaN and are handled by `np.isfinite()` guards in all math primitives
+- **DFA Segment Guard** — Increased minimum segment count from 1 to 4 per Peng et al. (1994), preventing degenerate single-segment Hurst estimates
+- **MSF Regime Trend Artifact** — Replaced unbounded `cumsum()` with windowed `rolling(MSF_WINDOW).sum()` preventing directional count drift that created false regime signals
+- **Rolling Entropy Off-by-One** — Fixed `sliding_window_view` scope and result index alignment
+- **Sigmoid Overflow** — Added input clipping (`±500`) before `np.exp()` for extreme z-scores
+- **rolling_mean_fast NaN Semantics** — Returns `NaN` instead of `0.0` for all-NaN windows
 
-### Added
-- **C-Level Vectorization Engine**: Migrated underlying mathematical primitives away from Python-level `for` loops into compiled C-extensions via NumPy `cumsum` and `sliding_window_view`.
-- **O(N) Moving Averages & Variances**: Replaced heavy Pandas object instantiations (`.rolling().mean()`, `.expanding().std()`) with mathematically exact $O(N)$ NumPy cumulative sums, providing sub-millisecond execution.
-- **Pure-NumPy Ranking**: Swapped Pandas `.rank()` inside the weighted Spearman calculation with a custom C-vectorized tie-averaging rank algorithm.
+#### Changed — Algorithm Improvements
+- **O(N log N) Adaptive Percentiles** — Replaced O(N²) inner loop with sorted-insert + `np.searchsorted` binary search (Greenwald & Khanna 2001 streaming quantile approach)
+- **Kalman Warm-Up Bootstrap** — First 50 observations bootstrapped from first stable window per Harvey (1990), preventing poorly calibrated Kalman gains
+- **Freedman-Diaconis Entropy Bins** — Adaptive bin selection via `2·IQR·n^{-1/3}` instead of capped `sqrt(N)`
+- **Ledoit-Wolf Covariance Shrinkage** — Mahalanobis distance uses analytical OAS shrinkage (Chen et al. 2010) instead of ad-hoc diagonal regularization
+- **Walk-Forward Weight Blending** — Checkpoint weights exponentially blended (α ≈ 0.29, HL = 2 checkpoints) eliminating discontinuous jumps at segment boundaries
+- **Confidence Band Soft-Clip** — `tanh(x/100)·100` replaces hard `np.clip(±100)` preserving band width at score extremes
+- **Least-Squares Trajectory Detrend** — Replaced endpoint anchoring with least-squares linear detrend (minimizes residual variance on V-shaped and reversal trajectories)
+- **Backtest Train/Test Split** — 70/30 chronological split with separate in-sample and out-of-sample Pearson/Spearman correlations
 
-### Changed
-- **Kalman Filter (Sorenson & Sacks)**: Implemented an exponential fading memory factor into the 1D Kalman filter to ensure variance predictions correctly discount non-stationary regimes.
-- **Ornstein-Uhlenbeck Estimation**: Converted the $O(N^2)$ expanding-window OU estimation loop into a single-pass $O(N)$ vectorized algorithm. 
-- **Trajectory Similarity**: Migrated the 20-day cosine similarity trajectory matching from explicit iteration into instantaneous matrix multiplications using array striding.
-- **Regime Transition Detection**: Fully vectorized the Hurst and Entropy quadrant classification logic. 
+---
 
-### Fixed
-- **Memory Blowout in Adaptive Percentiles**: Fixed an issue where 2D NumPy broadcasting created an $O(N^2)$ memory footprint leading to 40GB+ RAM allocations. Rewrote to use an $O(N)$ memory 1D slice lookback, reducing execution time of the Mood Engine from ~120s down to <2s.
+## [v2.3.0]
 
-## [v2.1.0] - Diagnostics & Forward Returns
-- Added 90-day OU forward mean-reversion projection.
-- Added ±1.96σ Kalman confidence bands.
-- Added forward return outcomes (30, 60, 90-day) to similar historical periods.
-- Added backtest scatter plot for NIFTY return validation.
-- Added explicit data staleness warnings for the Google Sheets fetch.
+### Walk-Forward Correlations & Bias Corrections
 
-## [v2.0.0] - Physics-Informed Mathematics
-- Overhauled the sentiment engine to use Ornstein-Uhlenbeck stochastic processes.
-- Implemented Mahalanobis distance for covariance-aware state matching.
-- Replaced fixed thresholds with inverse-variance (Markowitz) weighted MSF components.
+Eliminated look-ahead bias from the correlation engine and applied first-order bias corrections to statistical estimators.
+
+#### Fixed
+- **Look-Ahead Bias** — Layers 1–2 restructured to use expanding-window walk-forward correlations at quarterly checkpoints instead of full-sample
+- **Percentile Semantics** — Symmetric [−1,+1] adjustments for PE and EY anchors, fixing asymmetric bearish/bullish capacity
+- **Hurst Estimator Bias** — Replaced R/S with DFA-1 (Peng et al. 1994, Weron 2002) for robustness on short series
+- **OU AR(1) Bias** — Kendall-Marriott-Pope first-order correction applied to expanding AR(1) coefficient
+- **Dynamic Y-Axis** — Mood chart now scales to actual data bounds with 8% padding instead of fixed ±100
+
+---
+
+## [v2.2.1]
+
+### UI Rendering & Memory Optimizations
+
+#### Changed
+- **WebGL Chart Rendering** — Regime transition markers migrated from individual SVG shapes (`add_vline`) to interleaved WebGL traces (`go.Scattergl`), eliminating DOM bloat on MAX timeframe
+
+#### Fixed
+- **Cache Memory Bloat** — Applied `max_entries=5` to all heavy `@st.cache_data` decorators, capping server RAM when users rapidly toggle predictor configurations
+
+---
+
+## [v2.2.0]
+
+### Performance & Vectorization Architecture Rewrite
+
+Execution time reduced by 99%+ through C-level NumPy vectorization of all mathematical primitives.
+
+#### Added
+- **C-Level Vectorization Engine** — All explicit Python loops replaced with NumPy `cumsum`, `sliding_window_view`, and array striding
+- **O(N) Moving Averages & Variances** — Replaced Pandas `.rolling()`/`.expanding()` with exact NumPy cumulative sums
+- **Pure-NumPy Ranking** — Custom vectorized tie-averaging rank algorithm replacing Pandas `.rank()` in weighted Spearman
+
+#### Changed
+- **Kalman Filter** — Exponential fading memory factor (Sorenson & Sacks) for non-stationary regime discounting
+- **OU Estimation** — O(N²) expanding-window loop converted to single-pass O(N) vectorized algorithm
+- **Trajectory Similarity** — 20-day cosine similarity migrated from explicit iteration to matrix striding multiplications
+- **Regime Detection** — Fully vectorized Hurst × Entropy quadrant classification
+
+#### Fixed
+- **Memory Blowout** — 2D NumPy broadcasting in adaptive percentiles created O(N²) memory (40GB+ allocations); rewritten with O(N) 1D slice lookback reducing engine time from ~120s to <2s
+
+---
+
+## [v2.1.0]
+
+### Diagnostics & Forward Returns
+
+Extended the sentiment engine with forward-looking projections and historical validation.
+
+#### Added
+- 90-day OU forward mean-reversion projection on mood chart
+- ±1.96σ Kalman confidence bands around smoothed mood score
+- Forward return outcomes (30/60/90-day) on similar historical period cards
+- Backtest scatter plot: mood score at T vs NIFTY return at T+30
+- Data staleness warnings when Google Sheet is more than 3 days old
+
+---
+
+## [v2.0.0]
+
+### Physics-Informed Mathematics
+
+Complete overhaul of the sentiment engine from static correlations to stochastic process modeling.
+
+#### Added
+- **Ornstein-Uhlenbeck Normalization** — Mood modeled as mean-reverting diffusion `dx = θ(μ − x)dt + σdW` instead of global z-score
+- **Kalman Smoothing** — 1D adaptive state estimation replacing fixed-window EMA
+- **Mahalanobis Distance** — Covariance-aware historical period matching replacing Manhattan distance
+- **Inverse-Variance MSF Weighting** — Markowitz minimum-variance signal allocation replacing fixed 30/25/25/20 weights
+- **Adaptive Percentiles** — Decay-weighted empirical CDF replacing expanding rank percentiles
+- **Decay-Spearman Correlations** — Recency-weighted rank correlation replacing full-sample Pearson
+- **Shannon Entropy Weighting** — Noisy variable suppression via information-theoretic penalty
+- **Predictor Quality Assessment** — Ranked variable scoring by |correlation| × (1 − entropy)
+- **Staging → Commit Config** — Apply-button pattern preventing continuous recomputation
+- **EY Auto-Derivation** — `1/PE × 100` when Earnings Yield absent from sheet
+- **Yield Term Spreads** — `IN10Y − IN02Y` and `US10Y − US02Y` derived as orthogonal predictors
+
+#### Removed
+- Fixed Pearson correlations (replaced by decay-Spearman)
+- Expanding rank percentiles (replaced by adaptive ECDF)
+- Fixed MSF weights (replaced by inverse-variance)
+- Manhattan distance similar periods (replaced by Mahalanobis)
+- Global z-score normalization (replaced by OU)
+- Simple moving average smoothing (replaced by Kalman)
+
+---
+
+## [v1.2.0]
+
+### Initial Release
+
+Baseline sentiment engine with Pearson correlations, expanding percentiles, and fixed-weight MSF oscillator.
+
+---
+
+*© 2026 Arthagati · @thebullishvalue*

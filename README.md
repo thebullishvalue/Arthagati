@@ -1,10 +1,25 @@
 # ARTHAGATI (अर्थगति) · v2.5.0
 
-**Market Sentiment Analysis Engine** — A Hemrek Capital Product
+**Market Sentiment Analysis Engine** — An @thebullishvalue Product
 
-Quantitative market mood scoring built on physics-informed mathematics:
-Ornstein-Uhlenbeck mean-reversion, Kalman filtering with burn-in bootstrap,
-walk-forward correlations, and Ledoit-Wolf covariance shrinkage.
+> Quantitative market mood scoring built on physics-informed mathematics: Ornstein-Uhlenbeck mean-reversion, Kalman filtering with burn-in bootstrap, walk-forward correlations, and Ledoit-Wolf covariance shrinkage.
+
+---
+
+## Table of Contents
+
+- [What It Does](#what-it-does)
+- [System Architecture](#system-architecture)
+  - [Mood Score Pipeline](#mood-score-pipeline)
+  - [MSF Spread Oscillator](#msf-spread-oscillator)
+  - [Similar Periods Engine](#similar-periods-engine)
+  - [Regime Detection](#regime-detection)
+- [Mathematical Primitives](#mathematical-primitives)
+- [Data Schema](#data-schema)
+- [Configuration](#configuration)
+- [Key Features](#key-features)
+- [Setup](#setup)
+- [Version History](#version-history)
 
 ---
 
@@ -12,71 +27,160 @@ walk-forward correlations, and Ledoit-Wolf covariance shrinkage.
 
 Arthagati answers one question: **"What is the market's current sentiment state, and how confident should I be in that reading?"**
 
-It ingests macro, breadth, and valuation data from a Google Sheet and produces:
+It ingests macro, breadth, and valuation data from a Google Sheet and produces four outputs:
 
 | Output | Range | Description |
 |--------|-------|-------------|
-| **Mood Score** | −100 to +100 | Correlation-weighted composite of market variables anchored to PE and Earnings Yield |
-| **MSF Spread** | −10 to +10 | Momentum / Structure / Flow / Regime oscillator for confirmation |
+| **Mood Score** | −100 to +100 | Correlation-weighted composite anchored to PE and Earnings Yield |
+| **MSF Spread** | −10 to +10 | Momentum / Structure / Flow / Regime confirmation oscillator |
 | **Similar Periods** | — | Historical analogs matched by Mahalanobis distance + trajectory shape |
 | **Predictor Assessment** | — | Transparency into which variables drive the score and which are noise |
 
 ---
 
-## Architecture
+## System Architecture
 
-### Mood Score Pipeline — 5 Layers
+### Overview
 
 ```
-Google Sheet Data
-       │
-       ▼
-Layer 1: Walk-Forward Correlations
-       │  Expanding-window decay-weighted Spearman at quarterly checkpoints
-       │  Half-life: CORR_HALF_LIFE = 504 days (~2 trading years)
-       │  Exponential weight blending across checkpoints (α ≈ 0.29, HL = 2)
-       ▼
-Layer 2: Information-Theoretic Weighting
-       │  weight = |correlation| × (1 − Shannon_entropy)
-       │  Entropy bins via Freedman-Diaconis rule (2·IQR·n^{-1/3})
-       │  High-entropy (noisy) variables suppressed. Structured signals amplified.
-       ▼
-Layer 3: Adaptive Percentiles — O(N log N)
-       │  Sorted-insert + binary search (np.searchsorted) on decay-weighted CDF
-       │  Half-life: PCT_HALF_LIFE = 252 days
-       │  "Where is PE today vs recent history?" — not vs all-time
-       ▼
-Layer 4: Ornstein-Uhlenbeck Normalization
-       │  Models mood as mean-reverting diffusion: dx = θ(μ − x)dt + σdW
-       │  Per-observation residual RSS (correct under expanding AR(1) coefficients)
-       │  Kendall-Marriott-Pope first-order bias correction on AR(1) coefficient
-       │  Normalizes by stationary std: (x − μ) / (σ/√2θ) × MOOD_SCALE → [−100, +100]
-       ▼
-Layer 5: Kalman Smoothing
-       │  1D fading-memory Kalman filter (Sorenson-Sacks)
-       │  Harvey (1990) burn-in bootstrap: first 50 obs calibrated from first stable window
-       │  Confidence band: tanh soft-clip ±KALMAN_CI_Z × √variance (~95% interval)
-       ▼
-  Mood Score + Diagnostics (Hurst, Entropy, OU parameters)
+┌─────────────────────────────────────────────────────────────────────┐
+│                     DATA INGESTION LAYER                            │
+│  Google Sheets (authenticated service account) → CSV parse          │
+│  Forward-fill NaN · Derive term spreads · Auto-derive EY from PE   │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+              ▼                             ▼
+┌─────────────────────────┐   ┌─────────────────────────────────────┐
+│   MOOD SCORE PIPELINE   │   │      MSF SPREAD OSCILLATOR          │
+│   (5-Layer Engine)      │   │   (4-Component, Inverse-Variance)   │
+│                         │   │                                     │
+│  L1: Walk-Fwd Corr      │   │  Momentum  → NIFTY ROC z-score      │
+│  L2: Entropy Weighting  │   │  Structure → Mood trend divergence   │
+│  L3: Adaptive Percentile│   │  Regime    → Adaptive dir. count    │
+│  L4: OU Normalization   │   │  Flow      → Breadth divergence     │
+│  L5: Kalman Smoothing   │   │                                     │
+└────────────┬────────────┘   └──────────────┬──────────────────────┘
+             │                               │
+             ▼                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        OUTPUT LAYER                                 │
+│  Mood Score + MSF Spread + Diagnostics + Similar Periods + Backtest │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### MSF Spread — Confirmation Oscillator
+---
+
+### Mood Score Pipeline
+
+Six processing layers transform raw market data into a normalized sentiment score:
+
+```
+Raw Data ──► L1: Walk-Forward Correlations ──► L2: Entropy Weighting
+                                                  │
+                                                  ▼
+             L5: Kalman Smoothing ◄── L4: OU Normalization ◄── L3: Adaptive Percentiles
+                                                  │
+                                                  ▼
+                                         Mood Score [−100, +100]
+                                         + Diagnostics
+```
+
+#### Layer 1 — Walk-Forward Correlations
+- Exponential-decay-weighted Spearman rank correlation at quarterly checkpoints
+- Half-life: `CORR_HALF_LIFE` = 504 days (~2 trading years)
+- Expanding window eliminates look-ahead bias
+- Weight blending across checkpoints (α ≈ 0.29, HL = 2) prevents discontinuous jumps
+
+#### Layer 2 — Information-Theoretic Weighting
+- `weight = |correlation| × (1 − Shannon_entropy)`
+- Entropy bins via Freedman-Diaconis rule: `bin_width = 2·IQR·n^{-1/3}`
+- Miller-Madow bias correction on entropy estimate
+- Noisy/random variables suppressed; structured signals amplified
+
+#### Layer 3 — Adaptive Percentiles
+- Decay-weighted empirical CDF with sorted-insert + binary search: **O(N log N)**
+- Half-life: `PCT_HALF_LIFE` = 252 days (~1 trading year)
+- Answers: *"Where is PE today vs recent history?"* — not vs all-time
+
+#### Layer 4 — Ornstein-Uhlenbeck Normalization
+- Models mood as mean-reverting diffusion: `dx = θ(μ − x)dt + σdW`
+- Kendall-Marriott-Pope first-order bias correction on AR(1) coefficient
+- Per-observation residual RSS (correct under expanding AR(1) coefficients)
+- Normalizes by stationary std: `(x − μ) / (σ/√2θ) × MOOD_SCALE` → **[−100, +100]**
+
+#### Layer 5 — Kalman Smoothing
+- 1D fading-memory Kalman filter (Sorenson-Sacks)
+- Harvey (1990) burn-in bootstrap: first 50 obs calibrated from first stable window
+- Confidence band: `tanh` soft-clip `±KALMAN_CI_Z × √variance` (~95% interval)
+- Tight band = confident reading; wide band = system is uncertain
+
+---
+
+### MSF Spread Oscillator
+
+Four-component confirmation oscillator, weighted by inverse-variance (Markowitz for signals):
 
 | Component | Measures | Method |
 |-----------|----------|--------|
-| Momentum  | NIFTY rate-of-change z-score (`MSF_ROC_LEN` = 14 days) | — |
-| Structure | Mood trend divergence + acceleration | — |
-| Regime    | Windowed directional count | `rolling(MSF_WINDOW).sum()` — prevents cumsum drift artifact |
-| Flow      | Breadth participation divergence | — |
-| **Weighting** | Component allocation | **Inverse-variance** (Markowitz for signals) |
+| **Momentum** | NIFTY rate-of-change z-score | `MSF_ROC_LEN` = 14 days |
+| **Structure** | Mood trend divergence + acceleration | Fast/slow trend + curvature |
+| **Regime** | Directional count | Windowed `rolling(20).sum()` — prevents cumsum drift |
+| **Flow** | Breadth participation divergence | Deviation from rolling mean |
 
-### Similar Periods — Matching Engine
+**Weighting**: Inverse-variance — stable components receive more weight, recalculated each run.
+
+---
+
+### Similar Periods Engine
+
+Three-part scoring to find historical analogs:
 
 | Component | Weight | Method |
 |-----------|--------|--------|
-| State match | `SIMILAR_W_MAHA` = 55% | Mahalanobis distance (Ledoit-Wolf OAS shrinkage covariance) on 5-feature vector |
-| Trajectory | `SIMILAR_W_TRAJ` = 35% | Cosine similarity on least-squares detrended `TRAJ_WINDOW` = 20-day mood path |
-| Recency    | `SIMILAR_W_RECV` = 10% | Exponential decay (365-day half-life) |
+| **State Match** | 55% | Mahalanobis distance with Ledoit-Wolf OAS shrinkage on 5-feature vector |
+| **Trajectory** | 35% | Cosine similarity on least-squares detrended 20-day mood path |
+| **Recency** | 10% | Exponential decay (365-day half-life) |
+
+Each match includes forward returns at 30/60/90 days. A backtest scatter plots mood score at T vs NIFTY return at T+30 with 70/30 train/test split.
+
+---
+
+### Regime Detection
+
+Hurst exponent × entropy classifies the market into four quadrants:
+
+| Regime | Hurst | Entropy | Strategy Implication |
+|--------|-------|---------|---------------------|
+| **Trending** | > 0.5 | Low | Momentum strategies work |
+| **Volatile Trend** | > 0.5 | High | Directional with large swings |
+| **Mean-Reverting** | < 0.5 | Low | Contrarian / range strategies |
+| **Choppy** | < 0.5 | High | Hardest to trade — reduce size |
+
+Transitions marked as vertical lines on the mood chart. Current regime displayed in diagnostic cards.
+
+---
+
+## Mathematical Primitives
+
+Eleven pure-NumPy functions — each with exactly one callsite and one purpose:
+
+| Function | Layer | Purpose |
+|----------|-------|---------|
+| `exponential_decay_weights` | L1 | Recency weighting |
+| `weighted_spearman` | L1 | Robust rank correlation with decay |
+| `shannon_entropy` | L2 | Freedman-Diaconis bin-width entropy estimation |
+| `adaptive_percentile` | L3 | O(N log N) sorted-insert decay-weighted CDF |
+| `kalman_filter_1d` | L5 | Fading-memory filter with burn-in bootstrap |
+| `rolling_hurst` | Diagnostics | DFA-1 with minimum 4-segment guard |
+| `rolling_entropy` | Diagnostics | Market disorder measurement |
+| `_ledoit_wolf_shrinkage` | Similar Periods | Analytical OAS covariance shrinkage |
+| `mahalanobis_distance_batch` | Similar Periods | Shrinkage-regularized state matching |
+| `cosine_similarity` | Similar Periods | Least-squares detrended trajectory matching |
+| `detect_regime_transitions` | Diagnostics | Hurst × Entropy quadrant classification |
+
+Plus internal helpers: `_hurst_dfa` (DFA implementation), `sigmoid` (overflow-safe normalization), `rolling_mean_fast` (O(N) cumsum-based), `zscore_clipped` (NaN-aware rolling z-score).
 
 ---
 
@@ -84,152 +188,98 @@ Layer 5: Kalman Smoothing
 
 ### Source Columns (Google Sheet)
 
-| Column | Description |
-|--------|-------------|
-| `DATE` | Date in `MM/DD/YYYY` format |
-| `NIFTY` | NIFTY 50 index level |
-| `AD_RATIO` | Advance-Decline ratio |
-| `REL_AD_RATIO` | Relative AD ratio |
-| `REL_BREADTH` | Relative breadth |
-| `BREADTH` | Market breadth |
-| `COUNT` | Stock count |
-| `NIFTY50_PE` | NIFTY 50 Price-to-Earnings ratio |
-| `NIFTY50_EY` | NIFTY 50 Earnings Yield (auto-derived as `1/PE × 100` if absent or constant) |
-| `NIFTY50_DY` | NIFTY 50 Dividend Yield |
-| `NIFTY50_PB` | NIFTY 50 Price-to-Book |
-| `IN10Y`, `IN02Y`, `IN30Y` | India government bond yields (10Y, 2Y, 30Y) |
-| `INIRYY` | India inflation rate year-on-year |
-| `REPO` | RBI repo rate |
-| `CRR` | Cash Reserve Ratio |
-| `US02Y`, `US10Y`, `US30Y` | US Treasury yields |
-| `US_FED` | US Federal Funds Rate |
-| `PE_DEV` | PE deviation from historical mean |
-| `EY_DEV` | Earnings Yield deviation from historical mean |
+| Category | Columns |
+|----------|---------|
+| **Index** | `DATE`, `NIFTY` |
+| **Valuation Anchors** | `NIFTY50_PE`, `NIFTY50_EY`, `NIFTY50_DY`, `NIFTY50_PB`, `PE_DEV`, `EY_DEV` |
+| **Breadth** | `AD_RATIO`, `REL_AD_RATIO`, `REL_BREADTH`, `BREADTH`, `COUNT` |
+| **India Macro** | `IN10Y`, `IN02Y`, `IN30Y`, `INIRYY`, `REPO`, `CRR` |
+| **US Macro** | `US02Y`, `US10Y`, `US30Y`, `US_FED` |
 
-### Derived Columns (computed in-app, not required in sheet)
+### Derived Columns (computed in-app)
 
 | Column | Formula | Purpose |
 |--------|---------|---------|
-| `IN_TERM_SPREAD` | `IN10Y − IN02Y` | India yield curve slope. Negative = inverted = recession signal. |
-| `US_TERM_SPREAD` | `US10Y − US02Y` | US yield curve slope. Every US recession since 1960 was preceded by inversion. |
-| `NIFTY50_EY` | `(1 / NIFTY50_PE) × 100` | Auto-derived if sheet column is empty or constant. |
+| `IN_TERM_SPREAD` | `IN10Y − IN02Y` | India yield curve slope — inverted = recession signal |
+| `US_TERM_SPREAD` | `US10Y − US02Y` | US yield curve slope — every US recession since 1960 preceded by inversion |
+| `NIFTY50_EY` | `(1 / NIFTY50_PE) × 100` | Auto-derived if sheet column is empty or constant |
 
-The app loads **all columns** present in the sheet — any column beyond `EXPECTED_COLUMNS` is automatically available as a predictor in the Predictor Configuration panel.
+The app loads **all columns** present in the sheet. Any numeric column beyond the four anchor keys (`DATE`, `NIFTY`, `NIFTY50_PE`, `NIFTY50_EY`) is available as a selectable predictor.
 
 ---
 
 ## Configuration
 
-### Secrets (never in source)
+### Secrets Management
 
-Sheet credentials and document coordinates live exclusively in `.streamlit/secrets.toml` (local) or the Streamlit Cloud Secrets panel (deployed). See `.streamlit/secrets.toml.example` for the required structure.
+Credentials live exclusively in `.streamlit/secrets.toml` (local) or Streamlit Cloud Secrets panel (deployed):
 
 ```toml
 [google_service_account]
-# Full service account JSON fields (type, project_id, private_key, client_email, …)
+type = "service_account"
+project_id = "..."
+private_key = "..."
+client_email = "..."
 
 [sheet]
-id  = "<spreadsheet-id>"   # long alphanumeric string in the Sheet URL
-gid = "<worksheet-gid>"    # numeric tab ID in the URL after #gid=
+id  = "<spreadsheet-id>"
+gid = "<worksheet-gid>"
 ```
 
-The service account email must have at least **Viewer** access to the sheet.
+The service account email must have **Viewer** access. The sheet is treated as a private API endpoint — never public.
 
-### Code Constants
+### Hyperparameters
 
-| Constant | Default | Description |
-|----------|---------|-------------|
-| `DATA_TTL` | `3600` | Cache TTL for the Sheets fetch (seconds) |
-| `CORR_HALF_LIFE` | `504` | Spearman recency weight half-life (days) |
-| `PCT_HALF_LIFE` | `252` | Adaptive ECDF recency weight half-life (days) |
-| `MOOD_SCALE` | `30.0` | OU-normalised signal → mood score scaling factor |
-| `KALMAN_CI_Z` | `1.96` | Kalman confidence band width (~95%) |
-| `OU_PROJ_DAYS` | `90` | OU forward projection horizon (calendar days) |
-| `MSF_WINDOW` | `20` | MSF rolling window (bars) |
-| `MSF_ROC_LEN` | `14` | NIFTY rate-of-change period (bars) |
-| `BACKTEST_HORIZON` | `30` | Forward-return horizon for backtest scatter (trading days) |
-
-### Predictor Selection (Sidebar → Model Configuration)
-
-The multiselect uses a **staging → commit** pattern to prevent continuous recomputation:
-
-1. Adjust the predictor set in the multiselect (no recomputation yet)
-2. Pending diff is shown: `+2 added, −1 removed`
-3. Click **✅ Apply Configuration** to commit
-4. Only on apply does the engine recompute with the new predictor set and the cache clear
-
-Available options are populated dynamically from the actual sheet columns — any column in the sheet (minus the four anchor/index columns `DATE`, `NIFTY`, `NIFTY50_PE`, `NIFTY50_EY`) appears as a selectable predictor.
-
----
-
-## Mathematical Primitives
-
-Twelve pure-NumPy functions — each with exactly one callsite and one purpose:
-
-| Function | Used In | Purpose |
+| Constant | Default | Purpose |
 |----------|---------|---------|
-| `exponential_decay_weights` | Correlations | Recency weighting |
-| `weighted_spearman` | Correlations | Robust rank correlation with decay |
-| `shannon_entropy` | Variable weighting | Freedman-Diaconis bin-width entropy estimation |
-| `adaptive_percentile` | Mood scoring | O(N log N) sorted-insert decay-weighted CDF |
-| `kalman_filter_1d` | Smoothing | Fading-memory filter with burn-in bootstrap |
-| `rolling_hurst` | Diagnostics | DFA-1 with minimum 4-segment guard |
-| `rolling_entropy` | Diagnostics | Market disorder measurement |
-| `_ledoit_wolf_shrinkage` | Similar periods | Analytical OAS covariance shrinkage (Chen et al. 2010) |
-| `mahalanobis_distance_batch` | Similar periods | Shrinkage-regularized state matching |
-| `cosine_similarity` | Similar periods | Least-squares detrended trajectory shape matching |
-| `detect_regime_transitions` | Diagnostics | Hurst × Entropy quadrant classification |
-| `_hurst_dfa` | Internal | Detrended Fluctuation Analysis (Peng et al. 1994) |
+| `DATA_TTL` | 3600s | Cache TTL for Sheets fetch |
+| `CORR_HALF_LIFE` | 504d | Spearman recency weight decay |
+| `PCT_HALF_LIFE` | 252d | Adaptive ECDF recency weight decay |
+| `MOOD_SCALE` | 30.0 | OU signal → mood score scaling |
+| `KALMAN_CI_Z` | 1.96 | Confidence band width (~95%) |
+| `KALMAN_HALF_LIFE` | 126d | Kalman fading memory |
+| `CORR_MIN_WARMUP` | 252 | Min observations before first checkpoint |
+| `CORR_REBALANCE_PERIOD` | 63 | Expanding-window rebalance interval |
+| `MSF_WINDOW` | 20 | MSF rolling window |
+| `MSF_ROC_LEN` | 14 | NIFTY rate-of-change period |
+| `MSF_ZSCORE_CLIP` | 3.0 | Z-score clipping threshold |
+| `MSF_SCALE` | 10.0 | MSF output scaling |
+| `SIMILAR_W_MAHA` | 0.55 | Mahalanobis distance weight |
+| `SIMILAR_W_TRAJ` | 0.35 | Trajectory similarity weight |
+| `SIMILAR_W_RECV` | 0.10 | Recency decay weight |
+| `TRAJ_WINDOW` | 20 | Trajectory comparison window |
+| `OU_PROJ_DAYS` | 90 | OU forward projection horizon |
+| `BACKTEST_HORIZON` | 30 | Forward-return horizon |
+
+### Predictor Selection
+
+Sidebar → Model Configuration uses a **staging → commit** pattern:
+1. Adjust predictors in multiselect (no recomputation)
+2. Pending diff shown: `+2 added, −1 removed`
+3. Click **✅ Apply Configuration** to commit
+4. Engine recomputes with new predictor set; cache clears
 
 ---
 
 ## Key Features
 
-### Engine Vectorization & Performance (v2.2.0)
-The system relies entirely on compiled C-extensions under the hood, replacing all explicit Python expanding/rolling loops with $O(N)$ cumulative sums and array striding. The memory-optimized adaptive percentiles, exact average-tie ranking, and vectorized Ornstein-Uhlenbeck estimator reduce end-to-end execution time by over 99%.
-
 ### OU Forward Projection
-
-The chart extends a dotted line `OU_PROJ_DAYS` = 90 days beyond the last data point. This is the Ornstein-Uhlenbeck expected reversion path:
-
-```
-E[mood(t+n)] = μ + (mood_current − μ) · exp(−θ · n)
-```
-
-The `EQ` label marks the equilibrium level with the OU half-life in days.
+The mood chart extends a dotted line 90 days beyond the last data point showing the Ornstein-Uhlenbeck expected reversion path: `E[mood(t+n)] = μ + (mood_current − μ) · exp(−θ · n)`. The `EQ` label marks the equilibrium level with the OU half-life.
 
 ### Kalman Confidence Bands
+A translucent band surrounds the mood score line showing ±1.96σ of the filter's estimate variance. A mood of +40 with tight bands is fundamentally different from +40 with wide bands.
 
-A translucent band surrounds the mood score line showing `±KALMAN_CI_Z` standard deviations of the Kalman filter's estimate variance (~95% interval). A tight band means a confident reading; a wide band means the system is uncertain. A mood of +40 with tight bands is fundamentally different from +40 with wide bands.
-
-### Regime Detection
-
-Uses Hurst exponent × entropy to classify the market into four quadrants:
-
-| Regime | Hurst | Entropy | Implication |
-|--------|-------|---------|-------------|
-| Trending | > 0.5 | Low | Momentum strategies work |
-| Volatile Trend | > 0.5 | High | Directional with large swings |
-| Mean-Reverting | < 0.5 | Low | Contrarian / range strategies work |
-| Choppy | < 0.5 | High | Hardest to trade — reduce size |
-
-Regime transitions are marked as vertical dotted lines on the mood chart. The current regime appears as a diagnostic card in the top metrics row.
-
-### Similar Periods — Forward Returns
-
-Each analog card shows what happened to NIFTY 30, 60, and 90 days after that historical state. Aggregate summary cards show median returns and win rates across all matched analogs.
-
-### Backtest Scatter
-
-The Similar Periods tab includes a scatter of mood score at T vs NIFTY return at T+`BACKTEST_HORIZON` = 30 days, for all historical data. Displays the Pearson ρ with a regression line and plain-English interpretation.
+### Divergence Signals
+Bearish (red triangles) and bullish (green triangles) divergence markers appear when mood score and MSF spread move in opposite directions — detected via 10-bar lookback extrema comparison.
 
 ### Data Staleness Warning
+If the most recent data point is more than 3 calendar days old, a red banner warns that scores reflect stale data.
 
-If the most recent row is more than 3 calendar days old (accounting for weekends), a red banner warns that scores reflect stale data and the Google Sheet needs updating.
+### MSF Component Breakdown
+Four horizontal bars show each component's current contribution vs period average, with colors indicating direction.
 
-### MSF Component Decomposition
-
-Below the period summary, a breakdown shows each MSF component's current contribution and period average. Component weights are recalculated each run via inverse-variance allocation.
+### Backtest Scatter
+Similar Periods view includes a chronological 70/30 train/test scatter of mood score at T vs NIFTY return at T+30, with linear and quadratic fit lines and both Pearson/Spearman correlations reported.
 
 ---
 
@@ -237,30 +287,40 @@ Below the period summary, a breakdown shows each MSF component's current contrib
 
 ### Local
 
-1. Create a Google Cloud service account with Sheets read-only scope and share the target sheet with its email (Viewer is enough)
-2. Copy `.streamlit/secrets.toml.example` → `.streamlit/secrets.toml` and fill in the service account fields and sheet coordinates
-3. Install dependencies: `pip install -r requirements.txt`
-4. Run: `streamlit run arthagati.py`
+```bash
+# 1. Create a Google Cloud service account with Sheets read-only scope
+# 2. Share the target sheet with the service account email (Viewer is enough)
+# 3. Copy secrets template and fill in credentials
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 
-### Streamlit Cloud (GitHub deployment)
+# 4. Install dependencies
+pip install -r requirements.txt
 
-1. Push the repo to GitHub — `secrets.toml` is gitignored and will not be committed
-2. In Streamlit Cloud: **App Settings → Secrets** — paste the full TOML content from your local `secrets.toml`
-3. Deploy — the app reads `st.secrets` identically in both environments; no code change needed
+# 5. Run
+streamlit run arthagati.py
+```
+
+### Streamlit Cloud
+
+1. Push repo to GitHub — `secrets.toml` is gitignored
+2. **App Settings → Secrets** — paste the full TOML from your local `secrets.toml`
+3. Deploy — `st.secrets` reads identically in both environments; no code change needed
 
 ---
 
 ## Version History
 
-| Version | Changes |
-|---------|---------|
-| v1.2.0 | Initial release: Pearson correlations, expanding percentiles, fixed MSF weights |
-| v2.0.0 | Decay-Spearman correlations · Adaptive percentiles · OU normalization · Kalman smoothing · Inverse-variance MSF · Mahalanobis similarity · Predictor quality assessment · Apply-button config · EY auto-derivation · Yield term spreads |
-| v2.1.0 | OU forward projection (90d) · Kalman confidence bands (±1.96σ) · Data staleness warning · MSF component decomposition · Forward returns in similar periods (30/60/90d) · Backtest scatter · Regime transition detection · Diagnostic cards row · Dynamic predictor options from sheet columns · Named constants for all hyperparameters |
-| v2.2.0 | Performance Architecture Rewrite: Complete C-level NumPy vectorization of mathematical primitives · Replaced Python expanding/rolling loops with O(N) cumulative sums · Memory-optimized 1D slice lookbacks for adaptive percentiles (preventing O(N²) memory blowout) · Vectorized Ornstein-Uhlenbeck estimation, Kalman filter variances, and Mahalanobis similarity via array striding · 99%+ reduction in engine execution time |
-| v2.5.0 | Production Readiness & Code Cleanup: Removed dead `ornstein_uhlenbeck_estimate()` function · Removed unused `kalman_gains` return value · Added type hints · Version consistency |
-| v2.2.1 | UI Rendering & Memory Optimizations: Migrated regime transitions to WebGL (`go.Scattergl`) to prevent DOM bloat · Bounded Streamlit caching (`max_entries=5`) to prevent server RAM blowout |
+| Version | Date | Summary |
+|---------|------|---------|
+| **v2.5.0** | 2026-04-05 | Production Readiness & Code Cleanup: Dead function removal, unused return value elimination, type hint modernization, version consistency |
+| **v2.4.0** | — | Adversarial Audit Resolution: OU RSS fix, backward leakage removal, DFA segment guard, MSF regime artifact fix, O(N log N) adaptive percentiles, Kalman warm-up bootstrap, Freedman-Diaconis entropy bins, Ledoit-Wolf shrinkage, walk-forward weight blending, tanh confidence band soft-clip, least-squares trajectory detrend, 70/30 backtest split |
+| **v2.3.0** | — | Walk-Forward Correlations & Bias Corrections: Expanding-window Spearman, percentile symmetry fix, DFA replacing R/S, Kendall-Marriott-Pope bias correction, dynamic y-axis |
+| **v2.2.1** | — | UI Rendering & Memory Optimizations: WebGL regime transitions, bounded caching (`max_entries=5`) |
+| **v2.2.0** | — | Performance Architecture Rewrite: C-level NumPy vectorization, O(N) cumulative sums, memory-optimized 1D slice lookbacks, 99%+ execution time reduction |
+| **v2.1.0** | — | Diagnostics & Forward Returns: OU projection, Kalman bands, forward returns, backtest scatter, regime detection, staleness warnings |
+| **v2.0.0** | — | Physics-Informed Mathematics: OU normalization, Mahalanobis similarity, inverse-variance MSF, Kalman smoothing, adaptive percentiles, decay-Spearman correlations |
+| **v1.2.0** | — | Initial Release: Pearson correlations, expanding percentiles, fixed MSF weights |
 
 ---
 
-*© 2026 Arthagati · Hemrek Capital*
+*© 2026 Arthagati · @thebullishvalue*

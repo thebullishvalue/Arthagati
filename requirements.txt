@@ -1,6 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # ARTHAGATI — Python Dependencies
-# Hemrek Capital · v2.5.0
+# @thebullishvalue · v2.5.0
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # Install:  pip install -r requirements.txt

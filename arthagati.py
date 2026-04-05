@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ARTHAGATI (अर्थगति) - Market Sentiment Analysis | A Hemrek Capital Product
+ARTHAGATI (अर्थगति) - Market Sentiment Analysis | An @thebullishvalue Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Quantitative market mood analysis with MSF-enhanced indicators.
 TradingView-style charting with institutional-grade analytics.
@@ -44,7 +44,7 @@ st.set_page_config(
 
 VERSION      = "v2.5.0"
 PRODUCT_NAME = "Arthagati"
-COMPANY      = "Hemrek Capital"
+COMPANY      = "@thebullishvalue"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA SOURCE
