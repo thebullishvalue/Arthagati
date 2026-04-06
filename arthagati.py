@@ -49,11 +49,16 @@ COMPANY      = "@thebullishvalue"
 # DATA SOURCE
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Google Sheets URL is read from the environment variable ARTHAGATI_SHEET_URL.
-# Set it in .env or your deployment environment:
-#   export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>"
-# If the sheet is publicly accessible (no authentication), the URL alone is sufficient.
-# For private sheets, append ?access_token=<TOKEN> or use a published sheet URL.
+# Google Sheets coordinates are read from environment variables.
+# Set these in your deployment environment or .env file:
+#   ARTHAGATI_SHEET_ID  = "<spreadsheet-id>"
+#   ARTHAGATI_SHEET_GID = "<worksheet-gid>"
+#
+# The sheet must be accessible via the Google Visualization API (public with link).
+# No service account authentication is needed — the gviz endpoint works without auth.
+
+SHEET_ID  = os.environ.get("ARTHAGATI_SHEET_ID", "")
+SHEET_GID = os.environ.get("ARTHAGATI_SHEET_GID", "")
 
 EXPECTED_COLUMNS = [
     'DATE', 'NIFTY',
@@ -1022,35 +1027,32 @@ def detect_regime_transitions(hurst_values, entropy_values, window=10):
 
 def _fetch_sheet_csv(max_retries: int = 3) -> str:
     """
-    Fetch the Google Sheet as raw CSV text using a direct URL.
+    Fetch the Google Sheet as CSV via the Google Visualization API.
 
-    The sheet URL is read from the environment variable ARTHAGATI_SHEET_URL.
-    Example:
-        export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<ID>/export?format=csv&gid=<GID>"
-
-    For private sheets, include an access token in the URL or make the sheet
-    publicly viewable (anyone with the link → Viewer).
+    Uses the /gviz/tq?tqx=out:csv endpoint — no OAuth/service account needed.
+    The sheet must be set to "Anyone with the link can view" in sharing settings.
 
     Retries with exponential backoff on transient network failures.
     """
-    sheet_url = os.environ.get("ARTHAGATI_SHEET_URL")
-    if not sheet_url:
+    if not SHEET_ID or not SHEET_GID:
         raise RuntimeError(
-            "ARTHAGATI_SHEET_URL environment variable is not set. "
-            "Set it to your Google Sheet's export URL, e.g.:\n"
-            '  export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>"'
+            "ARTHAGATI_SHEET_ID and ARTHAGATI_SHEET_GID environment variables are not set.\n"
+            '  export ARTHAGATI_SHEET_ID="1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c"\n'
+            '  export ARTHAGATI_SHEET_GID="1938234952"'
         )
+
+    url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid={SHEET_GID}"
 
     last_exception = None
     for attempt in range(max_retries):
         try:
-            resp = requests.get(sheet_url, timeout=60)
+            resp = requests.get(url, timeout=60)
             resp.raise_for_status()
             return resp.text
         except requests.exceptions.Timeout as e:
             last_exception = e
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt * 2  # 2s, 4s, 8s
+                wait_time = 2 ** attempt * 2
                 logging.warning(
                     f"Google Sheets request timed out (attempt {attempt + 1}/{max_retries}). "
                     f"Retrying in {wait_time}s..."
@@ -1086,85 +1088,8 @@ def load_data() -> pd.DataFrame | None:
     """
     start_time = time.time()
     try:
-        raw_csv = _fetch_sheet_csv()
-
-        # ── Pre-process CSV to fix Google Sheets export artifacts ──────────
-        # Google Sheets CSV export commonly produces:
-        #   • Unmatched / unbalanced double-quotes in cells
-        #   • Embedded newlines inside quoted cells (splits one row into many)
-        #   • Blank rows between data blocks
-        #   • Rows with wildly wrong field counts (merged cells, artifacts)
-        #
-        # Strategy: clean at the text level, then parse with a known-good
-        # column count from the header row.
-
-        lines = raw_csv.split('\n')
-
-        # Find the header — first non-blank line
-        header_idx = next((i for i, l in enumerate(lines) if l.strip()), 0)
-        header_line = lines[header_idx]
-        expected_cols = header_line.count(',') + 1
-
-        logging.info("CSV header declares %d columns.", expected_cols)
-
-        # Clean and reassemble
-        clean_lines: list[str] = [header_line]
-        pending: str | None = None  # accumulated fragment from a split row
-
-        for line in lines[header_idx + 1:]:
-            stripped = line.strip()
-            if not stripped:
-                # Blank line — flush any pending fragment
-                if pending is not None:
-                    clean_lines.append(pending)
-                    pending = None
-                continue
-
-            # Fix unmatched quotes: if quote count is odd, strip trailing quote(s)
-            quote_count = stripped.count('"')
-            if quote_count % 2 != 0:
-                stripped = stripped.rstrip('"')
-
-            # Merge with pending fragment (previous row was split by embedded newline)
-            if pending is not None:
-                stripped = pending + stripped
-                pending = None
-
-            # Check field count
-            field_count = stripped.count(',') + 1
-
-            if field_count == expected_cols:
-                clean_lines.append(stripped)
-            elif field_count > expected_cols:
-                # Too many commas — likely a rogue embedded newline artifact
-                # Keep the line; let pandas handle it with on_bad_lines
-                clean_lines.append(stripped)
-            elif field_count < expected_cols and field_count > 1:
-                # Too few fields — probably a row split by an embedded newline
-                # Accumulate and try to merge with the next line
-                pending = stripped
-            else:
-                # Single-field junk row (separator, empty, etc.) — skip silently
-                if pending is not None:
-                    # Flush pending as-is if we hit a dead-end
-                    clean_lines.append(pending)
-                    pending = None
-
-        # Flush any remaining pending fragment
-        if pending is not None:
-            clean_lines.append(pending)
-
-        csv_text = '\n'.join(clean_lines)
-        kept = len(clean_lines) - 1  # subtract header
-        logging.info("CSV cleaned: kept %d data rows from %d raw lines.", kept, len(lines))
-
-        # ── Parse with pandas ─────────────────────────────────────────────
-        df = pd.read_csv(
-            StringIO(csv_text),
-            dtype=str,
-            engine='python',
-            on_bad_lines='warn',
-        )
+        csv_text = _fetch_sheet_csv()
+        df = pd.read_csv(StringIO(csv_text), dtype=str)
 
         # Normalise column names: strip whitespace, drop unnamed padding columns
         df.columns = [c.strip() for c in df.columns]

@@ -45,7 +45,7 @@ It ingests macro, breadth, and valuation data from a Google Sheet and produces f
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     DATA INGESTION LAYER                            │
-│  Google Sheets (direct URL via env var) → CSV parse                 │
+│  Google Sheets (gviz API · env var coords) → CSV parse              │
 │  Forward-fill NaN · Derive term spreads · Auto-derive EY from PE   │
 └────────────────────────────┬────────────────────────────────────────┘
                              │
@@ -212,16 +212,19 @@ The app loads **all columns** present in the sheet. Any numeric column beyond th
 
 ### Environment Variables
 
-The Google Sheet URL is configured via an environment variable:
+The Google Sheet coordinates are configured via two environment variables:
 
 ```bash
-export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>"
+export ARTHAGATI_SHEET_ID="<spreadsheet-id>"
+export ARTHAGATI_SHEET_GID="<worksheet-gid>"
 ```
 
-**Sheet Access Requirements:**
-- **Public sheets**: The URL alone is sufficient
-- **Private sheets**: Either make the sheet publicly viewable (anyone with link → Viewer) or append an access token to the URL
-- For service account authentication, generate an OAuth token and append: `?access_token=<TOKEN>`
+**Getting your Sheet coordinates:**
+1. Open your Google Sheet
+2. Copy the **SHEET_ID** from the URL: `docs.google.com/spreadsheets/d/<SHEET_ID>/edit...`
+3. The **SHEET_GID** is the `gid` parameter in the URL (usually `0` for the first sheet)
+
+**Sheet access:** The sheet must be set to **"Anyone with the link can view"** in sharing settings. The gviz endpoint works without authentication.
 
 ### Hyperparameters
 
@@ -283,13 +286,11 @@ Similar Periods view includes a chronological 70/30 train/test scatter of mood s
 ### Local
 
 ```bash
-# 1. Get your Google Sheet export URL:
-#    - Open the sheet → File → Share → Publish to web (or share with link)
-#    - Copy the URL in format:
-#      https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>
-#
-# 2. Set the environment variable:
-export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<YOUR_SHEET_ID>/export?format=csv&gid=<GID>"
+# 1. Set environment variables with your Sheet coordinates
+export ARTHAGATI_SHEET_ID="<your-spreadsheet-id>"
+export ARTHAGATI_SHEET_GID="<your-worksheet-gid>"
+
+# 2. Make sure the sheet is "Anyone with the link can view"
 
 # 3. Install dependencies
 pip install -r requirements.txt
@@ -298,19 +299,11 @@ pip install -r requirements.txt
 streamlit run arthagati.py
 ```
 
-### Streamlit Cloud / Deployment
+### Streamlit Cloud
 
 1. Push repo to GitHub
-2. **App Settings → Environment Variables** — add `ARTHAGATI_SHEET_URL` with your sheet's export URL
-3. Deploy — the app reads the URL from the environment at runtime
-
-### Getting Your Sheet URL
-
-1. Open your Google Sheet
-2. Copy the Sheet ID from the URL: `docs.google.com/spreadsheets/d/<SHEET_ID>/edit...`
-3. Copy the GID from the URL (usually `0` for the first sheet)
-4. Construct the export URL: `https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>`
-5. Make sure the sheet is accessible (see Sheet Access Requirements above)
+2. **App Settings → Environment Variables** — add `ARTHAGATI_SHEET_ID` and `ARTHAGATI_SHEET_GID`
+3. Deploy
 
 ---
 
