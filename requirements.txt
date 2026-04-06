@@ -18,9 +18,11 @@ scipy           >= 1.11.0
 # Charting
 plotly          >= 5.20.0
 
-# Google Sheets authentication (private sheet access via service account)
-google-auth     >= 2.27.0
+# HTTP requests (Google Sheets via direct URL)
 requests        >= 2.31.0
 
 # Timezone utilities
 pytz            >= 2024.1
+
+# Environment variable management (optional, for .env files)
+python-dotenv   >= 1.0.0

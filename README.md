@@ -45,7 +45,7 @@ It ingests macro, breadth, and valuation data from a Google Sheet and produces f
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     DATA INGESTION LAYER                            │
-│  Google Sheets (authenticated service account) → CSV parse          │
+│  Google Sheets (direct URL via env var) → CSV parse                 │
 │  Forward-fill NaN · Derive term spreads · Auto-derive EY from PE   │
 └────────────────────────────┬────────────────────────────────────────┘
                              │
@@ -210,23 +210,18 @@ The app loads **all columns** present in the sheet. Any numeric column beyond th
 
 ## Configuration
 
-### Secrets Management
+### Environment Variables
 
-Credentials live exclusively in `.streamlit/secrets.toml` (local) or Streamlit Cloud Secrets panel (deployed):
+The Google Sheet URL is configured via an environment variable:
 
-```toml
-[google_service_account]
-type = "service_account"
-project_id = "..."
-private_key = "..."
-client_email = "..."
-
-[sheet]
-id  = "<spreadsheet-id>"
-gid = "<worksheet-gid>"
+```bash
+export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>"
 ```
 
-The service account email must have **Viewer** access. The sheet is treated as a private API endpoint — never public.
+**Sheet Access Requirements:**
+- **Public sheets**: The URL alone is sufficient
+- **Private sheets**: Either make the sheet publicly viewable (anyone with link → Viewer) or append an access token to the URL
+- For service account authentication, generate an OAuth token and append: `?access_token=<TOKEN>`
 
 ### Hyperparameters
 
@@ -288,23 +283,34 @@ Similar Periods view includes a chronological 70/30 train/test scatter of mood s
 ### Local
 
 ```bash
-# 1. Create a Google Cloud service account with Sheets read-only scope
-# 2. Share the target sheet with the service account email (Viewer is enough)
-# 3. Copy secrets template and fill in credentials
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+# 1. Get your Google Sheet export URL:
+#    - Open the sheet → File → Share → Publish to web (or share with link)
+#    - Copy the URL in format:
+#      https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>
+#
+# 2. Set the environment variable:
+export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<YOUR_SHEET_ID>/export?format=csv&gid=<GID>"
 
-# 4. Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# 5. Run
+# 4. Run
 streamlit run arthagati.py
 ```
 
-### Streamlit Cloud
+### Streamlit Cloud / Deployment
 
-1. Push repo to GitHub — `secrets.toml` is gitignored
-2. **App Settings → Secrets** — paste the full TOML from your local `secrets.toml`
-3. Deploy — `st.secrets` reads identically in both environments; no code change needed
+1. Push repo to GitHub
+2. **App Settings → Environment Variables** — add `ARTHAGATI_SHEET_URL` with your sheet's export URL
+3. Deploy — the app reads the URL from the environment at runtime
+
+### Getting Your Sheet URL
+
+1. Open your Google Sheet
+2. Copy the Sheet ID from the URL: `docs.google.com/spreadsheets/d/<SHEET_ID>/edit...`
+3. Copy the GID from the URL (usually `0` for the first sheet)
+4. Construct the export URL: `https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>`
+5. Make sure the sheet is accessible (see Sheet Access Requirements above)
 
 ---
 

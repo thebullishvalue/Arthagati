@@ -7,6 +7,7 @@ TradingView-style charting with institutional-grade analytics.
 """
 
 import logging
+import os
 import time
 from datetime import datetime
 from io import StringIO
@@ -17,8 +18,6 @@ import plotly.graph_objects as go
 import pytz
 import requests
 import streamlit as st
-from google.auth.transport.requests import Request as GoogleAuthRequest
-from google.oauth2.service_account import Credentials
 from plotly.subplots import make_subplots
 
 logging.basicConfig(
@@ -50,12 +49,11 @@ COMPANY      = "@thebullishvalue"
 # DATA SOURCE
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Sheet credentials and document coordinates live exclusively in st.secrets —
-# see .streamlit/secrets.toml.example for the required structure.
-# SHEET_ID and SHEET_GID are never stored in source.
-
-# Google Sheets API scope (read-only)
-_SHEET_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+# Google Sheets URL is read from the environment variable ARTHAGATI_SHEET_URL.
+# Set it in .env or your deployment environment:
+#   export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>"
+# If the sheet is publicly accessible (no authentication), the URL alone is sufficient.
+# For private sheets, append ?access_token=<TOKEN> or use a published sheet URL.
 
 EXPECTED_COLUMNS = [
     'DATE', 'NIFTY',
@@ -1022,50 +1020,57 @@ def detect_regime_transitions(hurst_values, entropy_values, window=10):
 # DATA LOADING
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _fetch_sheet_csv() -> str:
+def _fetch_sheet_csv(max_retries: int = 3) -> str:
     """
-    Authenticate with a Google service account and return the sheet as raw CSV text.
+    Fetch the Google Sheet as raw CSV text using a direct URL.
 
-    Credentials and sheet coordinates are read exclusively from st.secrets:
-        [google_service_account]  — full service account JSON fields
-        [sheet]
-          id  = "<spreadsheet-id>"
-          gid = "<worksheet-gid>"
+    The sheet URL is read from the environment variable ARTHAGATI_SHEET_URL.
+    Example:
+        export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<ID>/export?format=csv&gid=<GID>"
 
-    The service account email must have at least Viewer access to the sheet.
-    See .streamlit/secrets.toml.example for the required secret structure.
+    For private sheets, include an access token in the URL or make the sheet
+    publicly viewable (anyone with the link → Viewer).
+
+    Retries with exponential backoff on transient network failures.
     """
-    try:
-        creds_info = dict(st.secrets["google_service_account"])
-    except (FileNotFoundError, KeyError) as exc:
+    sheet_url = os.environ.get("ARTHAGATI_SHEET_URL")
+    if not sheet_url:
         raise RuntimeError(
-            "Google service account credentials not found in Streamlit secrets. "
-            "Add a [google_service_account] section — see .streamlit/secrets.toml.example."
-        ) from exc
+            "ARTHAGATI_SHEET_URL environment variable is not set. "
+            "Set it to your Google Sheet's export URL, e.g.:\n"
+            '  export ARTHAGATI_SHEET_URL="https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>"'
+        )
 
-    try:
-        sheet_id = st.secrets["sheet"]["id"]
-        sheet_gid = st.secrets["sheet"]["gid"]
-    except KeyError as exc:
-        raise RuntimeError(
-            "Sheet coordinates missing from secrets. "
-            "Add a [sheet] section with 'id' and 'gid' keys."
-        ) from exc
+    last_exception = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(sheet_url, timeout=60)
+            resp.raise_for_status()
+            return resp.text
+        except requests.exceptions.Timeout as e:
+            last_exception = e
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt * 2  # 2s, 4s, 8s
+                logging.warning(
+                    f"Google Sheets request timed out (attempt {attempt + 1}/{max_retries}). "
+                    f"Retrying in {wait_time}s..."
+                )
+                time.sleep(wait_time)
+            else:
+                logging.error(f"Google Sheets request failed after {max_retries} attempts: {e}")
+        except requests.exceptions.RequestException as e:
+            last_exception = e
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt * 2
+                logging.warning(
+                    f"Google Sheets request failed (attempt {attempt + 1}/{max_retries}). "
+                    f"Retrying in {wait_time}s..."
+                )
+                time.sleep(wait_time)
+            else:
+                logging.error(f"Google Sheets request failed after {max_retries} attempts: {e}")
 
-    creds = Credentials.from_service_account_info(creds_info, scopes=_SHEET_SCOPES)
-    creds.refresh(GoogleAuthRequest())
-
-    url = (
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        f"/export?format=csv&gid={sheet_gid}"
-    )
-    resp = requests.get(
-        url,
-        headers={"Authorization": f"Bearer {creds.token}"},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.text
+    raise RuntimeError(f"Failed to load sheet data after {max_retries} attempts: {last_exception}")
 
 
 @st.cache_data(ttl=DATA_TTL, show_spinner=False)
