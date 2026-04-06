@@ -1,5 +1,5 @@
 # ARTHAGATI — Architecture & Design Vision
-### @thebullishvalue · Architect's Working Document · v2.5.0
+### @thebullishvalue · Architect's Working Document · v2.6.0
 
 ---
 
@@ -151,7 +151,7 @@ Every mathematical choice must serve one of these six steps. If a theory does no
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        DATA INGESTION                               │
-│  Google Sheets (export?format=csv) → Clean → Derive Term Spreads   │
+│  Google Sheets (gviz/tq?tqx=out:csv) → Derive Term Spreads         │
 │  IN_TERM_SPREAD = IN10Y − IN02Y  |  US_TERM_SPREAD = US10Y − US02Y │
 └────────────────────────────┬────────────────────────────────────────┘
                              │
@@ -282,22 +282,14 @@ The 10Y−2Y spread is the single most studied and validated macro signal in fin
 
 ---
 
-**Q: Why `export?format=csv` over `gviz/tq?tqx=out:csv` for the Sheets fetch?**
+**Q: Why `gviz/tq?tqx=out:csv` for the Sheets fetch?**
 
-The `export` endpoint returns a clean, direct CSV with no additional encoding, header rows, or date reformatting. The `gviz` query endpoint can reformat dates and add artefacts that require special handling.
-
----
-
-**Q: Why service account authentication rather than a public "Anyone with link" sheet?**
-
-The Google Sheet is market intelligence — position data, macro inputs, and regime readings that are proprietary to @thebullishvalue. Making it public-readable is a data-leak risk regardless of whether the URL is obscure. A Google service account (`google-auth`, read-only Sheets scope) gives cryptographic access control: only the service account email can read the sheet, credentials live in `st.secrets` (never in source), and access can be revoked instantly by removing the service account from the sheet's sharing settings.
+The Google Visualization endpoint returns a well-structured CSV with no authentication overhead. The sheet must be set to "Anyone with the link can view" — no OAuth, no service accounts, no `st.secrets`. Sheet coordinates (`ARTHAGATI_SHEET_ID`, `ARTHAGATI_SHEET_GID`) are read from environment variables, keeping the codebase free of hardcoded credentials and simplifying deployment across any environment (local, Streamlit Cloud, Docker, etc.).
 
 The architecture is:
-- `_fetch_sheet_csv()` — authenticates and returns raw CSV text
+- `_fetch_sheet_csv()` — fetches via gviz endpoint with retry + exponential backoff
 - `load_data()` — parses and transforms, knows nothing about auth
-- `st.secrets` — the only place credentials exist; `.gitignore` ensures they are never committed
-
-This is the same pattern used for any API key. The sheet is treated as a private API endpoint, not a public URL.
+- Environment variables — the only configuration; `.gitignore` ensures `.env` is never committed
 
 ---
 

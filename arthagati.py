@@ -41,7 +41,7 @@ st.set_page_config(
 # IDENTITY
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION      = "v2.5.0"
+VERSION      = "v2.6.0"
 PRODUCT_NAME = "Arthagati"
 COMPANY      = "@thebullishvalue"
 
@@ -2053,7 +2053,7 @@ def main():
     # LOAD DATA FIRST — needed to populate dynamic predictor options
     # ═══════════════════════════════════════════════════════════════════════════
     _prog = st.empty()
-    _progress_bar(_prog, 5, "Fetching market data", "Google Sheets · service account auth · CSV decode")
+    _progress_bar(_prog, 5, "Fetching market data", "Google Sheets · gviz API · CSV decode")
     raw_df = load_data()
 
     if raw_df is None:

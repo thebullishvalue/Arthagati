@@ -1,4 +1,4 @@
-# ARTHAGATI (अर्थगति) · v2.5.0
+# ARTHAGATI (अर्थगति) · v2.6.0
 
 **Market Sentiment Analysis Engine** — An @thebullishvalue Product
 
@@ -311,6 +311,7 @@ streamlit run arthagati.py
 
 | Version | Date | Summary |
 |---------|------|---------|
+| **v2.6.0** | 2026-04-06 | Google Sheets Infrastructure Simplification: gviz API migration, OAuth removal, environment variable configuration, retry logic |
 | **v2.5.0** | 2026-04-05 | Production Readiness & Code Cleanup: Dead function removal, unused return value elimination, type hint modernization, version consistency |
 | **v2.4.0** | — | Adversarial Audit Resolution: OU RSS fix, backward leakage removal, DFA segment guard, MSF regime artifact fix, O(N log N) adaptive percentiles, Kalman warm-up bootstrap, Freedman-Diaconis entropy bins, Ledoit-Wolf shrinkage, walk-forward weight blending, tanh confidence band soft-clip, least-squares trajectory detrend, 70/30 backtest split |
 | **v2.3.0** | — | Walk-Forward Correlations & Bias Corrections: Expanding-window Spearman, percentile symmetry fix, DFA replacing R/S, Kendall-Marriott-Pope bias correction, dynamic y-axis |

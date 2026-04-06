@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
 
 ---
 
+## [v2.6.0] — 2026-04-06
+
+### Google Sheets Infrastructure Simplification
+
+Migrated from Google service account OAuth to the Google Visualization API (`gviz/tq`) with environment variable configuration. No changes to the sentiment engine, math primitives, or UI behavior.
+
+#### Changed
+- **Data ingestion endpoint** — switched from `/export?format=csv` with OAuth service account to `/gviz/tq?tqx=out:csv` with no authentication required
+- **Configuration model** — replaced `st.secrets` TOML-based secrets with two environment variables: `ARTHAGATI_SHEET_ID` and `ARTHAGATI_SHEET_GID`
+- **Timeout resilience** — increased request timeout from 30s to 60s with 3-attempt exponential backoff (2s, 4s, 8s)
+- **Deployment simplicity** — no Google Cloud project, no service account JSON, no OAuth scopes needed
+
+#### Removed
+- `google-auth` dependency from `requirements.txt` — no longer needed for gviz endpoint
+- `_SHEET_SCOPES` constant and OAuth import chain (`google.auth.transport.requests`, `google.oauth2.service_account`)
+- Service account credential resolution logic from `_fetch_sheet_csv()`
+- `.streamlit/secrets.toml` deployment pattern (replaced by environment variables)
+
+#### Fixed
+- Stale progress bar text: "service account auth" → "gviz API"
+- VISION.md data ingestion diagram and Q&A section updated to reflect gviz architecture
+
+---
+
 ## [v2.5.0] — 2026-04-05
 
 ### Production Readiness & Code Cleanup
