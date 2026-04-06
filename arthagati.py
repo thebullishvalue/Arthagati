@@ -1087,7 +1087,30 @@ def load_data() -> pd.DataFrame | None:
     start_time = time.time()
     try:
         csv_text = _fetch_sheet_csv()
-        df = pd.read_csv(StringIO(csv_text), dtype=str)
+
+        # Robust CSV parsing:
+        # - Python engine handles quoted fields with embedded commas/newlines
+        # - on_bad_lines='warn' logs malformed rows but continues loading
+        # - First we read the header to determine column count
+        header_line = csv_text.split('\n')[0]
+        expected_cols = header_line.count(',') + 1
+
+        try:
+            df = pd.read_csv(
+                StringIO(csv_text),
+                dtype=str,
+                engine='python',
+                on_bad_lines='warn',
+            )
+        except Exception as parse_error:
+            # Fallback: strict mode — skip all bad rows entirely
+            logging.warning(f"Initial CSV parse failed ({parse_error}), retrying with strict bad-line skipping...")
+            df = pd.read_csv(
+                StringIO(csv_text),
+                dtype=str,
+                engine='python',
+                on_bad_lines='skip',
+            )
 
         # Normalise column names: strip whitespace, drop unnamed padding columns
         df.columns = [c.strip() for c in df.columns]
