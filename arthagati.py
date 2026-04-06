@@ -1086,31 +1086,85 @@ def load_data() -> pd.DataFrame | None:
     """
     start_time = time.time()
     try:
-        csv_text = _fetch_sheet_csv()
+        raw_csv = _fetch_sheet_csv()
 
-        # Robust CSV parsing:
-        # - Python engine handles quoted fields with embedded commas/newlines
-        # - on_bad_lines='warn' logs malformed rows but continues loading
-        # - First we read the header to determine column count
-        header_line = csv_text.split('\n')[0]
+        # ── Pre-process CSV to fix Google Sheets export artifacts ──────────
+        # Google Sheets CSV export commonly produces:
+        #   • Unmatched / unbalanced double-quotes in cells
+        #   • Embedded newlines inside quoted cells (splits one row into many)
+        #   • Blank rows between data blocks
+        #   • Rows with wildly wrong field counts (merged cells, artifacts)
+        #
+        # Strategy: clean at the text level, then parse with a known-good
+        # column count from the header row.
+
+        lines = raw_csv.split('\n')
+
+        # Find the header — first non-blank line
+        header_idx = next((i for i, l in enumerate(lines) if l.strip()), 0)
+        header_line = lines[header_idx]
         expected_cols = header_line.count(',') + 1
 
-        try:
-            df = pd.read_csv(
-                StringIO(csv_text),
-                dtype=str,
-                engine='python',
-                on_bad_lines='warn',
-            )
-        except Exception as parse_error:
-            # Fallback: strict mode — skip all bad rows entirely
-            logging.warning(f"Initial CSV parse failed ({parse_error}), retrying with strict bad-line skipping...")
-            df = pd.read_csv(
-                StringIO(csv_text),
-                dtype=str,
-                engine='python',
-                on_bad_lines='skip',
-            )
+        logging.info("CSV header declares %d columns.", expected_cols)
+
+        # Clean and reassemble
+        clean_lines: list[str] = [header_line]
+        pending: str | None = None  # accumulated fragment from a split row
+
+        for line in lines[header_idx + 1:]:
+            stripped = line.strip()
+            if not stripped:
+                # Blank line — flush any pending fragment
+                if pending is not None:
+                    clean_lines.append(pending)
+                    pending = None
+                continue
+
+            # Fix unmatched quotes: if quote count is odd, strip trailing quote(s)
+            quote_count = stripped.count('"')
+            if quote_count % 2 != 0:
+                stripped = stripped.rstrip('"')
+
+            # Merge with pending fragment (previous row was split by embedded newline)
+            if pending is not None:
+                stripped = pending + stripped
+                pending = None
+
+            # Check field count
+            field_count = stripped.count(',') + 1
+
+            if field_count == expected_cols:
+                clean_lines.append(stripped)
+            elif field_count > expected_cols:
+                # Too many commas — likely a rogue embedded newline artifact
+                # Keep the line; let pandas handle it with on_bad_lines
+                clean_lines.append(stripped)
+            elif field_count < expected_cols and field_count > 1:
+                # Too few fields — probably a row split by an embedded newline
+                # Accumulate and try to merge with the next line
+                pending = stripped
+            else:
+                # Single-field junk row (separator, empty, etc.) — skip silently
+                if pending is not None:
+                    # Flush pending as-is if we hit a dead-end
+                    clean_lines.append(pending)
+                    pending = None
+
+        # Flush any remaining pending fragment
+        if pending is not None:
+            clean_lines.append(pending)
+
+        csv_text = '\n'.join(clean_lines)
+        kept = len(clean_lines) - 1  # subtract header
+        logging.info("CSV cleaned: kept %d data rows from %d raw lines.", kept, len(lines))
+
+        # ── Parse with pandas ─────────────────────────────────────────────
+        df = pd.read_csv(
+            StringIO(csv_text),
+            dtype=str,
+            engine='python',
+            on_bad_lines='warn',
+        )
 
         # Normalise column names: strip whitespace, drop unnamed padding columns
         df.columns = [c.strip() for c in df.columns]
