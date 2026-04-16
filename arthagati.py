@@ -2357,7 +2357,6 @@ def render_historical_mood(mood_df, msf_df):
     # ─────────────────────────────────────────────────────────────────────────
     
     fig.update_layout(
-        **PLOTLY_BASE,
         height=750,
         hovermode='x unified',
         showlegend=True,
