@@ -160,7 +160,7 @@ PLOTLY_BASE: dict = dict(
     template='plotly_dark',
     plot_bgcolor='rgba(10, 10, 15, 0.4)',
     paper_bgcolor='rgba(10, 10, 15, 0.0)',
-    font=dict(color='#A0A0B0', family='JetBrains Mono, monospace', size=11),
+    font=dict(color='#B0B0C0', family='JetBrains Mono, monospace', size=12),
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -168,8 +168,10 @@ PLOTLY_BASE: dict = dict(
 # ══════════════════════════════════════════════════════════════════════════════
 
 _DESIGN_CSS = """
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <style>
-    /* ── Typography ─────────────────────────────────────────────────── */
+    /* ── Typography — swap prevents FOIT (Flash of Invisible Text) ── */
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
     :root {
@@ -179,34 +181,34 @@ _DESIGN_CSS = """
         /* Obsidian depth system */
         --bg-void: #0A0A0F;
         --bg-obsidian: #0D0D14;
-        --bg-glass: rgba(15, 15, 25, 0.6);
-        --bg-glass-hover: rgba(20, 20, 35, 0.75);
+        --bg-glass: rgba(15, 15, 25, 0.65);
+        --bg-glass-hover: rgba(20, 20, 35, 0.78);
         --bg-glass-solid: #12121C;
 
         /* Border system */
-        --border-glass: rgba(255, 195, 0, 0.08);
-        --border-glass-hover: rgba(255, 195, 0, 0.18);
-        --border-subtle: rgba(255, 255, 255, 0.04);
+        --border-glass: rgba(255, 195, 0, 0.10);
+        --border-glass-hover: rgba(255, 195, 0, 0.22);
+        --border-subtle: rgba(255, 255, 255, 0.06);
 
-        /* Glow system */
-        --glow-primary: rgba(255, 195, 0, 0.10);
-        --glow-primary-strong: rgba(255, 195, 0, 0.22);
-        --glow-green: rgba(16, 185, 129, 0.15);
-        --glow-red: rgba(239, 68, 68, 0.15);
-        --glow-cyan: rgba(6, 182, 212, 0.12);
+        /* Glow system — reduced intensity for cleaner rendering */
+        --glow-primary: rgba(255, 195, 0, 0.06);
+        --glow-primary-strong: rgba(255, 195, 0, 0.14);
+        --glow-green: rgba(16, 185, 129, 0.10);
+        --glow-red: rgba(239, 68, 68, 0.10);
+        --glow-cyan: rgba(6, 182, 212, 0.08);
 
-        /* Text system */
-        --text-primary: #F0F0F5;
-        --text-secondary: #A0A0B0;
-        --text-muted: #606075;
-        --text-dim: #404055;
+        /* Text system — improved contrast (WCAG AA targets) */
+        --text-primary: #EEEEF3;
+        --text-secondary: #B0B0C0;
+        --text-muted: #7A7A90;
+        --text-dim: #555568;
 
         /* Accent palette */
         --success-green: #10b981;
         --danger-red: #ef4444;
         --warning-amber: #f59e0b;
         --info-cyan: #06b6d4;
-        --neutral: #606075;
+        --neutral: #7A7A90;
     }
 
     /* ── Global resets ──────────────────────────────────────────────── */
@@ -214,12 +216,11 @@ _DESIGN_CSS = """
         font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* ── App background — gradient mesh ────────────────────────────── */
+    /* ── App background — simplified gradient (fewer layers = faster paint) */
     .stApp, .main {
         background:
-            radial-gradient(ellipse at 12% 20%, rgba(255, 195, 0, 0.035) 0%, transparent 50%),
-            radial-gradient(ellipse at 88% 75%, rgba(6, 182, 212, 0.025) 0%, transparent 50%),
-            radial-gradient(ellipse at 50% 50%, rgba(16, 185, 129, 0.015) 0%, transparent 60%),
+            radial-gradient(ellipse at 15% 20%, rgba(255, 195, 0, 0.025) 0%, transparent 45%),
+            radial-gradient(ellipse at 85% 80%, rgba(6, 182, 212, 0.018) 0%, transparent 45%),
             var(--bg-void) !important;
         color: var(--text-primary);
     }
@@ -229,17 +230,17 @@ _DESIGN_CSS = """
     footer { visibility: hidden; }
 
     .block-container {
-        padding-top: 3rem;
+        padding-top: 2.5rem;
         max-width: 92%;
         padding-left: 2rem;
         padding-right: 2rem;
     }
 
-    /* ── Sidebar — frosted glass ───────────────────────────────────── */
+    /* ── Sidebar — frosted glass (keep blur here, it's a fixed panel) */
     [data-testid="stSidebar"] {
-        background: rgba(10, 10, 18, 0.85) !important;
-        backdrop-filter: blur(30px) saturate(1.3) !important;
-        -webkit-backdrop-filter: blur(30px) saturate(1.3) !important;
+        background: rgba(10, 10, 18, 0.88) !important;
+        backdrop-filter: blur(24px) saturate(1.2) !important;
+        -webkit-backdrop-filter: blur(24px) saturate(1.2) !important;
         border-right: 1px solid var(--border-glass) !important;
     }
 
@@ -248,14 +249,12 @@ _DESIGN_CSS = """
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
-        background: var(--bg-glass) !important;
-        backdrop-filter: blur(20px) !important;
-        -webkit-backdrop-filter: blur(20px) !important;
+        background: var(--bg-glass-solid) !important;
         border: 1px solid var(--border-glass-hover) !important;
         border-radius: 12px !important;
         padding: 10px !important;
         margin: 12px !important;
-        box-shadow: 0 0 20px var(--glow-primary) !important;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
         z-index: 999999 !important;
         position: fixed !important;
         top: 14px !important;
@@ -264,13 +263,11 @@ _DESIGN_CSS = """
         height: 40px !important;
         align-items: center !important;
         justify-content: center !important;
-        transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1) !important;
+        transition: background 0.2s ease, border-color 0.2s ease !important;
     }
 
     [data-testid="collapsedControl"]:hover {
         background: rgba(255, 195, 0, 0.1) !important;
-        box-shadow: 0 0 30px var(--glow-primary-strong) !important;
-        transform: scale(1.08);
         border-color: rgba(255, 195, 0, 0.3) !important;
     }
 
@@ -293,17 +290,12 @@ _DESIGN_CSS = """
         z-index: 999999 !important;
     }
 
-    /* ── Premium Header — glass card ───────────────────────────────── */
+    /* ── Premium Header — solid glass (no blur needed, solid bg) ──── */
     .premium-header {
-        background: var(--bg-glass);
-        backdrop-filter: blur(20px) saturate(1.2);
-        -webkit-backdrop-filter: blur(20px) saturate(1.2);
-        padding: 1.5rem 2.25rem;
-        border-radius: 20px;
+        background: var(--bg-glass-solid);
+        padding: 1.75rem 2.25rem;
+        border-radius: 18px;
         margin-bottom: 1.75rem;
-        box-shadow:
-            0 0 30px var(--glow-primary),
-            inset 0 1px 0 rgba(255, 255, 255, 0.04);
         border: 1px solid var(--border-glass);
         position: relative;
         overflow: hidden;
@@ -314,7 +306,7 @@ _DESIGN_CSS = """
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 15% 50%, rgba(var(--primary-rgb), 0.06) 0%, transparent 50%);
+        background: radial-gradient(circle at 15% 50%, rgba(var(--primary-rgb), 0.05) 0%, transparent 50%);
         pointer-events: none;
     }
 
@@ -322,43 +314,38 @@ _DESIGN_CSS = """
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0; height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.3), transparent);
+        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.25), transparent);
         pointer-events: none;
     }
 
     .premium-header h1 {
         margin: 0;
-        font-size: 2.25rem;
+        font-size: 2.1rem;
         font-weight: 800;
         color: var(--text-primary);
-        letter-spacing: -0.75px;
+        letter-spacing: -0.5px;
         position: relative;
         font-family: 'Space Grotesk', sans-serif;
     }
 
     .premium-header .tagline {
         color: var(--text-muted);
-        font-size: 0.85rem;
-        margin-top: 0.35rem;
+        font-size: 0.88rem;
+        margin-top: 0.4rem;
         font-weight: 400;
         position: relative;
         font-family: 'JetBrains Mono', monospace;
-        letter-spacing: 0.3px;
+        letter-spacing: 0.2px;
     }
 
-    /* ── Metric Card — glassmorphism ───────────────────────────────── */
+    /* ── Metric Card — solid bg (no backdrop-filter = fast repaints) ─ */
     .metric-card {
-        background: var(--bg-glass);
-        backdrop-filter: blur(20px) saturate(1.2);
-        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        background: var(--bg-glass-solid);
         padding: 1.25rem 1.5rem;
-        border-radius: 16px;
+        border-radius: 14px;
         border: 1px solid var(--border-glass);
-        box-shadow:
-            0 0 20px var(--glow-primary),
-            inset 0 1px 0 rgba(255, 255, 255, 0.03);
         margin-bottom: 0.5rem;
-        transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+        transition: border-color 0.25s ease, background 0.25s ease;
         position: relative;
         overflow: hidden;
     }
@@ -367,26 +354,22 @@ _DESIGN_CSS = """
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0; height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
         pointer-events: none;
     }
 
     .metric-card:hover {
-        transform: translateY(-3px);
-        box-shadow:
-            0 12px 40px rgba(0, 0, 0, 0.4),
-            0 0 30px var(--glow-primary-strong);
         border-color: var(--border-glass-hover);
         background: var(--bg-glass-hover);
     }
 
     .metric-card h4 {
         color: var(--text-muted);
-        font-size: 0.7rem;
+        font-size: 0.75rem;
         margin-bottom: 0.5rem;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 1.5px;
+        letter-spacing: 1.2px;
         font-family: 'Space Grotesk', sans-serif;
     }
 
@@ -400,7 +383,7 @@ _DESIGN_CSS = """
     }
 
     .metric-card .sub-metric {
-        font-size: 0.72rem;
+        font-size: 0.78rem;
         color: var(--text-muted);
         margin-top: 0.5rem;
         font-weight: 500;
@@ -408,32 +391,28 @@ _DESIGN_CSS = """
         letter-spacing: 0.2px;
     }
 
-    .metric-card.success { box-shadow: 0 0 25px var(--glow-green), inset 0 1px 0 rgba(255,255,255,0.03); }
+    .metric-card.success { border-left: 3px solid var(--success-green); }
     .metric-card.success h2 { color: var(--success-green); }
-    .metric-card.danger { box-shadow: 0 0 25px var(--glow-red), inset 0 1px 0 rgba(255,255,255,0.03); }
+    .metric-card.danger { border-left: 3px solid var(--danger-red); }
     .metric-card.danger h2 { color: var(--danger-red); }
+    .metric-card.warning { border-left: 3px solid var(--warning-amber); }
     .metric-card.warning h2 { color: var(--warning-amber); }
-    .metric-card.info { box-shadow: 0 0 25px var(--glow-cyan), inset 0 1px 0 rgba(255,255,255,0.03); }
+    .metric-card.info { border-left: 3px solid var(--info-cyan); }
     .metric-card.info h2 { color: var(--info-cyan); }
     .metric-card.neutral h2 { color: var(--neutral); }
-    .metric-card.primary { box-shadow: 0 0 25px var(--glow-primary), inset 0 1px 0 rgba(255,255,255,0.03); }
+    .metric-card.primary { border-left: 3px solid var(--primary-color); }
     .metric-card.primary h2 { color: var(--primary-color); }
 
-    /* ── Signal Card — glassmorphism with accent strip ─────────────── */
+    /* ── Signal Card — solid bg with accent strip ─────────────────── */
     .signal-card {
-        background: var(--bg-glass);
-        backdrop-filter: blur(20px) saturate(1.2);
-        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        background: var(--bg-glass-solid);
         padding: 1.5rem;
-        border-radius: 16px;
+        border-radius: 14px;
         border: 1px solid var(--border-glass);
-        box-shadow:
-            0 0 20px var(--glow-primary),
-            inset 0 1px 0 rgba(255, 255, 255, 0.03);
         margin-bottom: 1rem;
         position: relative;
         overflow: hidden;
-        transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+        transition: border-color 0.25s ease, background 0.25s ease;
     }
 
     .signal-card:hover {
@@ -447,62 +426,56 @@ _DESIGN_CSS = """
         top: 0; left: 0; width: 3px; height: 100%;
         border-radius: 3px 0 0 3px;
     }
-    .signal-card.bullish::after { background: linear-gradient(180deg, var(--success-green), rgba(16, 185, 129, 0.3)); }
-    .signal-card.bearish::after { background: linear-gradient(180deg, var(--danger-red), rgba(239, 68, 68, 0.3)); }
-    .signal-card.neutral::after { background: linear-gradient(180deg, var(--neutral), rgba(96, 96, 117, 0.3)); }
+    .signal-card.bullish::after { background: var(--success-green); }
+    .signal-card.bearish::after { background: var(--danger-red); }
+    .signal-card.neutral::after { background: var(--neutral); }
 
-    /* ── Status Badge — glass pill ─────────────────────────────────── */
+    /* ── Status Badge — lightweight pill ───────────────────────────── */
     .status-badge {
         display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.4rem 0.9rem;
+        gap: 0.4rem;
+        padding: 0.35rem 0.85rem;
         border-radius: 20px;
-        font-size: 0.65rem;
+        font-size: 0.72rem;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.8px;
+        letter-spacing: 0.6px;
         font-family: 'JetBrains Mono', monospace;
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
     }
-    .status-badge.bullish { background: rgba(16, 185, 129, 0.12); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.25); }
-    .status-badge.bearish { background: rgba(239, 68, 68, 0.12); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.25); }
-    .status-badge.oversold { background: rgba(6, 182, 212, 0.12); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.25); }
-    .status-badge.overbought { background: rgba(245, 158, 11, 0.12); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.25); }
-    .status-badge.neutral { background: rgba(96, 96, 117, 0.12); color: var(--neutral); border: 1px solid rgba(96, 96, 117, 0.25); }
+    .status-badge.bullish { background: rgba(16, 185, 129, 0.14); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.25); }
+    .status-badge.bearish { background: rgba(239, 68, 68, 0.14); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.25); }
+    .status-badge.oversold { background: rgba(6, 182, 212, 0.14); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.25); }
+    .status-badge.overbought { background: rgba(245, 158, 11, 0.14); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.25); }
+    .status-badge.neutral { background: rgba(122, 122, 144, 0.14); color: var(--neutral); border: 1px solid rgba(122, 122, 144, 0.25); }
 
-    /* ── Buttons — glass with amber glow ───────────────────────────── */
+    /* ── Buttons — clean with amber accent ─────────────────────────── */
     .stButton>button {
-        border: 1px solid rgba(255, 195, 0, 0.3);
-        background: var(--bg-glass);
-        backdrop-filter: blur(15px);
-        -webkit-backdrop-filter: blur(15px);
+        border: 1px solid rgba(255, 195, 0, 0.25);
+        background: var(--bg-glass-solid);
         color: var(--primary-color);
         font-weight: 700;
-        border-radius: 12px;
-        padding: 0.75rem 2rem;
-        transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+        border-radius: 10px;
+        padding: 0.7rem 1.75rem;
+        transition: background 0.2s ease, border-color 0.2s ease;
         text-transform: uppercase;
-        letter-spacing: 0.8px;
+        letter-spacing: 0.6px;
         font-family: 'Space Grotesk', sans-serif;
-        font-size: 0.8rem;
+        font-size: 0.82rem;
     }
     .stButton>button:hover {
-        box-shadow: 0 0 35px var(--glow-primary-strong);
-        background: rgba(255, 195, 0, 0.12);
+        background: rgba(255, 195, 0, 0.10);
         color: var(--primary-color);
-        transform: translateY(-2px);
-        border-color: rgba(255, 195, 0, 0.5);
+        border-color: rgba(255, 195, 0, 0.45);
     }
-    .stButton>button:active { transform: translateY(0); }
+    .stButton>button:active { background: rgba(255, 195, 0, 0.15); }
 
-    /* ── Tabs — minimal glass ──────────────────────────────────────── */
+    /* ── Tabs — minimal ───────────────────────────────────────────── */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
     .stTabs [data-baseweb="tab"] {
         color: var(--text-muted);
         border-bottom: 2px solid transparent;
-        transition: all 0.3s;
+        transition: color 0.2s ease, border-color 0.2s ease;
         background: transparent;
         font-weight: 600;
         font-family: 'Space Grotesk', sans-serif;
@@ -511,49 +484,43 @@ _DESIGN_CSS = """
         color: var(--primary-color);
         border-bottom: 2px solid var(--primary-color);
         background: transparent !important;
-        text-shadow: 0 0 20px rgba(255, 195, 0, 0.3);
     }
 
-    /* ── Chart container — glass ───────────────────────────────────── */
+    /* ── Chart container — lightweight ─────────────────────────────── */
     .stPlotlyChart {
-        border-radius: 16px;
-        background: var(--bg-glass) !important;
-        backdrop-filter: blur(20px) saturate(1.2);
-        -webkit-backdrop-filter: blur(20px) saturate(1.2);
-        padding: 12px;
+        border-radius: 14px;
+        background: var(--bg-glass-solid) !important;
+        padding: 10px;
         border: 1px solid var(--border-glass);
-        box-shadow: 0 0 30px var(--glow-primary);
     }
 
     .stDataFrame {
-        border-radius: 16px;
-        background: var(--bg-glass) !important;
+        border-radius: 14px;
+        background: var(--bg-glass-solid) !important;
         border: 1px solid var(--border-glass);
     }
 
     /* ── Section Divider — gradient line ────────────────────────────── */
     .section-divider {
         height: 1px;
-        background: linear-gradient(90deg, transparent 0%, rgba(255, 195, 0, 0.15) 50%, transparent 100%);
-        margin: 1.75rem 0;
+        background: linear-gradient(90deg, transparent 0%, rgba(255, 195, 0, 0.12) 50%, transparent 100%);
+        margin: 1.5rem 0;
     }
 
     /* ── Sidebar labels ────────────────────────────────────────────── */
     .sidebar-title {
-        font-size: 0.7rem;
+        font-size: 0.75rem;
         font-weight: 700;
         color: var(--primary-color);
         text-transform: uppercase;
-        letter-spacing: 1.5px;
+        letter-spacing: 1.2px;
         margin-bottom: 0.75rem;
         font-family: 'Space Grotesk', sans-serif;
-        text-shadow: 0 0 15px rgba(255, 195, 0, 0.2);
     }
 
     /* ── Input overrides ───────────────────────────────────────────── */
     .stTextInput > div > div > input {
-        background: var(--bg-glass) !important;
-        backdrop-filter: blur(15px) !important;
+        background: var(--bg-glass-solid) !important;
         border: 1px solid var(--border-glass) !important;
         border-radius: 10px !important;
         color: var(--text-primary) !important;
@@ -561,21 +528,16 @@ _DESIGN_CSS = """
     }
     .stTextInput > div > div > input:focus {
         border-color: rgba(255, 195, 0, 0.3) !important;
-        box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1) !important;
+        box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.08) !important;
     }
 
-    /* ── Info Box — glass ──────────────────────────────────────────── */
+    /* ── Info Box — solid bg ───────────────────────────────────────── */
     .info-box {
-        background: var(--bg-glass);
-        backdrop-filter: blur(20px) saturate(1.2);
-        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        background: var(--bg-glass-solid);
         border: 1px solid var(--border-glass);
-        padding: 1.25rem;
-        border-radius: 16px;
+        padding: 1.25rem 1.5rem;
+        border-radius: 14px;
         margin: 0.5rem 0;
-        box-shadow:
-            0 0 20px var(--glow-primary),
-            inset 0 1px 0 rgba(255, 255, 255, 0.03);
         position: relative;
         overflow: hidden;
     }
@@ -583,7 +545,7 @@ _DESIGN_CSS = """
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0; height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.2), transparent);
+        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.15), transparent);
         pointer-events: none;
     }
     .info-box h4 {
@@ -596,59 +558,49 @@ _DESIGN_CSS = """
     .info-box p {
         color: var(--text-secondary);
         margin: 0;
-        font-size: 0.88rem;
-        line-height: 1.65;
+        font-size: 0.9rem;
+        line-height: 1.7;
     }
 
     /* ── Scrollbar — obsidian ──────────────────────────────────────── */
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: var(--bg-void); }
-    ::-webkit-scrollbar-thumb { background: rgba(255, 195, 0, 0.15); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 195, 0, 0.18); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(255, 195, 0, 0.3); }
 
-    /* ── Loading state — shimmer glass ─────────────────────────────── */
+    /* ── Loading state — clean animation ───────────────────────────── */
     @keyframes pulse-glow {
-        0%, 100% { opacity: 0.5; }
+        0%, 100% { opacity: 0.4; }
         50%      { opacity: 1.0; }
     }
     .loading-card {
-        background: var(--bg-glass);
-        backdrop-filter: blur(20px) saturate(1.2);
-        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        background: var(--bg-glass-solid);
         border: 1px solid var(--border-glass);
-        border-radius: 16px;
+        border-radius: 14px;
         padding: 1.25rem 1.5rem;
         margin: 0.75rem 0;
         position: relative;
         overflow: hidden;
-        box-shadow: 0 0 20px var(--glow-primary);
-    }
-    .loading-card::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 0% 50%, rgba(var(--primary-rgb), 0.04) 0%, transparent 60%);
-        pointer-events: none;
     }
     .loading-card::after {
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0; height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.2), transparent);
+        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.15), transparent);
         pointer-events: none;
     }
     .loading-label {
-        font-size: 0.85rem;
+        font-size: 0.9rem;
         font-weight: 700;
         color: var(--text-primary);
-        letter-spacing: 0.3px;
+        letter-spacing: 0.2px;
         position: relative;
         font-family: 'Space Grotesk', sans-serif;
     }
     .loading-sub {
-        font-size: 0.72rem;
+        font-size: 0.78rem;
         color: var(--text-muted);
-        margin-top: 0.2rem;
+        margin-top: 0.25rem;
         font-weight: 400;
         position: relative;
         letter-spacing: 0.2px;
@@ -659,13 +611,26 @@ _DESIGN_CSS = """
         width: 6px; height: 6px;
         border-radius: 50%;
         background: var(--primary-color);
-        box-shadow: 0 0 8px rgba(var(--primary-rgb), 0.6);
         animation: pulse-glow 1.2s ease-in-out infinite;
+        will-change: opacity;
         margin-right: 0.6rem;
         vertical-align: middle;
         position: relative;
         top: -1px;
     }
+
+    /* ── Data row — reusable for correlation bars & predictor rows ── */
+    .data-row {
+        display: flex;
+        align-items: center;
+        padding: 0.6rem 0.85rem;
+        background: var(--bg-glass-solid);
+        border-radius: 10px;
+        border: 1px solid var(--border-subtle);
+        margin-bottom: 0.35rem;
+        transition: border-color 0.15s ease;
+    }
+    .data-row:hover { border-color: var(--border-glass); }
 
 </style>
 """
@@ -2088,7 +2053,7 @@ def render_landing_page() -> None:
     with col1:
         st.markdown("""
         <div class='metric-card primary' style='min-height: 280px;'>
-            <h3 style='color: var(--primary-color); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);'>📈 Historical Mood</h3>
+            <h3 style='color: var(--primary-color); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700; /* clean heading */'>📈 Historical Mood</h3>
             <p style='color: var(--text-secondary); font-size: 0.88rem; line-height: 1.65;'>
                 Full sentiment timeline with OU forward projection, Kalman confidence bands,
                 and regime transition markers on a TradingView-style chart.
@@ -2107,7 +2072,7 @@ def render_landing_page() -> None:
     with col2:
         st.markdown("""
         <div class='metric-card success' style='min-height: 280px;'>
-            <h3 style='color: var(--success-green); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(16,185,129,0.2);'>🔍 Similar Periods</h3>
+            <h3 style='color: var(--success-green); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700; /* clean heading */'>🔍 Similar Periods</h3>
             <p style='color: var(--text-secondary); font-size: 0.88rem; line-height: 1.65;'>
                 Historical analog matching against the full dataset with forward-return
                 outcomes, aggregate win-rates, and a backtest scatter.
@@ -2126,7 +2091,7 @@ def render_landing_page() -> None:
     with col3:
         st.markdown("""
         <div class='metric-card info' style='min-height: 280px;'>
-            <h3 style='color: var(--info-cyan); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(6,182,212,0.2);'>📋 Correlation Analysis</h3>
+            <h3 style='color: var(--info-cyan); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700; /* clean heading */'>📋 Correlation Analysis</h3>
             <p style='color: var(--text-secondary); font-size: 0.88rem; line-height: 1.65;'>
                 Full transparency into which variables drive the mood score and which
                 are noise, ranked by the engine's own quality formula.
@@ -2443,13 +2408,12 @@ def main():
     # >3 days gap (accounts for weekends: Fri data on Mon = 3 days, fine)
     if data_age_days > 3:
         st.markdown(f"""
-        <div style="background: rgba(239,68,68,0.08); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(239,68,68,0.2); border-radius: 16px; 
-                    padding: 0.85rem 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 14px;
-                    box-shadow: 0 0 20px rgba(239,68,68,0.1);">
-            <span style="font-size: 1.4rem;">⚠️</span>
+        <div style="background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); border-radius: 12px;
+                    padding: 0.9rem 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 14px;">
+            <span style="font-size: 1.3rem;">⚠️</span>
             <div>
                 <span style="color: #ef4444; font-weight: 700; font-family: 'Space Grotesk', sans-serif;">Stale Data</span>
-                <span style="color: var(--text-secondary); font-size: 0.82rem; font-family: 'JetBrains Mono', monospace;"> — Last data point is <b>{latest_date.strftime('%d %b %Y')}</b> ({data_age_days} days ago). 
+                <span style="color: var(--text-secondary); font-size: 0.85rem; font-family: 'JetBrains Mono', monospace;"> — Last data point is <b>{latest_date.strftime('%d %b %Y')}</b> ({data_age_days} days ago).
                 Scores reflect the last available data, not current market state. Update your Google Sheet.</span>
             </div>
         </div>
@@ -2631,7 +2595,7 @@ def render_historical_mood(mood_df, msf_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">📈 Market Mood Terminal</h3>
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; /* clean heading */">📈 Market Mood Terminal</h3>
             <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px;">TradingView-Style Analysis • Mood Score + MSF Spread Indicator</p>
         </div>
     """, unsafe_allow_html=True)
@@ -2724,9 +2688,9 @@ def render_historical_mood(mood_df, msf_df):
         x=last_point['DATE'], y=last_point['Mood_Score'],
         text=f"<b>{last_point['Mood_Score']:.1f}</b>",
         showarrow=True, arrowhead=2, arrowcolor=C_PRIMARY,
-        ax=40, ay=0,
+        ax=45, ay=0,
         bgcolor=C_BG_CARD, bordercolor=C_PRIMARY, borderwidth=1,
-        font=dict(color=C_PRIMARY, size=11),
+        font=dict(color=C_PRIMARY, size=13),
         row=1, col=1
     )
     
@@ -2765,7 +2729,7 @@ def render_historical_mood(mood_df, msf_df):
         x=proj_dates[-1], y=ou_eq_mood,
         text=f"EQ ({last_point.get('OU_Half_Life', 0):.0f}d t½)",
         showarrow=False,
-        font=dict(color='#888', size=9),
+        font=dict(color='#999', size=10),
         xanchor='left', xshift=5,
         row=1, col=1
     )
@@ -2902,21 +2866,21 @@ def render_historical_mood(mood_df, msf_df):
         showlegend=True,
         legend=dict(
             orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1,
-            font=dict(size=10, family='JetBrains Mono, monospace'),
-            bgcolor='rgba(10,10,15,0.6)',
-            bordercolor='rgba(255,195,0,0.08)',
+            font=dict(size=11, family='JetBrains Mono, monospace'),
+            bgcolor='rgba(10,10,15,0.7)',
+            bordercolor='rgba(255,195,0,0.10)',
             borderwidth=1,
         ),
-        margin=dict(l=60, r=20, t=80, b=40),
-        xaxis2=dict(showgrid=True, gridcolor='rgba(255,255,255,0.03)', type='date'),
+        margin=dict(l=65, r=25, t=80, b=45),
+        xaxis2=dict(showgrid=True, gridcolor='rgba(255,255,255,0.04)', type='date'),
         yaxis=dict(
-            title=dict(text='Mood Score', font=dict(size=10, color=C_MUTED, family='Space Grotesk, sans-serif')),
-            showgrid=True, gridcolor='rgba(255,255,255,0.03)', zeroline=False,
+            title=dict(text='Mood Score', font=dict(size=12, color='#7A7A90', family='Space Grotesk, sans-serif')),
+            showgrid=True, gridcolor='rgba(255,255,255,0.04)', zeroline=False,
             range=[mood_y_hi, mood_y_lo],  # reversed: high at bottom, low at top
         ),
         yaxis2=dict(
-            title=dict(text='MSF Spread', font=dict(size=10, color=C_MUTED, family='Space Grotesk, sans-serif')),
-            showgrid=True, gridcolor='rgba(255,255,255,0.03)', zeroline=False,
+            title=dict(text='MSF Spread', font=dict(size=12, color='#7A7A90', family='Space Grotesk, sans-serif')),
+            showgrid=True, gridcolor='rgba(255,255,255,0.04)', zeroline=False,
         ),
     )
     
@@ -2936,7 +2900,7 @@ def render_historical_mood(mood_df, msf_df):
     fig.update_xaxes(showgrid=False, row=1, col=1)
     fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.03)', row=2, col=1)
     
-    st.plotly_chart(fig, config={
+    st.plotly_chart(fig, use_container_width=True, config={
         'displayModeBar': True,
         'scrollZoom': True,
         'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'eraseshape']
@@ -2999,9 +2963,9 @@ def render_historical_mood(mood_df, msf_df):
     
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
-        <div style="margin-bottom: 0.75rem;">
-            <h4 style="color: #06b6d4; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 15px rgba(6,182,212,0.2);">MSF Component Breakdown</h4>
-            <p style="color: var(--text-muted); font-size: 0.78rem; margin: 0.2rem 0 0 0; font-family: 'JetBrains Mono', monospace;">Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)</p>
+        <div style="margin-bottom: 0.85rem;">
+            <h4 style="color: #06b6d4; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700;">MSF Component Breakdown</h4>
+            <p style="color: var(--text-muted); font-size: 0.84rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace;">Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -3024,16 +2988,16 @@ def render_historical_mood(mood_df, msf_df):
             
             with c_cols[j]:
                 st.markdown(f"""
-                <div style="background: rgba(15,15,25,0.6); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border-radius: 14px; padding: 0.85rem 1rem; border: 1px solid rgba(255,195,0,0.06); box-shadow: 0 0 15px rgba(255,195,0,0.05);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-                        <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-family: 'Space Grotesk', sans-serif;">{icon} {label}</span>
-                        <span style="font-size: 1.15rem; font-weight: 700; color: {color}; font-family: 'JetBrains Mono', monospace;">{val:+.1f}</span>
+                <div style="background: var(--bg-glass-solid); border-radius: 12px; padding: 0.9rem 1rem; border: 1px solid var(--border-glass);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; font-family: 'Space Grotesk', sans-serif;">{icon} {label}</span>
+                        <span style="font-size: 1.2rem; font-weight: 700; color: {color}; font-family: 'JetBrains Mono', monospace;">{val:+.1f}</span>
                     </div>
-                    <div style="height: 5px; background: rgba(255,255,255,0.03); border-radius: 3px; position: relative;">
-                        <div style="position: absolute; left: 50%; top: 0; width: 1px; height: 5px; background: rgba(255,255,255,0.06);"></div>
-                        <div style="width: {bar_pct:.0f}%; height: 100%; background: {color}; border-radius: 3px; opacity: 0.75; box-shadow: 0 0 6px {color};"></div>
+                    <div style="height: 5px; background: rgba(255,255,255,0.04); border-radius: 3px; position: relative;">
+                        <div style="position: absolute; left: 50%; top: 0; width: 1px; height: 5px; background: rgba(255,255,255,0.08);"></div>
+                        <div style="width: {bar_pct:.0f}%; height: 100%; background: {color}; border-radius: 3px; opacity: 0.8;"></div>
                     </div>
-                    <div style="font-size: 0.62rem; color: var(--text-dim); margin-top: 0.35rem; font-family: 'JetBrains Mono', monospace;">Period avg: {period_val:+.1f}</div>
+                    <div style="font-size: 0.72rem; color: var(--text-dim); margin-top: 0.4rem; font-family: 'JetBrains Mono', monospace;">Period avg: {period_val:+.1f}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -3046,7 +3010,7 @@ def render_similar_periods(mood_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">🔍 Similar Historical Periods</h3>
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; /* clean heading */">🔍 Similar Historical Periods</h3>
             <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
         </div>
     """, unsafe_allow_html=True)
@@ -3103,23 +3067,23 @@ def render_similar_periods(mood_df):
                 val = period.get(key)
                 if val is not None:
                     fwd_color = '#10b981' if val > 0 else '#ef4444'
-                    fwd_badges += f'<span style="font-size:0.68rem; color:{fwd_color}; margin-left:8px; font-family: JetBrains Mono, monospace;">+{horizon}d: <b>{val:+.1f}%</b></span>'
+                    fwd_badges += f'<span style="font-size:0.78rem; color:{fwd_color}; margin-left:10px; font-family: JetBrains Mono, monospace;">+{horizon}d: <b>{val:+.1f}%</b></span>'
                 else:
-                    fwd_badges += f'<span style="font-size:0.68rem; color: var(--text-dim); margin-left:8px; font-family: JetBrains Mono, monospace;">+{horizon}d: —</span>'
-            
+                    fwd_badges += f'<span style="font-size:0.78rem; color: var(--text-dim); margin-left:10px; font-family: JetBrains Mono, monospace;">+{horizon}d: —</span>'
+
             st.markdown(f"""
             <div class="signal-card {mood_class}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                    <span style="font-weight: 700; color: var(--text-primary); font-family: 'JetBrains Mono', monospace;">{period['date']}</span>
+                    <span style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); font-family: 'JetBrains Mono', monospace;">{period['date']}</span>
                     <span class="status-badge {mood_class}">{period['mood']}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; color: var(--text-secondary); font-size: 0.82rem; font-family: 'JetBrains Mono', monospace;">
+                <div style="display: flex; justify-content: space-between; color: var(--text-secondary); font-size: 0.85rem; font-family: 'JetBrains Mono', monospace;">
                     <span>Similarity: <b style="color: #FFC300;">{similarity_pct:.1f}%</b></span>
                     <span>Mood: <b>{mood_val:.1f}</b></span>
                     <span>NIFTY: <b>{period['nifty']:,.0f}</b></span>
                 </div>
-                <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.04);">
-                    <span style="font-size: 0.68rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace;">NIFTY After:</span>{fwd_badges}
+                <div style="margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid rgba(255,255,255,0.05);">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">NIFTY After:</span>{fwd_badges}
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -3131,7 +3095,7 @@ def render_similar_periods(mood_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; /* clean heading */">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
             <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace;">
                 Does today's mood score predict tomorrow's market? Each dot = one historical day.
                 If there's a relationship, the scatter should show a pattern.
@@ -3222,19 +3186,19 @@ def render_similar_periods(mood_df):
 
             fig_bt.update_layout(
                 **PLOTLY_BASE,
-                height=400,
-                xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor='rgba(255,255,255,0.03)', title_font=dict(family='Space Grotesk, sans-serif', size=11)),
-                yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor='rgba(255,255,255,0.03)', title_font=dict(family='Space Grotesk, sans-serif', size=11)),
-                margin=dict(l=60, r=20, t=30, b=50),
+                height=420,
+                xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor='rgba(255,255,255,0.04)', title_font=dict(family='Space Grotesk, sans-serif', size=12)),
+                yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor='rgba(255,255,255,0.04)', title_font=dict(family='Space Grotesk, sans-serif', size=12)),
+                margin=dict(l=65, r=25, t=35, b=55),
                 legend=dict(
                     x=0.02, y=0.98,
-                    bgcolor='rgba(10,10,15,0.6)',
-                    bordercolor='rgba(255,195,0,0.08)', borderwidth=1,
-                    font=dict(size=9, family='JetBrains Mono, monospace'),
+                    bgcolor='rgba(10,10,15,0.7)',
+                    bordercolor='rgba(255,195,0,0.10)', borderwidth=1,
+                    font=dict(size=10, family='JetBrains Mono, monospace'),
                 ),
             )
 
-            st.plotly_chart(fig_bt, config={'displayModeBar': False})
+            st.plotly_chart(fig_bt, use_container_width=True, config={'displayModeBar': False})
 
             # Interpretation — report both in-sample and out-of-sample
             oos_stronger = oos_spearman if abs(oos_spearman) > abs(oos_pearson) else oos_pearson
@@ -3275,7 +3239,7 @@ def render_correlation_analysis(raw_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">📋 Correlation & Predictor Analysis</h3>
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; /* clean heading */">📋 Correlation & Predictor Analysis</h3>
             <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
         </div>
     """, unsafe_allow_html=True)
@@ -3325,13 +3289,13 @@ def render_correlation_analysis(raw_df):
                 bar_width = abs(corr_val) * 100
                 strength_dot = '🟢' if abs(corr_val) >= 0.5 else '🟡' if abs(corr_val) >= 0.3 else '⚪'
                 st.markdown(f"""
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.55rem 0.75rem; background: rgba(15,15,25,0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
-                    <span style="width: 14px; font-size: 0.6rem;">{strength_dot}</span>
-                    <span style="width: 130px; font-size: 0.78rem; color: var(--text-primary); font-family: 'JetBrains Mono', monospace;">{row['variable']}</span>
-                    <div style="flex: 1; height: 6px; background: rgba(255,255,255,0.03); border-radius: 3px; margin: 0 12px;">
-                        <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 3px; box-shadow: 0 0 6px {color};"></div>
+                <div class="data-row">
+                    <span style="width: 16px; font-size: 0.65rem;">{strength_dot}</span>
+                    <span style="width: 135px; font-size: 0.82rem; color: var(--text-primary); font-family: 'JetBrains Mono', monospace;">{row['variable']}</span>
+                    <div style="flex: 1; height: 6px; background: rgba(255,255,255,0.04); border-radius: 3px; margin: 0 12px;">
+                        <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 3px;"></div>
                     </div>
-                    <span style="width: 60px; text-align: right; font-size: 0.78rem; color: {color}; font-weight: 700; font-family: 'JetBrains Mono', monospace;">{corr_val:+.2f}</span>
+                    <span style="width: 60px; text-align: right; font-size: 0.82rem; color: {color}; font-weight: 700; font-family: 'JetBrains Mono', monospace;">{corr_val:+.2f}</span>
                 </div>
                 """, unsafe_allow_html=True)
             return corrs
@@ -3343,7 +3307,7 @@ def render_correlation_analysis(raw_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">🎯 Predictor Quality Assessment</h3>
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; /* clean heading */">🎯 Predictor Quality Assessment</h3>
             <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace;">
                 Each predictor scored by: correlation strength × information quality (1 − entropy).
                 High-entropy (noisy) variables are penalized. This is how the mood engine weights them internally.
@@ -3424,16 +3388,16 @@ def render_correlation_analysis(raw_df):
             active_color = '#FFC300' if row['active'] else '#555555'
             
             st.markdown(f"""
-            <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.85rem; background: rgba(15,15,25,0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid {'rgba(255,195,0,0.08)' if row['active'] else 'rgba(255,255,255,0.02)'};">
-                <span style="width: 24px; font-size: 0.72rem; color: var(--text-dim); font-weight: 700; font-family: 'JetBrains Mono', monospace;">{rank}</span>
-                <span style="width: 140px; font-size: 0.78rem; color: var(--text-primary); font-weight: 600; font-family: 'JetBrains Mono', monospace;">{row['variable']}</span>
-                <div style="flex: 1; height: 5px; background: rgba(255,255,255,0.03); border-radius: 3px; margin: 0 12px;">
-                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, #FFC300, #f59e0b); border-radius: 3px; box-shadow: 0 0 6px rgba(255,195,0,0.3);"></div>
+            <div class="data-row" style="border-color: {'rgba(255,195,0,0.10)' if row['active'] else 'var(--border-subtle)'};">
+                <span style="width: 26px; font-size: 0.78rem; color: var(--text-dim); font-weight: 700; font-family: 'JetBrains Mono', monospace;">{rank}</span>
+                <span style="width: 145px; font-size: 0.82rem; color: var(--text-primary); font-weight: 600; font-family: 'JetBrains Mono', monospace;">{row['variable']}</span>
+                <div style="flex: 1; height: 5px; background: rgba(255,255,255,0.04); border-radius: 3px; margin: 0 12px;">
+                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, #FFC300, #f59e0b); border-radius: 3px;"></div>
                 </div>
-                <span style="width: 50px; font-size: 0.68rem; color: var(--text-secondary); text-align: center; font-family: 'JetBrains Mono', monospace;">|ρ| {row['avg_corr']:.2f}</span>
-                <span style="width: 50px; font-size: 0.68rem; color: var(--text-secondary); text-align: center; font-family: 'JetBrains Mono', monospace;">H {row['entropy']:.2f}</span>
-                <span style="width: 55px; font-size: 0.68rem; color: {rec_color}; font-weight: 700; text-align: center; font-family: 'JetBrains Mono', monospace;">{rec}</span>
-                <span style="width: 65px; font-size: 0.62rem; color: {active_color}; text-align: right; font-family: 'JetBrains Mono', monospace;">{active_badge}</span>
+                <span style="width: 55px; font-size: 0.75rem; color: var(--text-secondary); text-align: center; font-family: 'JetBrains Mono', monospace;">|ρ| {row['avg_corr']:.2f}</span>
+                <span style="width: 55px; font-size: 0.75rem; color: var(--text-secondary); text-align: center; font-family: 'JetBrains Mono', monospace;">H {row['entropy']:.2f}</span>
+                <span style="width: 60px; font-size: 0.75rem; color: {rec_color}; font-weight: 700; text-align: center; font-family: 'JetBrains Mono', monospace;">{rec}</span>
+                <span style="width: 70px; font-size: 0.72rem; color: {active_color}; text-align: right; font-family: 'JetBrains Mono', monospace;">{active_badge}</span>
             </div>
             """, unsafe_allow_html=True)
         
