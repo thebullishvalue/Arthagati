@@ -1233,15 +1233,15 @@ footer {
 
 /* Nishkarsh convention aliases */
 .signal-card.undervalued {
-    @apply: signal-card.buy;
+    border-top: 1px solid rgba(52, 211, 153, 0.15);
 }
 
 .signal-card.overvalued {
-    @apply: signal-card.sell;
+    border-top: 1px solid rgba(251, 113, 133, 0.15);
 }
 
 .signal-card.fair {
-    @apply: signal-card.hold;
+    border-top: 1px solid rgba(212, 168, 83, 0.15);
 }
 
 .signal-card.undervalued {
