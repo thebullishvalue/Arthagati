@@ -105,10 +105,10 @@ C_GREEN   = '#10b981'
 C_RED     = '#ef4444'
 C_AMBER   = '#f59e0b'
 C_CYAN    = '#06b6d4'
-C_MUTED   = '#888888'
-C_BG_CARD = '#1A1A1A'
-C_BG_GRID = '#2A2A2A'
-C_TEXT    = '#EAEAEA'
+C_MUTED   = '#606075'
+C_BG_CARD = '#0D0D14'
+C_BG_GRID = '#1A1A25'
+C_TEXT    = '#F0F0F5'
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODEL HYPERPARAMETERS
@@ -158,9 +158,9 @@ REGIME_STYLES: dict[str, tuple[str, str]] = {
 # Shared Plotly dark-theme base for all figures
 PLOTLY_BASE: dict = dict(
     template='plotly_dark',
-    plot_bgcolor=C_BG_CARD,
-    paper_bgcolor=C_BG_CARD,
-    font=dict(color=C_TEXT, family='Inter'),
+    plot_bgcolor='rgba(10, 10, 15, 0.4)',
+    paper_bgcolor='rgba(10, 10, 15, 0.0)',
+    font=dict(color='#A0A0B0', family='JetBrains Mono, monospace', size=11),
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -169,44 +169,93 @@ PLOTLY_BASE: dict = dict(
 
 _DESIGN_CSS = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-    
+    /* ── Typography ─────────────────────────────────────────────────── */
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
     :root {
         --primary-color: #FFC300;
         --primary-rgb: 255, 195, 0;
-        --background-color: #0F0F0F;
-        --secondary-background-color: #1A1A1A;
-        --bg-card: #1A1A1A;
-        --bg-elevated: #2A2A2A;
-        --text-primary: #EAEAEA;
-        --text-secondary: #EAEAEA;
-        --text-muted: #888888;
-        --border-color: #2A2A2A;
-        --border-light: #3A3A3A;
+
+        /* Obsidian depth system */
+        --bg-void: #0A0A0F;
+        --bg-obsidian: #0D0D14;
+        --bg-glass: rgba(15, 15, 25, 0.6);
+        --bg-glass-hover: rgba(20, 20, 35, 0.75);
+        --bg-glass-solid: #12121C;
+
+        /* Border system */
+        --border-glass: rgba(255, 195, 0, 0.08);
+        --border-glass-hover: rgba(255, 195, 0, 0.18);
+        --border-subtle: rgba(255, 255, 255, 0.04);
+
+        /* Glow system */
+        --glow-primary: rgba(255, 195, 0, 0.10);
+        --glow-primary-strong: rgba(255, 195, 0, 0.22);
+        --glow-green: rgba(16, 185, 129, 0.15);
+        --glow-red: rgba(239, 68, 68, 0.15);
+        --glow-cyan: rgba(6, 182, 212, 0.12);
+
+        /* Text system */
+        --text-primary: #F0F0F5;
+        --text-secondary: #A0A0B0;
+        --text-muted: #606075;
+        --text-dim: #404055;
+
+        /* Accent palette */
         --success-green: #10b981;
         --danger-red: #ef4444;
         --warning-amber: #f59e0b;
         --info-cyan: #06b6d4;
-        --neutral: #888888;
+        --neutral: #606075;
     }
-    
-    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-    .main, [data-testid="stSidebar"] { background-color: var(--background-color); color: var(--text-primary); }
-    .stApp > header { background-color: transparent; }
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
-    .block-container { padding-top: 3.5rem; max-width: 90%; padding-left: 2rem; padding-right: 2rem; }
-    
-    /* Sidebar toggle button - always visible */
+
+    /* ── Global resets ──────────────────────────────────────────────── */
+    * {
+        font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    /* ── App background — gradient mesh ────────────────────────────── */
+    .stApp, .main {
+        background:
+            radial-gradient(ellipse at 12% 20%, rgba(255, 195, 0, 0.035) 0%, transparent 50%),
+            radial-gradient(ellipse at 88% 75%, rgba(6, 182, 212, 0.025) 0%, transparent 50%),
+            radial-gradient(ellipse at 50% 50%, rgba(16, 185, 129, 0.015) 0%, transparent 60%),
+            var(--bg-void) !important;
+        color: var(--text-primary);
+    }
+
+    .stApp > header { background-color: transparent !important; }
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+
+    .block-container {
+        padding-top: 3rem;
+        max-width: 92%;
+        padding-left: 2rem;
+        padding-right: 2rem;
+    }
+
+    /* ── Sidebar — frosted glass ───────────────────────────────────── */
+    [data-testid="stSidebar"] {
+        background: rgba(10, 10, 18, 0.85) !important;
+        backdrop-filter: blur(30px) saturate(1.3) !important;
+        -webkit-backdrop-filter: blur(30px) saturate(1.3) !important;
+        border-right: 1px solid var(--border-glass) !important;
+    }
+
+    /* Sidebar toggle button */
     [data-testid="collapsedControl"] {
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
-        background-color: var(--secondary-background-color) !important;
-        border: 2px solid var(--primary-color) !important;
-        border-radius: 8px !important;
+        background: var(--bg-glass) !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        border: 1px solid var(--border-glass-hover) !important;
+        border-radius: 12px !important;
         padding: 10px !important;
         margin: 12px !important;
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.4) !important;
+        box-shadow: 0 0 20px var(--glow-primary) !important;
         z-index: 999999 !important;
         position: fixed !important;
         top: 14px !important;
@@ -215,150 +264,377 @@ _DESIGN_CSS = """
         height: 40px !important;
         align-items: center !important;
         justify-content: center !important;
+        transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1) !important;
     }
-    
+
     [data-testid="collapsedControl"]:hover {
-        background-color: rgba(var(--primary-rgb), 0.2) !important;
-        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.6) !important;
-        transform: scale(1.05);
+        background: rgba(255, 195, 0, 0.1) !important;
+        box-shadow: 0 0 30px var(--glow-primary-strong) !important;
+        transform: scale(1.08);
+        border-color: rgba(255, 195, 0, 0.3) !important;
     }
-    
+
     [data-testid="collapsedControl"] svg {
         stroke: var(--primary-color) !important;
         width: 20px !important;
         height: 20px !important;
     }
-    
+
     [data-testid="stSidebar"] button[kind="header"] {
         background-color: transparent !important;
         border: none !important;
     }
-    
+
     [data-testid="stSidebar"] button[kind="header"] svg {
         stroke: var(--primary-color) !important;
     }
-    
+
     button[kind="header"] {
         z-index: 999999 !important;
     }
-    
+
+    /* ── Premium Header — glass card ───────────────────────────────── */
     .premium-header {
-        background: var(--secondary-background-color);
-        padding: 1.25rem 2rem;
-        border-radius: 16px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.1);
-        border: 1px solid var(--border-color);
+        background: var(--bg-glass);
+        backdrop-filter: blur(20px) saturate(1.2);
+        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        padding: 1.5rem 2.25rem;
+        border-radius: 20px;
+        margin-bottom: 1.75rem;
+        box-shadow:
+            0 0 30px var(--glow-primary),
+            inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border-glass);
         position: relative;
         overflow: hidden;
         margin-top: 1rem;
     }
-    
+
     .premium-header::before {
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 20% 50%, rgba(var(--primary-rgb),0.08) 0%, transparent 50%);
+        background: radial-gradient(circle at 15% 50%, rgba(var(--primary-rgb), 0.06) 0%, transparent 50%);
         pointer-events: none;
     }
-    
-    .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
-    .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
-    
+
+    .premium-header::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.3), transparent);
+        pointer-events: none;
+    }
+
+    .premium-header h1 {
+        margin: 0;
+        font-size: 2.25rem;
+        font-weight: 800;
+        color: var(--text-primary);
+        letter-spacing: -0.75px;
+        position: relative;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .premium-header .tagline {
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        margin-top: 0.35rem;
+        font-weight: 400;
+        position: relative;
+        font-family: 'JetBrains Mono', monospace;
+        letter-spacing: 0.3px;
+    }
+
+    /* ── Metric Card — glassmorphism ───────────────────────────────── */
     .metric-card {
-        background-color: var(--bg-card);
-        padding: 1.25rem;
-        border-radius: 12px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
+        background: var(--bg-glass);
+        backdrop-filter: blur(20px) saturate(1.2);
+        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        padding: 1.25rem 1.5rem;
+        border-radius: 16px;
+        border: 1px solid var(--border-glass);
+        box-shadow:
+            0 0 20px var(--glow-primary),
+            inset 0 1px 0 rgba(255, 255, 255, 0.03);
         margin-bottom: 0.5rem;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
         position: relative;
         overflow: hidden;
     }
-    
-    .metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); border-color: var(--border-light); }
-    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-    .metric-card h2 { color: var(--text-primary); font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1; }
-    .metric-card .sub-metric { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
+
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+        pointer-events: none;
+    }
+
+    .metric-card:hover {
+        transform: translateY(-3px);
+        box-shadow:
+            0 12px 40px rgba(0, 0, 0, 0.4),
+            0 0 30px var(--glow-primary-strong);
+        border-color: var(--border-glass-hover);
+        background: var(--bg-glass-hover);
+    }
+
+    .metric-card h4 {
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        margin-bottom: 0.5rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .metric-card h2 {
+        color: var(--text-primary);
+        font-size: 1.85rem;
+        font-weight: 700;
+        margin: 0;
+        line-height: 1;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .metric-card .sub-metric {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        margin-top: 0.5rem;
+        font-weight: 500;
+        font-family: 'JetBrains Mono', monospace;
+        letter-spacing: 0.2px;
+    }
+
+    .metric-card.success { box-shadow: 0 0 25px var(--glow-green), inset 0 1px 0 rgba(255,255,255,0.03); }
     .metric-card.success h2 { color: var(--success-green); }
+    .metric-card.danger { box-shadow: 0 0 25px var(--glow-red), inset 0 1px 0 rgba(255,255,255,0.03); }
     .metric-card.danger h2 { color: var(--danger-red); }
     .metric-card.warning h2 { color: var(--warning-amber); }
+    .metric-card.info { box-shadow: 0 0 25px var(--glow-cyan), inset 0 1px 0 rgba(255,255,255,0.03); }
     .metric-card.info h2 { color: var(--info-cyan); }
     .metric-card.neutral h2 { color: var(--neutral); }
+    .metric-card.primary { box-shadow: 0 0 25px var(--glow-primary), inset 0 1px 0 rgba(255,255,255,0.03); }
     .metric-card.primary h2 { color: var(--primary-color); }
-    
+
+    /* ── Signal Card — glassmorphism with accent strip ─────────────── */
     .signal-card {
-        background-color: var(--bg-card);
+        background: var(--bg-glass);
+        backdrop-filter: blur(20px) saturate(1.2);
+        -webkit-backdrop-filter: blur(20px) saturate(1.2);
         padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
+        border-radius: 16px;
+        border: 1px solid var(--border-glass);
+        box-shadow:
+            0 0 20px var(--glow-primary),
+            inset 0 1px 0 rgba(255, 255, 255, 0.03);
         margin-bottom: 1rem;
         position: relative;
         overflow: hidden;
+        transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
     }
-    
-    .signal-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
-    .signal-card.bullish::before { background: var(--success-green); }
-    .signal-card.bearish::before { background: var(--danger-red); }
-    .signal-card.neutral::before { background: var(--neutral); }
-    
-    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-    .status-badge.bullish { background: rgba(16, 185, 129, 0.15); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.3); }
-    .status-badge.bearish { background: rgba(239, 68, 68, 0.15); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.3); }
-    .status-badge.oversold { background: rgba(6, 182, 212, 0.15); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
-    .status-badge.overbought { background: rgba(245, 158, 11, 0.15); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
-    .status-badge.neutral { background: rgba(136, 136, 136, 0.15); color: var(--neutral); border: 1px solid rgba(136, 136, 136, 0.3); }
-    
-    .stButton>button { border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color); font-weight: 700; border-radius: 12px; padding: 0.75rem 2rem; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-transform: uppercase; letter-spacing: 0.5px; }
-    .stButton>button:hover { box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.6); background: var(--primary-color); color: #1A1A1A; transform: translateY(-2px); }
-    .stButton>button:active { transform: translateY(0); }
-    
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
-    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
-    .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); background: transparent !important; }
-    
-    .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
-    .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); }
-    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
-    
-    .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
-    
-    [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
-    
-    .stTextInput > div > div > input { background: var(--bg-elevated) !important; border: 1px solid var(--border-color) !important; border-radius: 8px !important; color: var(--text-primary) !important; }
-    .stTextInput > div > div > input:focus { border-color: var(--primary-color) !important; box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2) !important; }
-    
-    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
-    .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
-    .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
-    
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--background-color); }
-    ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
 
-    /* ── Themed loading state ─────────────────────────────────────── */
+    .signal-card:hover {
+        border-color: var(--border-glass-hover);
+        background: var(--bg-glass-hover);
+    }
+
+    .signal-card::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; width: 3px; height: 100%;
+        border-radius: 3px 0 0 3px;
+    }
+    .signal-card.bullish::after { background: linear-gradient(180deg, var(--success-green), rgba(16, 185, 129, 0.3)); }
+    .signal-card.bearish::after { background: linear-gradient(180deg, var(--danger-red), rgba(239, 68, 68, 0.3)); }
+    .signal-card.neutral::after { background: linear-gradient(180deg, var(--neutral), rgba(96, 96, 117, 0.3)); }
+
+    /* ── Status Badge — glass pill ─────────────────────────────────── */
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.9rem;
+        border-radius: 20px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        font-family: 'JetBrains Mono', monospace;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+    .status-badge.bullish { background: rgba(16, 185, 129, 0.12); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.25); }
+    .status-badge.bearish { background: rgba(239, 68, 68, 0.12); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.25); }
+    .status-badge.oversold { background: rgba(6, 182, 212, 0.12); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.25); }
+    .status-badge.overbought { background: rgba(245, 158, 11, 0.12); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.25); }
+    .status-badge.neutral { background: rgba(96, 96, 117, 0.12); color: var(--neutral); border: 1px solid rgba(96, 96, 117, 0.25); }
+
+    /* ── Buttons — glass with amber glow ───────────────────────────── */
+    .stButton>button {
+        border: 1px solid rgba(255, 195, 0, 0.3);
+        background: var(--bg-glass);
+        backdrop-filter: blur(15px);
+        -webkit-backdrop-filter: blur(15px);
+        color: var(--primary-color);
+        font-weight: 700;
+        border-radius: 12px;
+        padding: 0.75rem 2rem;
+        transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 0.8rem;
+    }
+    .stButton>button:hover {
+        box-shadow: 0 0 35px var(--glow-primary-strong);
+        background: rgba(255, 195, 0, 0.12);
+        color: var(--primary-color);
+        transform: translateY(-2px);
+        border-color: rgba(255, 195, 0, 0.5);
+    }
+    .stButton>button:active { transform: translateY(0); }
+
+    /* ── Tabs — minimal glass ──────────────────────────────────────── */
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
+    .stTabs [data-baseweb="tab"] {
+        color: var(--text-muted);
+        border-bottom: 2px solid transparent;
+        transition: all 0.3s;
+        background: transparent;
+        font-weight: 600;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+    .stTabs [aria-selected="true"] {
+        color: var(--primary-color);
+        border-bottom: 2px solid var(--primary-color);
+        background: transparent !important;
+        text-shadow: 0 0 20px rgba(255, 195, 0, 0.3);
+    }
+
+    /* ── Chart container — glass ───────────────────────────────────── */
+    .stPlotlyChart {
+        border-radius: 16px;
+        background: var(--bg-glass) !important;
+        backdrop-filter: blur(20px) saturate(1.2);
+        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        padding: 12px;
+        border: 1px solid var(--border-glass);
+        box-shadow: 0 0 30px var(--glow-primary);
+    }
+
+    .stDataFrame {
+        border-radius: 16px;
+        background: var(--bg-glass) !important;
+        border: 1px solid var(--border-glass);
+    }
+
+    /* ── Section Divider — gradient line ────────────────────────────── */
+    .section-divider {
+        height: 1px;
+        background: linear-gradient(90deg, transparent 0%, rgba(255, 195, 0, 0.15) 50%, transparent 100%);
+        margin: 1.75rem 0;
+    }
+
+    /* ── Sidebar labels ────────────────────────────────────────────── */
+    .sidebar-title {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--primary-color);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-bottom: 0.75rem;
+        font-family: 'Space Grotesk', sans-serif;
+        text-shadow: 0 0 15px rgba(255, 195, 0, 0.2);
+    }
+
+    /* ── Input overrides ───────────────────────────────────────────── */
+    .stTextInput > div > div > input {
+        background: var(--bg-glass) !important;
+        backdrop-filter: blur(15px) !important;
+        border: 1px solid var(--border-glass) !important;
+        border-radius: 10px !important;
+        color: var(--text-primary) !important;
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: rgba(255, 195, 0, 0.3) !important;
+        box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1) !important;
+    }
+
+    /* ── Info Box — glass ──────────────────────────────────────────── */
+    .info-box {
+        background: var(--bg-glass);
+        backdrop-filter: blur(20px) saturate(1.2);
+        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        border: 1px solid var(--border-glass);
+        padding: 1.25rem;
+        border-radius: 16px;
+        margin: 0.5rem 0;
+        box-shadow:
+            0 0 20px var(--glow-primary),
+            inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        position: relative;
+        overflow: hidden;
+    }
+    .info-box::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.2), transparent);
+        pointer-events: none;
+    }
+    .info-box h4 {
+        color: var(--primary-color);
+        margin: 0 0 0.5rem 0;
+        font-size: 1rem;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+    }
+    .info-box p {
+        color: var(--text-secondary);
+        margin: 0;
+        font-size: 0.88rem;
+        line-height: 1.65;
+    }
+
+    /* ── Scrollbar — obsidian ──────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg-void); }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 195, 0, 0.15); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 195, 0, 0.3); }
+
+    /* ── Loading state — shimmer glass ─────────────────────────────── */
     @keyframes pulse-glow {
-        0%, 100% { opacity: 0.6; }
-        50%       { opacity: 1.0; }
+        0%, 100% { opacity: 0.5; }
+        50%      { opacity: 1.0; }
     }
     .loading-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border-color);
-        border-left: 1px solid var(--border-color);
-        border-radius: 12px;
+        background: var(--bg-glass);
+        backdrop-filter: blur(20px) saturate(1.2);
+        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        border: 1px solid var(--border-glass);
+        border-radius: 16px;
         padding: 1.25rem 1.5rem;
         margin: 0.75rem 0;
         position: relative;
         overflow: hidden;
+        box-shadow: 0 0 20px var(--glow-primary);
     }
     .loading-card::before {
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 0% 50%, rgba(var(--primary-rgb), 0.06) 0%, transparent 60%);
+        background: radial-gradient(circle at 0% 50%, rgba(var(--primary-rgb), 0.04) 0%, transparent 60%);
+        pointer-events: none;
+    }
+    .loading-card::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.2), transparent);
         pointer-events: none;
     }
     .loading-label {
@@ -367,6 +643,7 @@ _DESIGN_CSS = """
         color: var(--text-primary);
         letter-spacing: 0.3px;
         position: relative;
+        font-family: 'Space Grotesk', sans-serif;
     }
     .loading-sub {
         font-size: 0.72rem;
@@ -375,12 +652,14 @@ _DESIGN_CSS = """
         font-weight: 400;
         position: relative;
         letter-spacing: 0.2px;
+        font-family: 'JetBrains Mono', monospace;
     }
     .loading-dot {
         display: inline-block;
-        width: 5px; height: 5px;
+        width: 6px; height: 6px;
         border-radius: 50%;
         background: var(--primary-color);
+        box-shadow: 0 0 8px rgba(var(--primary-rgb), 0.6);
         animation: pulse-glow 1.2s ease-in-out infinite;
         margin-right: 0.6rem;
         vertical-align: middle;
@@ -420,13 +699,14 @@ def _progress_bar(slot, pct: int, label: str, sub: str = "") -> None:
             <span class="loading-dot"></span>{label}
         </div>
         {"" if not sub else f'<div class="loading-sub">{sub}</div>'}
-        <div style="margin-top: 0.65rem; height: 3px; background: #2A2A2A; border-radius: 2px; overflow: hidden;">
+        <div style="margin-top: 0.65rem; height: 3px; background: rgba(255,255,255,0.04); border-radius: 2px; overflow: hidden;">
             <div style="width: {pct}%; height: 100%;
                         background: linear-gradient(90deg, {bar_color}, {C_AMBER});
-                        border-radius: 2px; transition: width 0.3s ease;">
+                        border-radius: 2px; transition: width 0.4s cubic-bezier(0.22,1,0.36,1);
+                        box-shadow: 0 0 8px rgba(255,195,0,0.3);">
             </div>
         </div>
-        <div style="text-align: right; font-size: 0.65rem; color: #555; margin-top: 0.25rem; font-family: monospace;">
+        <div style="text-align: right; font-size: 0.62rem; color: var(--text-dim); margin-top: 0.25rem; font-family: 'JetBrains Mono', monospace;">
             {pct}%
         </div>
     </div>
@@ -1795,8 +2075,8 @@ def render_landing_page() -> None:
     # ── Main header ──────────────────────────────────────────────────
     st.markdown("""
     <div class="premium-header">
-        <h1>ARTHAGATI <span style="color: var(--primary-color);">:</span> Market Sentiment Analysis</h1>
-        <div class="tagline">Ornstein-Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
+        <h1>ARTHAGATI <span style="color: var(--primary-color); text-shadow: 0 0 30px rgba(255,195,0,0.4);">:</span> Market Sentiment Analysis</h1>
+        <div class="tagline">Ornstein–Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1808,14 +2088,14 @@ def render_landing_page() -> None:
     with col1:
         st.markdown("""
         <div class='metric-card primary' style='min-height: 280px;'>
-            <h3 style='color: var(--primary-color); margin-bottom: 1rem;'>📈 Historical Mood</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+            <h3 style='color: var(--primary-color); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);'>📈 Historical Mood</h3>
+            <p style='color: var(--text-secondary); font-size: 0.88rem; line-height: 1.65;'>
                 Full sentiment timeline with OU forward projection, Kalman confidence bands,
                 and regime transition markers on a TradingView-style chart.
             </p>
             <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Features:</strong><br>
+            <p style='color: var(--text-secondary); font-size: 0.82rem; font-family: JetBrains Mono, monospace;'>
+                <strong style="color: var(--text-primary);">Features:</strong><br>
                 • Mood Score −100 → +100<br>
                 • MSF Spread confirmation<br>
                 • 90-day OU mean-reversion path<br>
@@ -1827,14 +2107,14 @@ def render_landing_page() -> None:
     with col2:
         st.markdown("""
         <div class='metric-card success' style='min-height: 280px;'>
-            <h3 style='color: var(--success-green); margin-bottom: 1rem;'>🔍 Similar Periods</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+            <h3 style='color: var(--success-green); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(16,185,129,0.2);'>🔍 Similar Periods</h3>
+            <p style='color: var(--text-secondary); font-size: 0.88rem; line-height: 1.65;'>
                 Historical analog matching against the full dataset with forward-return
                 outcomes, aggregate win-rates, and a backtest scatter.
             </p>
             <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Features:</strong><br>
+            <p style='color: var(--text-secondary); font-size: 0.82rem; font-family: JetBrains Mono, monospace;'>
+                <strong style="color: var(--text-primary);">Features:</strong><br>
                 • Mahalanobis state matching (55%)<br>
                 • Trajectory shape similarity (35%)<br>
                 • Recency decay (10%)<br>
@@ -1846,14 +2126,14 @@ def render_landing_page() -> None:
     with col3:
         st.markdown("""
         <div class='metric-card info' style='min-height: 280px;'>
-            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>📋 Correlation Analysis</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+            <h3 style='color: var(--info-cyan); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(6,182,212,0.2);'>📋 Correlation Analysis</h3>
+            <p style='color: var(--text-secondary); font-size: 0.88rem; line-height: 1.65;'>
                 Full transparency into which variables drive the mood score and which
                 are noise, ranked by the engine's own quality formula.
             </p>
             <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Features:</strong><br>
+            <p style='color: var(--text-secondary); font-size: 0.82rem; font-family: JetBrains Mono, monospace;'>
+                <strong style="color: var(--text-primary);">Features:</strong><br>
                 • PE &amp; EY correlation bars<br>
                 • Shannon entropy quality score<br>
                 • Keep / Useful / Weak ranking<br>
@@ -1872,7 +2152,7 @@ def render_landing_page() -> None:
     with col_m1:
         st.markdown("""
         <div class='signal-card bullish' style='padding: 1.5rem;'>
-            <h4 style='color: var(--success-green); margin-bottom: 1rem;'>Mood Engine — 5 Layers</h4>
+            <h4 style='color: var(--success-green); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700;'>Mood Engine — 5 Layers</h4>
             <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
                 Physics-informed scoring pipeline:
             </p>
@@ -1889,7 +2169,7 @@ def render_landing_page() -> None:
     with col_m2:
         st.markdown("""
         <div class='signal-card bearish' style='padding: 1.5rem;'>
-            <h4 style='color: var(--danger-red); margin-bottom: 1rem;'>MSF Spread — Confirmation</h4>
+            <h4 style='color: var(--danger-red); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700;'>MSF Spread — Confirmation</h4>
             <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
                 Four-component oscillator −10 → +10:
             </p>
@@ -1906,7 +2186,7 @@ def render_landing_page() -> None:
     with col_m3:
         st.markdown("""
         <div class='signal-card neutral' style='padding: 1.5rem;'>
-            <h4 style='color: var(--neutral); margin-bottom: 1rem;'>Regime Detection</h4>
+            <h4 style='color: var(--neutral); margin-bottom: 1rem; font-family: Space Grotesk, sans-serif; font-weight: 700;'>Regime Detection</h4>
             <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
                 Hurst × Entropy quadrant classification:
             </p>
@@ -1929,10 +2209,10 @@ def render_landing_page() -> None:
 
     with col_s1:
         st.markdown("""
-        <div style='background: rgba(16,185,129,0.1); border: 1px solid var(--success-green);
-                    border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--success-green); margin-bottom: 0.75rem;'>🟢 Bullish Zone</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &gt; +20</p>
+        <div style='background: rgba(16,185,129,0.08); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(16,185,129,0.2);
+                    border-radius: 16px; padding: 1.5rem; box-shadow: 0 0 20px rgba(16,185,129,0.08);'>
+            <h4 style='color: var(--success-green); margin-bottom: 0.75rem; font-family: Space Grotesk, sans-serif;'>🟢 Bullish Zone</h4>
+            <p style='color: var(--text-muted); font-size: 0.82rem; font-family: JetBrains Mono, monospace;'>Score &gt; +20</p>
             <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
                 Positive sentiment. Trend-following strategies favoured.
                 At extremes (&gt;+60, Euphoric) mean-reversion risk rises sharply.
@@ -1942,10 +2222,10 @@ def render_landing_page() -> None:
 
     with col_s2:
         st.markdown("""
-        <div style='background: rgba(136,136,136,0.1); border: 1px solid var(--neutral);
-                    border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--neutral); margin-bottom: 0.75rem;'>⚪ Neutral Zone</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score −20 to +20</p>
+        <div style='background: rgba(96,96,117,0.08); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(96,96,117,0.2);
+                    border-radius: 16px; padding: 1.5rem; box-shadow: 0 0 20px rgba(96,96,117,0.08);'>
+            <h4 style='color: var(--neutral); margin-bottom: 0.75rem; font-family: Space Grotesk, sans-serif;'>⚪ Neutral Zone</h4>
+            <p style='color: var(--text-muted); font-size: 0.82rem; font-family: JetBrains Mono, monospace;'>Score −20 to +20</p>
             <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
                 No strong directional bias. Await macro confirmation or use
                 MSF Spread and Similar Periods for additional context.
@@ -1955,10 +2235,10 @@ def render_landing_page() -> None:
 
     with col_s3:
         st.markdown("""
-        <div style='background: rgba(239,68,68,0.1); border: 1px solid var(--danger-red);
-                    border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--danger-red); margin-bottom: 0.75rem;'>🔴 Bearish Zone</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &lt; −20</p>
+        <div style='background: rgba(239,68,68,0.08); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(239,68,68,0.2);
+                    border-radius: 16px; padding: 1.5rem; box-shadow: 0 0 20px rgba(239,68,68,0.08);'>
+            <h4 style='color: var(--danger-red); margin-bottom: 0.75rem; font-family: Space Grotesk, sans-serif;'>🔴 Bearish Zone</h4>
+            <p style='color: var(--text-muted); font-size: 0.82rem; font-family: JetBrains Mono, monospace;'>Score &lt; −20</p>
             <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
                 Negative sentiment. Defensive positioning warranted.
                 At extremes (&lt;−60, Capitulation) contrarian signals may emerge.
@@ -2018,9 +2298,9 @@ def main():
 
     with st.sidebar:
         st.markdown("""
-        <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
-            <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">ARTHAGATI</div>
-            <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">अर्थगति | Market Sentiment</div>
+        <div style="text-align: center; padding: 1.25rem 0; margin-bottom: 1rem;">
+            <div style="font-size: 1.85rem; font-weight: 800; color: #FFC300; font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.5px; text-shadow: 0 0 30px rgba(255,195,0,0.3);">ARTHAGATI</div>
+            <div style="color: #606075; font-size: 0.7rem; margin-top: 0.35rem; font-family: 'JetBrains Mono', monospace; letter-spacing: 1px;">अर्थगति | Market Sentiment</div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -2163,12 +2443,13 @@ def main():
     # >3 days gap (accounts for weekends: Fri data on Mon = 3 days, fine)
     if data_age_days > 3:
         st.markdown(f"""
-        <div style="background: rgba(239,68,68,0.1); border: 1px solid #ef4444; border-radius: 10px; 
-                    padding: 0.75rem 1.25rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 12px;">
+        <div style="background: rgba(239,68,68,0.08); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(239,68,68,0.2); border-radius: 16px; 
+                    padding: 0.85rem 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 14px;
+                    box-shadow: 0 0 20px rgba(239,68,68,0.1);">
             <span style="font-size: 1.4rem;">⚠️</span>
             <div>
-                <span style="color: #ef4444; font-weight: 700;">Stale Data</span>
-                <span style="color: #888; font-size: 0.85rem;"> — Last data point is <b>{latest_date.strftime('%d %b %Y')}</b> ({data_age_days} days ago). 
+                <span style="color: #ef4444; font-weight: 700; font-family: 'Space Grotesk', sans-serif;">Stale Data</span>
+                <span style="color: var(--text-secondary); font-size: 0.82rem; font-family: 'JetBrains Mono', monospace;"> — Last data point is <b>{latest_date.strftime('%d %b %Y')}</b> ({data_age_days} days ago). 
                 Scores reflect the last available data, not current market state. Update your Google Sheet.</span>
             </div>
         </div>
@@ -2350,8 +2631,8 @@ def render_historical_mood(mood_df, msf_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0;">📈 Market Mood Terminal</h3>
-            <p style="color: #888888; font-size: 0.85rem; margin: 0;">TradingView-Style Analysis • Mood Score + MSF Spread Indicator</p>
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">📈 Market Mood Terminal</h3>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px;">TradingView-Style Analysis • Mood Score + MSF Spread Indicator</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -2619,17 +2900,23 @@ def render_historical_mood(mood_df, msf_df):
         height=750,
         hovermode='x unified',
         showlegend=True,
-        legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1, font=dict(size=11)),
+        legend=dict(
+            orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1,
+            font=dict(size=10, family='JetBrains Mono, monospace'),
+            bgcolor='rgba(10,10,15,0.6)',
+            bordercolor='rgba(255,195,0,0.08)',
+            borderwidth=1,
+        ),
         margin=dict(l=60, r=20, t=80, b=40),
-        xaxis2=dict(showgrid=True, gridcolor=C_BG_GRID, type='date'),
+        xaxis2=dict(showgrid=True, gridcolor='rgba(255,255,255,0.03)', type='date'),
         yaxis=dict(
-            title=dict(text='Mood Score', font=dict(size=11, color=C_MUTED)),
-            showgrid=True, gridcolor=C_BG_GRID, zeroline=False,
+            title=dict(text='Mood Score', font=dict(size=10, color=C_MUTED, family='Space Grotesk, sans-serif')),
+            showgrid=True, gridcolor='rgba(255,255,255,0.03)', zeroline=False,
             range=[mood_y_hi, mood_y_lo],  # reversed: high at bottom, low at top
         ),
         yaxis2=dict(
-            title=dict(text='MSF Spread', font=dict(size=11, color=C_MUTED)),
-            showgrid=True, gridcolor=C_BG_GRID, zeroline=False,
+            title=dict(text='MSF Spread', font=dict(size=10, color=C_MUTED, family='Space Grotesk, sans-serif')),
+            showgrid=True, gridcolor='rgba(255,255,255,0.03)', zeroline=False,
         ),
     )
     
@@ -2642,12 +2929,12 @@ def render_historical_mood(mood_df, msf_df):
         y0=0.38,  # Position between the two charts
         x1=1,
         y1=0.38,
-        line=dict(color="#555555", width=2)
+        line=dict(color="rgba(255,195,0,0.12)", width=1)
     )
     
     # Remove x-axis grid on row 1 for cleaner look
     fig.update_xaxes(showgrid=False, row=1, col=1)
-    fig.update_xaxes(showgrid=True, gridcolor=C_BG_GRID, row=2, col=1)
+    fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.03)', row=2, col=1)
     
     st.plotly_chart(fig, config={
         'displayModeBar': True,
@@ -2713,8 +3000,8 @@ def render_historical_mood(mood_df, msf_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 0.75rem;">
-            <h4 style="color: #06b6d4; margin: 0;">MSF Component Breakdown</h4>
-            <p style="color: #888; font-size: 0.8rem; margin: 0;">Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)</p>
+            <h4 style="color: #06b6d4; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 15px rgba(6,182,212,0.2);">MSF Component Breakdown</h4>
+            <p style="color: var(--text-muted); font-size: 0.78rem; margin: 0.2rem 0 0 0; font-family: 'JetBrains Mono', monospace;">Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -2737,16 +3024,16 @@ def render_historical_mood(mood_df, msf_df):
             
             with c_cols[j]:
                 st.markdown(f"""
-                <div style="background: #1A1A1A; border-radius: 10px; padding: 0.75rem; border: 1px solid #2A2A2A;">
+                <div style="background: rgba(15,15,25,0.6); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border-radius: 14px; padding: 0.85rem 1rem; border: 1px solid rgba(255,195,0,0.06); box-shadow: 0 0 15px rgba(255,195,0,0.05);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-                        <span style="font-size: 0.75rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{icon} {label}</span>
-                        <span style="font-size: 1.1rem; font-weight: 700; color: {color};">{val:+.1f}</span>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-family: 'Space Grotesk', sans-serif;">{icon} {label}</span>
+                        <span style="font-size: 1.15rem; font-weight: 700; color: {color}; font-family: 'JetBrains Mono', monospace;">{val:+.1f}</span>
                     </div>
-                    <div style="height: 6px; background: #2A2A2A; border-radius: 3px; position: relative;">
-                        <div style="position: absolute; left: 50%; top: 0; width: 1px; height: 6px; background: #555;"></div>
-                        <div style="width: {bar_pct:.0f}%; height: 100%; background: {color}; border-radius: 3px; opacity: 0.8;"></div>
+                    <div style="height: 5px; background: rgba(255,255,255,0.03); border-radius: 3px; position: relative;">
+                        <div style="position: absolute; left: 50%; top: 0; width: 1px; height: 5px; background: rgba(255,255,255,0.06);"></div>
+                        <div style="width: {bar_pct:.0f}%; height: 100%; background: {color}; border-radius: 3px; opacity: 0.75; box-shadow: 0 0 6px {color};"></div>
                     </div>
-                    <div style="font-size: 0.65rem; color: #555; margin-top: 0.3rem;">Period avg: {period_val:+.1f}</div>
+                    <div style="font-size: 0.62rem; color: var(--text-dim); margin-top: 0.35rem; font-family: 'JetBrains Mono', monospace;">Period avg: {period_val:+.1f}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -2759,8 +3046,8 @@ def render_similar_periods(mood_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0;">🔍 Similar Historical Periods</h3>
-            <p style="color: #888888; font-size: 0.85rem; margin: 0;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">🔍 Similar Historical Periods</h3>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -2816,23 +3103,23 @@ def render_similar_periods(mood_df):
                 val = period.get(key)
                 if val is not None:
                     fwd_color = '#10b981' if val > 0 else '#ef4444'
-                    fwd_badges += f'<span style="font-size:0.7rem; color:{fwd_color}; margin-left:8px;">+{horizon}d: <b>{val:+.1f}%</b></span>'
+                    fwd_badges += f'<span style="font-size:0.68rem; color:{fwd_color}; margin-left:8px; font-family: JetBrains Mono, monospace;">+{horizon}d: <b>{val:+.1f}%</b></span>'
                 else:
-                    fwd_badges += f'<span style="font-size:0.7rem; color:#555; margin-left:8px;">+{horizon}d: —</span>'
+                    fwd_badges += f'<span style="font-size:0.68rem; color: var(--text-dim); margin-left:8px; font-family: JetBrains Mono, monospace;">+{horizon}d: —</span>'
             
             st.markdown(f"""
             <div class="signal-card {mood_class}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                    <span style="font-weight: 700; color: #EAEAEA;">{period['date']}</span>
+                    <span style="font-weight: 700; color: var(--text-primary); font-family: 'JetBrains Mono', monospace;">{period['date']}</span>
                     <span class="status-badge {mood_class}">{period['mood']}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; color: #888888; font-size: 0.85rem;">
+                <div style="display: flex; justify-content: space-between; color: var(--text-secondary); font-size: 0.82rem; font-family: 'JetBrains Mono', monospace;">
                     <span>Similarity: <b style="color: #FFC300;">{similarity_pct:.1f}%</b></span>
                     <span>Mood: <b>{mood_val:.1f}</b></span>
                     <span>NIFTY: <b>{period['nifty']:,.0f}</b></span>
                 </div>
-                <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid #2A2A2A;">
-                    <span style="font-size: 0.7rem; color: #666;">NIFTY After:</span>{fwd_badges}
+                <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.04);">
+                    <span style="font-size: 0.68rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace;">NIFTY After:</span>{fwd_badges}
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -2844,12 +3131,12 @@ def render_similar_periods(mood_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0;">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
-            <p style="color: #888888; font-size: 0.85rem; margin: 0;">
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace;">
                 Does today's mood score predict tomorrow's market? Each dot = one historical day.
                 If there's a relationship, the scatter should show a pattern.
             </p>
-            <p style="color: #ef4444; font-size: 0.75rem; margin-top: 0.5rem; font-weight: 600; padding: 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
+            <p style="color: #ef4444; font-size: 0.72rem; margin-top: 0.6rem; font-weight: 600; padding: 8px 12px; background: rgba(239,68,68,0.08); border-radius: 10px; border: 1px solid rgba(239,68,68,0.15); font-family: 'JetBrains Mono', monospace;">
                 ⚠️ Note: This view represents a Hindsight Regime Fit. Historical points are evaluated using parameters learned from today's active correlation regime.
             </p>
         </div>
@@ -2936,14 +3223,14 @@ def render_similar_periods(mood_df):
             fig_bt.update_layout(
                 **PLOTLY_BASE,
                 height=400,
-                xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor=C_BG_GRID),
-                yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor=C_BG_GRID),
+                xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor='rgba(255,255,255,0.03)', title_font=dict(family='Space Grotesk, sans-serif', size=11)),
+                yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor='rgba(255,255,255,0.03)', title_font=dict(family='Space Grotesk, sans-serif', size=11)),
                 margin=dict(l=60, r=20, t=30, b=50),
                 legend=dict(
                     x=0.02, y=0.98,
-                    bgcolor='rgba(26,26,26,0.8)',
-                    bordercolor=C_BG_GRID, borderwidth=1,
-                    font=dict(size=10),
+                    bgcolor='rgba(10,10,15,0.6)',
+                    bordercolor='rgba(255,195,0,0.08)', borderwidth=1,
+                    font=dict(size=9, family='JetBrains Mono, monospace'),
                 ),
             )
 
@@ -2988,8 +3275,8 @@ def render_correlation_analysis(raw_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0;">📋 Correlation & Predictor Analysis</h3>
-            <p style="color: #888888; font-size: 0.85rem; margin: 0;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">📋 Correlation & Predictor Analysis</h3>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -3009,9 +3296,9 @@ def render_correlation_analysis(raw_df):
     bad_anchors = [v['label'] for v in anchor_health.values() if not v['ok']]
     if bad_anchors:
         st.markdown(f"""
-        <div class="info-box" style="border-left: 4px solid #ef4444;">
-            <h4 style="color: #ef4444;">⚠️ Data Quality Issue</h4>
-            <p><b>{', '.join(bad_anchors)}</b> has insufficient variance in the source data.
+        <div class="info-box" style="border-left: 3px solid #ef4444; box-shadow: 0 0 20px rgba(239,68,68,0.1);">
+            <h4 style="color: #ef4444; font-family: 'Space Grotesk', sans-serif;">⚠️ Data Quality Issue</h4>
+            <p style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;"><b>{', '.join(bad_anchors)}</b> has insufficient variance in the source data.
             If Earnings Yield is empty in the sheet, it is auto-derived from PE (1/PE × 100).
             Check that your Google Sheet has valid data for these columns.</p>
         </div>
@@ -3038,13 +3325,13 @@ def render_correlation_analysis(raw_df):
                 bar_width = abs(corr_val) * 100
                 strength_dot = '🟢' if abs(corr_val) >= 0.5 else '🟡' if abs(corr_val) >= 0.3 else '⚪'
                 st.markdown(f"""
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: #1A1A1A; border-radius: 8px;">
+                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.55rem 0.75rem; background: rgba(15,15,25,0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
                     <span style="width: 14px; font-size: 0.6rem;">{strength_dot}</span>
-                    <span style="width: 130px; font-size: 0.8rem; color: #EAEAEA;">{row['variable']}</span>
-                    <div style="flex: 1; height: 8px; background: #2A2A2A; border-radius: 4px; margin: 0 10px;">
-                        <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 4px;"></div>
+                    <span style="width: 130px; font-size: 0.78rem; color: var(--text-primary); font-family: 'JetBrains Mono', monospace;">{row['variable']}</span>
+                    <div style="flex: 1; height: 6px; background: rgba(255,255,255,0.03); border-radius: 3px; margin: 0 12px;">
+                        <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 3px; box-shadow: 0 0 6px {color};"></div>
                     </div>
-                    <span style="width: 60px; text-align: right; font-size: 0.8rem; color: {color}; font-weight: 600;">{corr_val:+.2f}</span>
+                    <span style="width: 60px; text-align: right; font-size: 0.78rem; color: {color}; font-weight: 700; font-family: 'JetBrains Mono', monospace;">{corr_val:+.2f}</span>
                 </div>
                 """, unsafe_allow_html=True)
             return corrs
@@ -3056,8 +3343,8 @@ def render_correlation_analysis(raw_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: #FFC300; margin: 0;">🎯 Predictor Quality Assessment</h3>
-            <p style="color: #888888; font-size: 0.85rem; margin: 0;">
+            <h3 style="color: #FFC300; margin: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 0 20px rgba(255,195,0,0.2);">🎯 Predictor Quality Assessment</h3>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin: 0.3rem 0 0 0; font-family: 'JetBrains Mono', monospace;">
                 Each predictor scored by: correlation strength × information quality (1 − entropy).
                 High-entropy (noisy) variables are penalized. This is how the mood engine weights them internally.
             </p>
@@ -3137,16 +3424,16 @@ def render_correlation_analysis(raw_df):
             active_color = '#FFC300' if row['active'] else '#555555'
             
             st.markdown(f"""
-            <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.75rem; background: #1A1A1A; border-radius: 8px; border: 1px solid {'#2A2A2A' if row['active'] else '#1A1A1A'};">
-                <span style="width: 24px; font-size: 0.75rem; color: #555; font-weight: 700;">{rank}</span>
-                <span style="width: 140px; font-size: 0.8rem; color: #EAEAEA; font-weight: 600;">{row['variable']}</span>
-                <div style="flex: 1; height: 6px; background: #2A2A2A; border-radius: 3px; margin: 0 12px;">
-                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, #FFC300, #f59e0b); border-radius: 3px;"></div>
+            <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.85rem; background: rgba(15,15,25,0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid {'rgba(255,195,0,0.08)' if row['active'] else 'rgba(255,255,255,0.02)'};">
+                <span style="width: 24px; font-size: 0.72rem; color: var(--text-dim); font-weight: 700; font-family: 'JetBrains Mono', monospace;">{rank}</span>
+                <span style="width: 140px; font-size: 0.78rem; color: var(--text-primary); font-weight: 600; font-family: 'JetBrains Mono', monospace;">{row['variable']}</span>
+                <div style="flex: 1; height: 5px; background: rgba(255,255,255,0.03); border-radius: 3px; margin: 0 12px;">
+                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, #FFC300, #f59e0b); border-radius: 3px; box-shadow: 0 0 6px rgba(255,195,0,0.3);"></div>
                 </div>
-                <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">|ρ| {row['avg_corr']:.2f}</span>
-                <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">H {row['entropy']:.2f}</span>
-                <span style="width: 55px; font-size: 0.7rem; color: {rec_color}; font-weight: 700; text-align: center;">{rec}</span>
-                <span style="width: 65px; font-size: 0.65rem; color: {active_color}; text-align: right;">{active_badge}</span>
+                <span style="width: 50px; font-size: 0.68rem; color: var(--text-secondary); text-align: center; font-family: 'JetBrains Mono', monospace;">|ρ| {row['avg_corr']:.2f}</span>
+                <span style="width: 50px; font-size: 0.68rem; color: var(--text-secondary); text-align: center; font-family: 'JetBrains Mono', monospace;">H {row['entropy']:.2f}</span>
+                <span style="width: 55px; font-size: 0.68rem; color: {rec_color}; font-weight: 700; text-align: center; font-family: 'JetBrains Mono', monospace;">{rec}</span>
+                <span style="width: 65px; font-size: 0.62rem; color: {active_color}; text-align: right; font-family: 'JetBrains Mono', monospace;">{active_badge}</span>
             </div>
             """, unsafe_allow_html=True)
         
@@ -3157,12 +3444,12 @@ def render_correlation_analysis(raw_df):
         
         st.markdown(f"""
         <div class="info-box" style="margin-top: 1rem;">
-            <h4>Recommendation Summary</h4>
-            <p>
+            <h4 style="font-family: 'Space Grotesk', sans-serif;">Recommendation Summary</h4>
+            <p style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;">
                 <b style="color: #10b981;">✅ {keep_count} strong</b> predictors (high correlation × low entropy) ·
                 <b style="color: #f59e0b;">🟡 {useful_count} useful</b> (moderate signal) ·
-                <b style="color: #888;">⚪ {weak_count} weak</b> (low signal or noisy)<br>
-                <span style="font-size: 0.8rem; color: #666;">
+                <b style="color: var(--text-dim);">⚪ {weak_count} weak</b> (low signal or noisy)<br>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">
                     |ρ| = average |correlation| with PE & EY anchors · H = Shannon entropy of returns (lower = more structured) ·
                     Quality = |ρ| × (1−H) — same formula the mood engine uses internally for weighting.
                 </span>
