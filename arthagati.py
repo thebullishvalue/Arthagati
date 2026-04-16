@@ -108,7 +108,7 @@ C_CYAN    = '#06B6D4'  # Cyan
 C_VIOLET  = '#8B5CF6'  # Violet
 C_MUTED   = '#4B5563'  # Ink tertiary
 C_BG_CARD = '#111827'  # BG elevated
-C_BG_GRID = 'C_BG_CARD'  # Darker grid
+C_BG_GRID = '#1F2937'  # Darker grid
 C_TEXT    = '#F1F5F9'  # Ink primary
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -193,7 +193,7 @@ def _progress_bar(slot, pct: int, label: str, sub: str = "") -> None:
             <span class="loading-dot"></span>{label}
         </div>
         {"" if not sub else f'<div class="loading-sub">{sub}</div>'}
-        <div style="margin-top: 0.65rem; height: 3px; background: C_BG_GRID; border-radius: 2px; overflow: hidden;">
+        <div style="margin-top: 0.65rem; height: 3px; background: {C_BG_GRID}; border-radius: 2px; overflow: hidden;">
             <div style="width: {pct}%; height: 100%;
                         background: linear-gradient(90deg, {bar_color}, {C_AMBER});
                         border-radius: 2px; transition: width 0.3s ease;">
@@ -1792,7 +1792,7 @@ def main():
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
-            <div style="font-size: 1.75rem; font-weight: 800; color: C_PRIMARY;">ARTHAGATI</div>
+            <div style="font-size: 1.75rem; font-weight: 800; color: {C_PRIMARY};">ARTHAGATI</div>
             <div style="color: var(--ink-tertiary); font-size: 0.75rem; margin-top: 0.25rem;">अर्थगति | Market Sentiment</div>
         </div>
         """, unsafe_allow_html=True)
@@ -2093,7 +2093,7 @@ def render_historical_mood(mood_df, msf_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: C_PRIMARY; margin: 0;">📈 Market Mood Terminal</h3>
+            <h3 style="color: {C_PRIMARY}; margin: 0;">📈 Market Mood Terminal</h3>
             <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">TradingView-Style Analysis • Mood Score + MSF Spread Indicator</p>
         </div>
     """, unsafe_allow_html=True)
@@ -2464,7 +2464,7 @@ def render_historical_mood(mood_df, msf_df):
     if msf_latest_idx >= 0 and not msf_filtered.empty:
         comp_names = ['momentum', 'structure', 'regime', 'flow']
         comp_labels = ['Momentum', 'Structure', 'Regime', 'Flow']
-        comp_colors = ['C_AMBER', 'C_VIOLET', 'C_GREEN', 'C_CYAN']
+        comp_colors = [C_AMBER, C_VIOLET, C_GREEN, C_CYAN]
         comp_icons = ['🚀', '🏗️', '📊', '🌊']
         
         c_cols = st.columns(4)
@@ -2492,7 +2492,7 @@ def render_similar_periods(mood_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: C_PRIMARY; margin: 0;">🔍 Similar Historical Periods</h3>
+            <h3 style="color: {C_PRIMARY}; margin: 0;">🔍 Similar Historical Periods</h3>
             <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
         </div>
     """, unsafe_allow_html=True)
@@ -2517,7 +2517,6 @@ def render_similar_periods(mood_df):
                 return
             median_ret = np.median(values)
             positive_pct = sum(1 for v in values if v > 0) / len(values) * 100
-            ret_color = 'C_GREEN' if median_ret > 0 else 'C_RED'
             card_class = 'success' if median_ret > 0 else 'danger'
             with col:
                 st.markdown(f"""
@@ -2548,7 +2547,7 @@ def render_similar_periods(mood_df):
             for horizon, key in [(30, 'fwd_30d'), (60, 'fwd_60d'), (90, 'fwd_90d')]:
                 val = period.get(key)
                 if val is not None:
-                    fwd_color = 'C_GREEN' if val > 0 else 'C_RED'
+                    fwd_color = C_GREEN if val > 0 else C_RED
                     fwd_badges += f'<span style="font-size:0.7rem; color:{fwd_color}; margin-left:8px;">+{horizon}d: <b>{val:+.1f}%</b></span>'
                 else:
                     fwd_badges += f'<span style="font-size:0.7rem; color:#555; margin-left:8px;">+{horizon}d: —</span>'
@@ -2556,15 +2555,15 @@ def render_similar_periods(mood_df):
             st.markdown(f"""
             <div class="signal-card {mood_class}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                    <span style="font-weight: 700; color: C_TEXT;">{period['date']}</span>
+                    <span style="font-weight: 700; color: {C_TEXT};">{period['date']}</span>
                     <span class="status-badge {mood_class}">{period['mood']}</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; color: var(--ink-tertiary); font-size: 0.85rem;">
-                    <span>Similarity: <b style="color: C_PRIMARY;">{similarity_pct:.1f}%</b></span>
+                    <span>Similarity: <b style="color: {C_PRIMARY};">{similarity_pct:.1f}%</b></span>
                     <span>Mood: <b>{mood_val:.1f}</b></span>
                     <span>NIFTY: <b>{period['nifty']:,.0f}</b></span>
                 </div>
-                <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid C_BG_GRID;">
+                <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid {C_BG_GRID};">
                     <span style="font-size: 0.7rem; color: #666;">NIFTY After:</span>{fwd_badges}
                 </div>
             </div>
@@ -2577,12 +2576,12 @@ def render_similar_periods(mood_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: C_PRIMARY; margin: 0;">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
+            <h3 style="color: {C_PRIMARY}; margin: 0;">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
             <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">
                 Does today's mood score predict tomorrow's market? Each dot = one historical day.
                 If there's a relationship, the scatter should show a pattern.
             </p>
-            <p style="color: C_RED; font-size: 0.75rem; margin-top: 0.5rem; font-weight: 600; padding: 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
+            <p style="color: {C_RED}; font-size: 0.75rem; margin-top: 0.5rem; font-weight: 600; padding: 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
                 ⚠️ Note: This view represents a Hindsight Regime Fit. Historical points are evaluated using parameters learned from today's active correlation regime.
             </p>
         </div>
@@ -2721,7 +2720,7 @@ def render_correlation_analysis(raw_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: C_PRIMARY; margin: 0;">📋 Correlation & Predictor Analysis</h3>
+            <h3 style="color: {C_PRIMARY}; margin: 0;">📋 Correlation & Predictor Analysis</h3>
             <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
         </div>
     """, unsafe_allow_html=True)
@@ -2742,8 +2741,8 @@ def render_correlation_analysis(raw_df):
     bad_anchors = [v['label'] for v in anchor_health.values() if not v['ok']]
     if bad_anchors:
         st.markdown(f"""
-        <div class="info-box" style="border-left: 4px solid C_RED;">
-            <h4 style="color: C_RED;">⚠️ Data Quality Issue</h4>
+        <div class="info-box" style="border-left: 4px solid {C_RED};">
+            <h4 style="color: {C_RED};">⚠️ Data Quality Issue</h4>
             <p><b>{', '.join(bad_anchors)}</b> has insufficient variance in the source data.
             If Earnings Yield is empty in the sheet, it is auto-derived from PE (1/PE × 100).
             Check that your Google Sheet has valid data for these columns.</p>
@@ -2767,14 +2766,14 @@ def render_correlation_analysis(raw_df):
             corrs_display = corrs.sort_values('correlation', key=abs, ascending=False)
             for _, row in corrs_display.iterrows():
                 corr_val = row['correlation']
-                color = 'C_GREEN' if corr_val > 0 else 'C_RED'
+                color = C_GREEN if corr_val > 0 else C_RED
                 bar_width = abs(corr_val) * 100
                 strength_dot = '🟢' if abs(corr_val) >= 0.5 else '🟡' if abs(corr_val) >= 0.3 else '⚪'
                 st.markdown(f"""
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: C_BG_CARD; border-radius: 8px;">
+                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: {C_BG_CARD}; border-radius: 8px;">
                     <span style="width: 14px; font-size: 0.6rem;">{strength_dot}</span>
-                    <span style="width: 130px; font-size: 0.8rem; color: C_TEXT;">{row['variable']}</span>
-                    <div style="flex: 1; height: 8px; background: C_BG_GRID; border-radius: 4px; margin: 0 10px;">
+                    <span style="width: 130px; font-size: 0.8rem; color: {C_TEXT};">{row['variable']}</span>
+                    <div style="flex: 1; height: 8px; background: {C_BG_GRID}; border-radius: 4px; margin: 0 10px;">
                         <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 4px;"></div>
                     </div>
                     <span style="width: 60px; text-align: right; font-size: 0.8rem; color: {color}; font-weight: 600;">{corr_val:+.2f}</span>
@@ -2789,7 +2788,7 @@ def render_correlation_analysis(raw_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: C_PRIMARY; margin: 0;">🎯 Predictor Quality Assessment</h3>
+            <h3 style="color: {C_PRIMARY}; margin: 0;">🎯 Predictor Quality Assessment</h3>
             <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">
                 Each predictor scored by: correlation strength × information quality (1 − entropy).
                 High-entropy (noisy) variables are penalized. This is how the mood engine weights them internally.
@@ -2855,19 +2854,19 @@ def render_correlation_analysis(raw_df):
             # Recommendation logic
             if row['quality'] >= max_quality * 0.5 and row['coverage'] > 50:
                 rec = '✅ KEEP'
-                rec_color = 'C_GREEN'
+                rec_color = C_GREEN
             elif row['quality'] >= max_quality * 0.2 and row['coverage'] > 30:
                 rec = '🟡 USEFUL'
-                rec_color = 'C_AMBER'
+                rec_color = C_AMBER
             elif row['coverage'] < 10:
                 rec = '❌ NO DATA'
-                rec_color = 'C_RED'
+                rec_color = C_RED
             else:
                 rec = '⚪ WEAK'
-                rec_color = 'var(--ink-tertiary)'
+                rec_color = C_MUTED
             
             active_badge = '● Active' if row['active'] else '○ Inactive'
-            active_color = 'C_PRIMARY' if row['active'] else 'var(--ink-tertiary)'
+            active_color = C_PRIMARY if row['active'] else C_MUTED
             
             st.markdown(f"""
             <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.75rem; background: {C_BG_CARD}; border-radius: 8px; border: 1px solid {C_BG_GRID if row['active'] else C_BG_CARD};">
@@ -2892,8 +2891,8 @@ def render_correlation_analysis(raw_df):
         <div class="info-box" style="margin-top: 1rem;">
             <h4>Recommendation Summary</h4>
             <p>
-                <b style="color: C_GREEN;">✅ {keep_count} strong</b> predictors (high correlation × low entropy) ·
-                <b style="color: C_AMBER;">🟡 {useful_count} useful</b> (moderate signal) ·
+                <b style="color: {C_GREEN};">✅ {keep_count} strong</b> predictors (high correlation × low entropy) ·
+                <b style="color: {C_AMBER};">🟡 {useful_count} useful</b> (moderate signal) ·
                 <b style="color: var(--ink-tertiary);">⚪ {weak_count} weak</b> (low signal or noisy)<br>
                 <span style="font-size: 0.8rem; color: #666;">
                     |ρ| = average |correlation| with PE & EY anchors · H = Shannon entropy of returns (lower = more structured) ·
