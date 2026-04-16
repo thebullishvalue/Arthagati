@@ -97,19 +97,18 @@ TIMEFRAMES: dict[str, int | None] = {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# COLOUR PALETTE  (mirrors CSS :root variables — Pragyam Obsidian Quant)
+# COLOUR PALETTE  (mirrors CSS :root variables — keep both in sync)
 # ══════════════════════════════════════════════════════════════════════════════
 
-C_PRIMARY = '#D4A853'  # Amber
-C_GREEN   = '#2DD4A8'  # Emerald
-C_RED     = '#E8555A'  # Rose
-C_AMBER   = '#D4A853'  # Amber
-C_CYAN    = '#06B6D4'  # Cyan
-C_VIOLET  = '#8B5CF6'  # Violet
-C_MUTED   = '#4B5563'  # Ink tertiary
-C_BG_CARD = '#111827'  # BG elevated
-C_BG_GRID = '#1F2937'  # Darker grid
-C_TEXT    = '#F1F5F9'  # Ink primary
+C_PRIMARY = '#FFC300'
+C_GREEN   = '#10b981'
+C_RED     = '#ef4444'
+C_AMBER   = '#f59e0b'
+C_CYAN    = '#06b6d4'
+C_MUTED   = '#888888'
+C_BG_CARD = '#1A1A1A'
+C_BG_GRID = '#2A2A2A'
+C_TEXT    = '#EAEAEA'
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODEL HYPERPARAMETERS
@@ -156,15 +155,243 @@ REGIME_STYLES: dict[str, tuple[str, str]] = {
     'Unknown':        (C_MUTED, 'neutral'),
 }
 
+# Shared Plotly dark-theme base for all figures
+PLOTLY_BASE: dict = dict(
+    template='plotly_dark',
+    plot_bgcolor=C_BG_CARD,
+    paper_bgcolor=C_BG_CARD,
+    font=dict(color=C_TEXT, family='Inter'),
+)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DESIGN SYSTEM
 # ══════════════════════════════════════════════════════════════════════════════
 
-from ui.theme import inject_css, apply_chart_theme
-from ui.components import render_metric_card, render_header, render_section_header, render_info_box, section_gap
+_DESIGN_CSS = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    
+    :root {
+        --primary-color: #FFC300;
+        --primary-rgb: 255, 195, 0;
+        --background-color: #0F0F0F;
+        --secondary-background-color: #1A1A1A;
+        --bg-card: #1A1A1A;
+        --bg-elevated: #2A2A2A;
+        --text-primary: #EAEAEA;
+        --text-secondary: #EAEAEA;
+        --text-muted: #888888;
+        --border-color: #2A2A2A;
+        --border-light: #3A3A3A;
+        --success-green: #10b981;
+        --danger-red: #ef4444;
+        --warning-amber: #f59e0b;
+        --info-cyan: #06b6d4;
+        --neutral: #888888;
+    }
+    
+    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    .main, [data-testid="stSidebar"] { background-color: var(--background-color); color: var(--text-primary); }
+    .stApp > header { background-color: transparent; }
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+    .block-container { padding-top: 3.5rem; max-width: 90%; padding-left: 2rem; padding-right: 2rem; }
+    
+    /* Sidebar toggle button - always visible */
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background-color: var(--secondary-background-color) !important;
+        border: 2px solid var(--primary-color) !important;
+        border-radius: 8px !important;
+        padding: 10px !important;
+        margin: 12px !important;
+        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.4) !important;
+        z-index: 999999 !important;
+        position: fixed !important;
+        top: 14px !important;
+        left: 14px !important;
+        width: 40px !important;
+        height: 40px !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    
+    [data-testid="collapsedControl"]:hover {
+        background-color: rgba(var(--primary-rgb), 0.2) !important;
+        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.6) !important;
+        transform: scale(1.05);
+    }
+    
+    [data-testid="collapsedControl"] svg {
+        stroke: var(--primary-color) !important;
+        width: 20px !important;
+        height: 20px !important;
+    }
+    
+    [data-testid="stSidebar"] button[kind="header"] {
+        background-color: transparent !important;
+        border: none !important;
+    }
+    
+    [data-testid="stSidebar"] button[kind="header"] svg {
+        stroke: var(--primary-color) !important;
+    }
+    
+    button[kind="header"] {
+        z-index: 999999 !important;
+    }
+    
+    .premium-header {
+        background: var(--secondary-background-color);
+        padding: 1.25rem 2rem;
+        border-radius: 16px;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.1);
+        border: 1px solid var(--border-color);
+        position: relative;
+        overflow: hidden;
+        margin-top: 1rem;
+    }
+    
+    .premium-header::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: radial-gradient(circle at 20% 50%, rgba(var(--primary-rgb),0.08) 0%, transparent 50%);
+        pointer-events: none;
+    }
+    
+    .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
+    .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
+    
+    .metric-card {
+        background-color: var(--bg-card);
+        padding: 1.25rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
+        margin-bottom: 0.5rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); border-color: var(--border-light); }
+    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+    .metric-card h2 { color: var(--text-primary); font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1; }
+    .metric-card .sub-metric { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
+    .metric-card.success h2 { color: var(--success-green); }
+    .metric-card.danger h2 { color: var(--danger-red); }
+    .metric-card.warning h2 { color: var(--warning-amber); }
+    .metric-card.info h2 { color: var(--info-cyan); }
+    .metric-card.neutral h2 { color: var(--neutral); }
+    .metric-card.primary h2 { color: var(--primary-color); }
+    
+    .signal-card {
+        background-color: var(--bg-card);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
+        margin-bottom: 1rem;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .signal-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
+    .signal-card.bullish::before { background: var(--success-green); }
+    .signal-card.bearish::before { background: var(--danger-red); }
+    .signal-card.neutral::before { background: var(--neutral); }
+    
+    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .status-badge.bullish { background: rgba(16, 185, 129, 0.15); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-badge.bearish { background: rgba(239, 68, 68, 0.15); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .status-badge.oversold { background: rgba(6, 182, 212, 0.15); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
+    .status-badge.overbought { background: rgba(245, 158, 11, 0.15); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .status-badge.neutral { background: rgba(136, 136, 136, 0.15); color: var(--neutral); border: 1px solid rgba(136, 136, 136, 0.3); }
+    
+    .stButton>button { border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color); font-weight: 700; border-radius: 12px; padding: 0.75rem 2rem; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-transform: uppercase; letter-spacing: 0.5px; }
+    .stButton>button:hover { box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.6); background: var(--primary-color); color: #1A1A1A; transform: translateY(-2px); }
+    .stButton>button:active { transform: translateY(0); }
+    
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
+    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
+    .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); background: transparent !important; }
+    
+    .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
+    .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); }
+    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
+    
+    .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
+    
+    [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
+    
+    .stTextInput > div > div > input { background: var(--bg-elevated) !important; border: 1px solid var(--border-color) !important; border-radius: 8px !important; color: var(--text-primary) !important; }
+    .stTextInput > div > div > input:focus { border-color: var(--primary-color) !important; box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2) !important; }
+    
+    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
+    .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
+    .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
+    
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--background-color); }
+    ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
 
-# Inject Pragyam Obsidian CSS
-inject_css()
+    /* ── Themed loading state ─────────────────────────────────────── */
+    @keyframes pulse-glow {
+        0%, 100% { opacity: 0.6; }
+        50%       { opacity: 1.0; }
+    }
+    .loading-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-left: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+        margin: 0.75rem 0;
+        position: relative;
+        overflow: hidden;
+    }
+    .loading-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: radial-gradient(circle at 0% 50%, rgba(var(--primary-rgb), 0.06) 0%, transparent 60%);
+        pointer-events: none;
+    }
+    .loading-label {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        letter-spacing: 0.3px;
+        position: relative;
+    }
+    .loading-sub {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        margin-top: 0.2rem;
+        font-weight: 400;
+        position: relative;
+        letter-spacing: 0.2px;
+    }
+    .loading-dot {
+        display: inline-block;
+        width: 5px; height: 5px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        animation: pulse-glow 1.2s ease-in-out infinite;
+        margin-right: 0.6rem;
+        vertical-align: middle;
+        position: relative;
+        top: -1px;
+    }
+
+</style>
+"""
+
+st.markdown(_DESIGN_CSS, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
@@ -193,7 +420,7 @@ def _progress_bar(slot, pct: int, label: str, sub: str = "") -> None:
             <span class="loading-dot"></span>{label}
         </div>
         {"" if not sub else f'<div class="loading-sub">{sub}</div>'}
-        <div style="margin-top: 0.65rem; height: 3px; background: {C_BG_GRID}; border-radius: 2px; overflow: hidden;">
+        <div style="margin-top: 0.65rem; height: 3px; background: #2A2A2A; border-radius: 2px; overflow: hidden;">
             <div style="width: {pct}%; height: 100%;
                         background: linear-gradient(90deg, {bar_color}, {C_AMBER});
                         border-radius: 2px; transition: width 0.3s ease;">
@@ -1568,7 +1795,7 @@ def render_landing_page() -> None:
     # ── Main header ──────────────────────────────────────────────────
     st.markdown("""
     <div class="premium-header">
-        <h1>ARTHAGATI <span style="color: var(--amber);">:</span> Market Sentiment Analysis</h1>
+        <h1>ARTHAGATI <span style="color: var(--primary-color);">:</span> Market Sentiment Analysis</h1>
         <div class="tagline">Ornstein-Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1581,13 +1808,13 @@ def render_landing_page() -> None:
     with col1:
         st.markdown("""
         <div class='metric-card primary' style='min-height: 280px;'>
-            <h3 style='color: var(--amber); margin-bottom: 1rem;'>📈 Historical Mood</h3>
-            <p style='color: var(--ink-secondary); font-size: 0.9rem; line-height: 1.6;'>
+            <h3 style='color: var(--primary-color); margin-bottom: 1rem;'>📈 Historical Mood</h3>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 Full sentiment timeline with OU forward projection, Kalman confidence bands,
                 and regime transition markers on a TradingView-style chart.
             </p>
             <br>
-            <p style='color: var(--amber-dim); font-size: 0.85rem;'>
+            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
                 <strong>Features:</strong><br>
                 • Mood Score −100 → +100<br>
                 • MSF Spread confirmation<br>
@@ -1600,13 +1827,13 @@ def render_landing_page() -> None:
     with col2:
         st.markdown("""
         <div class='metric-card success' style='min-height: 280px;'>
-            <h3 style='color: var(--emerald); margin-bottom: 1rem;'>🔍 Similar Periods</h3>
-            <p style='color: var(--ink-secondary); font-size: 0.9rem; line-height: 1.6;'>
+            <h3 style='color: var(--success-green); margin-bottom: 1rem;'>🔍 Similar Periods</h3>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 Historical analog matching against the full dataset with forward-return
                 outcomes, aggregate win-rates, and a backtest scatter.
             </p>
             <br>
-            <p style='color: var(--amber-dim); font-size: 0.85rem;'>
+            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
                 <strong>Features:</strong><br>
                 • Mahalanobis state matching (55%)<br>
                 • Trajectory shape similarity (35%)<br>
@@ -1620,12 +1847,12 @@ def render_landing_page() -> None:
         st.markdown("""
         <div class='metric-card info' style='min-height: 280px;'>
             <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>📋 Correlation Analysis</h3>
-            <p style='color: var(--ink-secondary); font-size: 0.9rem; line-height: 1.6;'>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 Full transparency into which variables drive the mood score and which
                 are noise, ranked by the engine's own quality formula.
             </p>
             <br>
-            <p style='color: var(--amber-dim); font-size: 0.85rem;'>
+            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
                 <strong>Features:</strong><br>
                 • PE &amp; EY correlation bars<br>
                 • Shannon entropy quality score<br>
@@ -1645,11 +1872,11 @@ def render_landing_page() -> None:
     with col_m1:
         st.markdown("""
         <div class='signal-card bullish' style='padding: 1.5rem;'>
-            <h4 style='color: var(--emerald); margin-bottom: 1rem;'>Mood Engine — 5 Layers</h4>
-            <p style='color: var(--ink-secondary); font-size: 0.85rem; line-height: 1.7;'>
+            <h4 style='color: var(--success-green); margin-bottom: 1rem;'>Mood Engine — 5 Layers</h4>
+            <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
                 Physics-informed scoring pipeline:
             </p>
-            <ul style='color: var(--amber-dim); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
+            <ul style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
                 <li><strong>Decay-Spearman</strong> correlations (504d HL)</li>
                 <li><strong>Entropy weighting</strong> — noisy vars suppressed</li>
                 <li><strong>Adaptive percentiles</strong> — decay-weighted CDF</li>
@@ -1663,10 +1890,10 @@ def render_landing_page() -> None:
         st.markdown("""
         <div class='signal-card bearish' style='padding: 1.5rem;'>
             <h4 style='color: var(--danger-red); margin-bottom: 1rem;'>MSF Spread — Confirmation</h4>
-            <p style='color: var(--ink-secondary); font-size: 0.85rem; line-height: 1.7;'>
+            <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
                 Four-component oscillator −10 → +10:
             </p>
-            <ul style='color: var(--amber-dim); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
+            <ul style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
                 <li><strong>Momentum</strong> — NIFTY ROC z-score (14d)</li>
                 <li><strong>Structure</strong> — mood trend divergence</li>
                 <li><strong>Flow</strong> — breadth participation</li>
@@ -1680,10 +1907,10 @@ def render_landing_page() -> None:
         st.markdown("""
         <div class='signal-card neutral' style='padding: 1.5rem;'>
             <h4 style='color: var(--neutral); margin-bottom: 1rem;'>Regime Detection</h4>
-            <p style='color: var(--ink-secondary); font-size: 0.85rem; line-height: 1.7;'>
+            <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
                 Hurst × Entropy quadrant classification:
             </p>
-            <ul style='color: var(--amber-dim); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
+            <ul style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
                 <li><strong>Trending</strong> — momentum strategies favoured</li>
                 <li><strong>Volatile Trend</strong> — directional with swings</li>
                 <li><strong>Mean-Reverting</strong> — contrarian strategies</li>
@@ -1702,11 +1929,11 @@ def render_landing_page() -> None:
 
     with col_s1:
         st.markdown("""
-        <div style='background: rgba(16,185,129,0.1); border: 1px solid var(--emerald);
+        <div style='background: rgba(16,185,129,0.1); border: 1px solid var(--success-green);
                     border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--emerald); margin-bottom: 0.75rem;'>🟢 Bullish Zone</h4>
-            <p style='color: var(--ink-secondary); font-size: 0.85rem;'>Score &gt; +20</p>
-            <p style='color: var(--amber-dim); font-size: 0.85rem; margin-top: 0.5rem;'>
+            <h4 style='color: var(--success-green); margin-bottom: 0.75rem;'>🟢 Bullish Zone</h4>
+            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &gt; +20</p>
+            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
                 Positive sentiment. Trend-following strategies favoured.
                 At extremes (&gt;+60, Euphoric) mean-reversion risk rises sharply.
             </p>
@@ -1718,8 +1945,8 @@ def render_landing_page() -> None:
         <div style='background: rgba(136,136,136,0.1); border: 1px solid var(--neutral);
                     border-radius: 12px; padding: 1.25rem;'>
             <h4 style='color: var(--neutral); margin-bottom: 0.75rem;'>⚪ Neutral Zone</h4>
-            <p style='color: var(--ink-secondary); font-size: 0.85rem;'>Score −20 to +20</p>
-            <p style='color: var(--amber-dim); font-size: 0.85rem; margin-top: 0.5rem;'>
+            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score −20 to +20</p>
+            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
                 No strong directional bias. Await macro confirmation or use
                 MSF Spread and Similar Periods for additional context.
             </p>
@@ -1731,8 +1958,8 @@ def render_landing_page() -> None:
         <div style='background: rgba(239,68,68,0.1); border: 1px solid var(--danger-red);
                     border-radius: 12px; padding: 1.25rem;'>
             <h4 style='color: var(--danger-red); margin-bottom: 0.75rem;'>🔴 Bearish Zone</h4>
-            <p style='color: var(--ink-secondary); font-size: 0.85rem;'>Score &lt; −20</p>
-            <p style='color: var(--amber-dim); font-size: 0.85rem; margin-top: 0.5rem;'>
+            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &lt; −20</p>
+            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
                 Negative sentiment. Defensive positioning warranted.
                 At extremes (&lt;−60, Capitulation) contrarian signals may emerge.
             </p>
@@ -1746,15 +1973,15 @@ def render_landing_page() -> None:
 
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        render_metric_card("Score Anchors", "2", subtext="PE · Earnings Yield", color_class="neutral")
+        st.markdown('<div class="metric-card neutral"><h4>Score Anchors</h4><h2>2</h2><div class="sub-metric">PE · Earnings Yield</div></div>', unsafe_allow_html=True)
     with c2:
-        render_metric_card("Predictors", str(len(DEPENDENT_VARS)), subtext="Macro + Breadth vars", color_class="neutral")
+        st.markdown(f'<div class="metric-card neutral"><h4>Predictors</h4><h2>{len(DEPENDENT_VARS)}</h2><div class="sub-metric">Macro + Breadth vars</div></div>', unsafe_allow_html=True)
     with c3:
-        render_metric_card("Math Primitives", "12", subtext="Pure NumPy functions", color_class="neutral")
+        st.markdown('<div class="metric-card neutral"><h4>Math Primitives</h4><h2>12</h2><div class="sub-metric">Pure NumPy functions</div></div>', unsafe_allow_html=True)
     with c4:
-        render_metric_card("OU Projection", "90d", subtext="Forward reversion path", color_class="neutral")
+        st.markdown('<div class="metric-card neutral"><h4>OU Projection</h4><h2>90d</h2><div class="sub-metric">Forward reversion path</div></div>', unsafe_allow_html=True)
     with c5:
-        render_metric_card("Analog Returns", "3", subtext="30 · 60 · 90 day", color_class="neutral")
+        st.markdown('<div class="metric-card neutral"><h4>Analog Returns</h4><h2>3</h2><div class="sub-metric">30 · 60 · 90 day</div></div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1762,7 +1989,7 @@ def render_landing_page() -> None:
     st.markdown("""
     <div class='info-box'>
         <h4>🚀 Getting Started</h4>
-        <p style='color: var(--ink-secondary); line-height: 1.7;'>
+        <p style='color: var(--text-muted); line-height: 1.7;'>
             Click <strong>▶ Run Analysis</strong> in the sidebar to fetch live data from Google Sheets
             and run the full 5-layer sentiment pipeline. Once loaded, use the sidebar to switch
             between <em>Historical Mood</em>, <em>Similar Periods</em>, and <em>Correlation Analysis</em>
@@ -1792,8 +2019,8 @@ def main():
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
-            <div style="font-size: 1.75rem; font-weight: 800; color: {C_PRIMARY};">ARTHAGATI</div>
-            <div style="color: var(--ink-tertiary); font-size: 0.75rem; margin-top: 0.25rem;">अर्थगति | Market Sentiment</div>
+            <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">ARTHAGATI</div>
+            <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">अर्थगति | Market Sentiment</div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -1807,7 +2034,7 @@ def main():
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
             st.markdown(f"""
             <div class='info-box'>
-                <p style='font-size: 0.8rem; margin: 0; color: var(--ink-secondary); line-height: 1.5;'>
+                <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
                     <strong>Version:</strong> {VERSION}<br>
                     <strong>Engine:</strong> OU · Kalman · Spearman<br>
                     <strong>Data:</strong> {COMPANY}
@@ -1919,7 +2146,7 @@ def main():
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown(f"""
         <div class='info-box'>
-            <p style='font-size: 0.8rem; margin: 0; color: var(--ink-secondary); line-height: 1.5;'>
+            <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
                 <strong>Version:</strong> {VERSION}<br>
                 <strong>Engine:</strong> OU · Kalman · Spearman<br>
                 <strong>Data:</strong> {COMPANY}
@@ -1936,12 +2163,12 @@ def main():
     # >3 days gap (accounts for weekends: Fri data on Mon = 3 days, fine)
     if data_age_days > 3:
         st.markdown(f"""
-        <div style="background: rgba(232,85,90,0.1); border: 1px solid #E8555A; border-radius: 10px; 
+        <div style="background: rgba(239,68,68,0.1); border: 1px solid #ef4444; border-radius: 10px; 
                     padding: 0.75rem 1.25rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 12px;">
             <span style="font-size: 1.4rem;">⚠️</span>
             <div>
-                <span style="color: #E8555A; font-weight: 700;">Stale Data</span>
-                <span style="color: var(--ink-tertiary); font-size: 0.85rem;"> — Last data point is <b>{latest_date.strftime('%d %b %Y')}</b> ({data_age_days} days ago). 
+                <span style="color: #ef4444; font-weight: 700;">Stale Data</span>
+                <span style="color: #888; font-size: 0.85rem;"> — Last data point is <b>{latest_date.strftime('%d %b %Y')}</b> ({data_age_days} days ago). 
                 Scores reflect the last available data, not current market state. Update your Google Sheet.</span>
             </div>
         </div>
@@ -2005,17 +2232,41 @@ def main():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        render_metric_card("Mood Score", f"{mood_score:.2f}", subtext=latest['Mood'], color_class="primary")
+        st.markdown(f"""
+        <div class="metric-card primary">
+            <h4>Mood Score</h4>
+            <h2>{mood_score:.2f}</h2>
+            <div class="sub-metric">{latest['Mood']}</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col2:
-        render_metric_card("MSF Spread", f"{msf_spread:+.2f}", subtext=msf_label, color_class=msf_class, val_color=C_CYAN)
+        st.markdown(f"""
+        <div class="metric-card {msf_class}">
+            <h4>MSF Spread</h4>
+            <h2 style="color: {C_CYAN};">{msf_spread:+.2f}</h2>
+            <div class="sub-metric">{msf_label}</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col3:
         nifty_val = latest['NIFTY']
-        render_metric_card("NIFTY 50", f"{nifty_val:,.0f}", subtext="Index Level", color_class="primary")
+        st.markdown(f"""
+        <div class="metric-card primary">
+            <h4>NIFTY 50</h4>
+            <h2>{nifty_val:,.0f}</h2>
+            <div class="sub-metric">Index Level</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col4:
-        render_metric_card("Analysis Date", latest['DATE'].strftime('%d %b'), subtext=latest['DATE'].strftime('%Y'), color_class="neutral")
+        st.markdown(f"""
+        <div class="metric-card neutral">
+            <h4>Analysis Date</h4>
+            <h2>{latest['DATE'].strftime('%d %b')}</h2>
+            <div class="sub-metric">{latest['DATE'].strftime('%Y')}</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     # ── Diagnostics Row ─────────────────────────────────────────────────
     d1, d2, d3, d4 = st.columns(4)
@@ -2023,42 +2274,48 @@ def main():
     current_regime = latest.get('Regime', 'Unknown')
     reg_color, reg_class = REGIME_STYLES.get(current_regime, (C_MUTED, 'neutral'))
     
-    # ── Inject Dynamic Topology CSS ──────────────────────────────────────
-    MESH_COLORS = {
-        'Trending':       ('rgba(16, 185, 129, 0.4)', 'rgba(4, 120, 87, 0.6)'),      # Deep Jade
-        'Volatile Trend': ('rgba(245, 158, 11, 0.4)', 'rgba(180, 83, 9, 0.6)'),      # Amber/Orange
-        'Mean-Reverting': ('rgba(6, 182, 212, 0.4)', 'rgba(3, 105, 161, 0.6)'),      # Ocean Blue
-        'Choppy':         ('rgba(239, 68, 68, 0.4)', 'rgba(185, 28, 28, 0.6)'),      # Soft Crimson
-        'Unknown':        ('rgba(30, 30, 30, 0.3)', 'rgba(10, 10, 10, 0.5)'),        # Neutral Obsidian
-    }
-    c_1, c_2 = MESH_COLORS.get(current_regime, MESH_COLORS['Unknown'])
-    st.markdown(f"""
-        <style>
-            :root {{
-                --mesh-color-1: {c_1};
-                --mesh-color-2: {c_2};
-            }}
-        </style>
-    """, unsafe_allow_html=True)
-    
     with d1:
-        render_metric_card("Market Regime", current_regime, subtext="Hurst + Entropy", color_class=reg_class)
+        st.markdown(f"""
+        <div class="metric-card {reg_class}">
+            <h4>Market Regime</h4>
+            <h2 style="font-size: 1.25rem;">{current_regime}</h2>
+            <div class="sub-metric">Hurst + Entropy</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with d2:
         ou_hl = latest.get('OU_Half_Life', 0)
-        render_metric_card("OU Half-Life", f"{ou_hl:.0f}d", subtext="Expected reversion time", color_class="primary")
+        st.markdown(f"""
+        <div class="metric-card primary">
+            <h4>OU Half-Life</h4>
+            <h2>{ou_hl:.0f}d</h2>
+            <div class="sub-metric">Expected reversion time</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with d3:
         h_val = latest.get('Hurst', 0.5)
         h_label = 'Trending' if h_val > 0.55 else 'Random' if h_val > 0.45 else 'Reverting'
         h_class = 'success' if h_val > 0.55 else 'neutral' if h_val > 0.45 else 'info'
-        render_metric_card("Hurst Exponent", f"{h_val:.2f}", subtext=h_label, color_class=h_class)
+        st.markdown(f"""
+        <div class="metric-card {h_class}">
+            <h4>Hurst Exponent</h4>
+            <h2>{h_val:.2f}</h2>
+            <div class="sub-metric">{h_label}</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with d4:
         s_val = latest.get('Market_Entropy', 0.5)
         s_label = 'Disordered' if s_val > 0.6 else 'Ordered' if s_val < 0.4 else 'Mixed'
         s_class = 'danger' if s_val > 0.6 else 'success' if s_val < 0.4 else 'neutral'
-        render_metric_card("Market Entropy", f"{s_val:.2f}", subtext=s_label, color_class=s_class)
+        st.markdown(f"""
+        <div class="metric-card {s_class}">
+            <h4>Market Entropy</h4>
+            <h2>{s_val:.2f}</h2>
+            <div class="sub-metric">{s_label}</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     # Separator between cards and chart section
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -2093,8 +2350,8 @@ def render_historical_mood(mood_df, msf_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: {C_PRIMARY}; margin: 0;">📈 Market Mood Terminal</h3>
-            <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">TradingView-Style Analysis • Mood Score + MSF Spread Indicator</p>
+            <h3 style="color: #FFC300; margin: 0;">📈 Market Mood Terminal</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">TradingView-Style Analysis • Mood Score + MSF Spread Indicator</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -2178,7 +2435,7 @@ def render_historical_mood(mood_df, msf_df):
     )
 
     # Zero reference
-    fig.add_hline(y=0, line_color=C_MUTED, line_width=1, line_dash='dash', row=1, col=1)
+    fig.add_hline(y=0, line_color='#757575', line_width=1, line_dash='dash', row=1, col=1)
 
     # Current-value annotation
     last_point = df.iloc[-1]
@@ -2227,7 +2484,7 @@ def render_historical_mood(mood_df, msf_df):
         x=proj_dates[-1], y=ou_eq_mood,
         text=f"EQ ({last_point.get('OU_Half_Life', 0):.0f}d t½)",
         showarrow=False,
-        font=dict(color='var(--ink-tertiary)', size=9),
+        font=dict(color='#888', size=9),
         xanchor='left', xshift=5,
         row=1, col=1
     )
@@ -2294,7 +2551,7 @@ def render_historical_mood(mood_df, msf_df):
         row=2, col=1
     )
 
-    fig.add_hline(y=0, line_color=C_MUTED, line_width=1, row=2, col=1)
+    fig.add_hline(y=0, line_color='#757575', line_width=1, row=2, col=1)
     
     # ─────────────────────────────────────────────────────────────────────────
     # DIVERGENCE SIGNALS (Triangles)
@@ -2358,6 +2615,7 @@ def render_historical_mood(mood_df, msf_df):
     # ─────────────────────────────────────────────────────────────────────────
     
     fig.update_layout(
+        **PLOTLY_BASE,
         height=750,
         hovermode='x unified',
         showlegend=True,
@@ -2384,14 +2642,13 @@ def render_historical_mood(mood_df, msf_df):
         y0=0.38,  # Position between the two charts
         x1=1,
         y1=0.38,
-        line=dict(color="var(--ink-tertiary)", width=2)
+        line=dict(color="#555555", width=2)
     )
     
     # Remove x-axis grid on row 1 for cleaner look
     fig.update_xaxes(showgrid=False, row=1, col=1)
     fig.update_xaxes(showgrid=True, gridcolor=C_BG_GRID, row=2, col=1)
     
-    apply_chart_theme(fig)
     st.plotly_chart(fig, config={
         'displayModeBar': True,
         'scrollZoom': True,
@@ -2454,17 +2711,19 @@ def render_historical_mood(mood_df, msf_df):
     # ═══════════════════════════════════════════════════════════════════════════
     
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    render_section_header(
-        title="MSF Component Breakdown",
-        description="Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)",
-        icon="layers",
-        accent="cyan"
-    )    # Get latest MSF component values
+    st.markdown("""
+        <div style="margin-bottom: 0.75rem;">
+            <h4 style="color: #06b6d4; margin: 0;">MSF Component Breakdown</h4>
+            <p style="color: #888; font-size: 0.8rem; margin: 0;">Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Get latest MSF component values
     msf_latest_idx = min(len(msf_filtered) - 1, len(df) - 1)
     if msf_latest_idx >= 0 and not msf_filtered.empty:
         comp_names = ['momentum', 'structure', 'regime', 'flow']
         comp_labels = ['Momentum', 'Structure', 'Regime', 'Flow']
-        comp_colors = [C_AMBER, C_VIOLET, C_GREEN, C_CYAN]
+        comp_colors = ['#f59e0b', '#a78bfa', '#10b981', '#06b6d4']
         comp_icons = ['🚀', '🏗️', '📊', '🌊']
         
         c_cols = st.columns(4)
@@ -2473,16 +2732,24 @@ def render_historical_mood(mood_df, msf_df):
             # Compute period average for context
             period_val = msf_filtered[name].mean() if name in msf_filtered.columns else 0
             
+            bar_pct = (val + 10) / 20 * 100  # Map [-10, +10] → [0%, 100%]
+            bar_pct = max(0, min(100, bar_pct))
+            
             with c_cols[j]:
-                # Combine label and icon for the new card format
-                full_label = f"{icon} {label}"
-                render_metric_card(
-                    label=full_label,
-                    value=f"{val:+.1f}",
-                    subtext=f"Period avg: {period_val:+.1f}",
-                    val_color=color,
-                    color_class="neutral"
-                )
+                st.markdown(f"""
+                <div style="background: #1A1A1A; border-radius: 10px; padding: 0.75rem; border: 1px solid #2A2A2A;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                        <span style="font-size: 0.75rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{icon} {label}</span>
+                        <span style="font-size: 1.1rem; font-weight: 700; color: {color};">{val:+.1f}</span>
+                    </div>
+                    <div style="height: 6px; background: #2A2A2A; border-radius: 3px; position: relative;">
+                        <div style="position: absolute; left: 50%; top: 0; width: 1px; height: 6px; background: #555;"></div>
+                        <div style="width: {bar_pct:.0f}%; height: 100%; background: {color}; border-radius: 3px; opacity: 0.8;"></div>
+                    </div>
+                    <div style="font-size: 0.65rem; color: #555; margin-top: 0.3rem;">Period avg: {period_val:+.1f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SIMILAR PERIODS VIEW
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2492,8 +2759,8 @@ def render_similar_periods(mood_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: {C_PRIMARY}; margin: 0;">🔍 Similar Historical Periods</h3>
-            <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
+            <h3 style="color: #FFC300; margin: 0;">🔍 Similar Historical Periods</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -2517,6 +2784,7 @@ def render_similar_periods(mood_df):
                 return
             median_ret = np.median(values)
             positive_pct = sum(1 for v in values if v > 0) / len(values) * 100
+            ret_color = '#10b981' if median_ret > 0 else '#ef4444'
             card_class = 'success' if median_ret > 0 else 'danger'
             with col:
                 st.markdown(f"""
@@ -2547,7 +2815,7 @@ def render_similar_periods(mood_df):
             for horizon, key in [(30, 'fwd_30d'), (60, 'fwd_60d'), (90, 'fwd_90d')]:
                 val = period.get(key)
                 if val is not None:
-                    fwd_color = C_GREEN if val > 0 else C_RED
+                    fwd_color = '#10b981' if val > 0 else '#ef4444'
                     fwd_badges += f'<span style="font-size:0.7rem; color:{fwd_color}; margin-left:8px;">+{horizon}d: <b>{val:+.1f}%</b></span>'
                 else:
                     fwd_badges += f'<span style="font-size:0.7rem; color:#555; margin-left:8px;">+{horizon}d: —</span>'
@@ -2555,15 +2823,15 @@ def render_similar_periods(mood_df):
             st.markdown(f"""
             <div class="signal-card {mood_class}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                    <span style="font-weight: 700; color: {C_TEXT};">{period['date']}</span>
+                    <span style="font-weight: 700; color: #EAEAEA;">{period['date']}</span>
                     <span class="status-badge {mood_class}">{period['mood']}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; color: var(--ink-tertiary); font-size: 0.85rem;">
-                    <span>Similarity: <b style="color: {C_PRIMARY};">{similarity_pct:.1f}%</b></span>
+                <div style="display: flex; justify-content: space-between; color: #888888; font-size: 0.85rem;">
+                    <span>Similarity: <b style="color: #FFC300;">{similarity_pct:.1f}%</b></span>
                     <span>Mood: <b>{mood_val:.1f}</b></span>
                     <span>NIFTY: <b>{period['nifty']:,.0f}</b></span>
                 </div>
-                <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid {C_BG_GRID};">
+                <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid #2A2A2A;">
                     <span style="font-size: 0.7rem; color: #666;">NIFTY After:</span>{fwd_badges}
                 </div>
             </div>
@@ -2576,12 +2844,12 @@ def render_similar_periods(mood_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: {C_PRIMARY}; margin: 0;">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
-            <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">
+            <h3 style="color: #FFC300; margin: 0;">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">
                 Does today's mood score predict tomorrow's market? Each dot = one historical day.
                 If there's a relationship, the scatter should show a pattern.
             </p>
-            <p style="color: {C_RED}; font-size: 0.75rem; margin-top: 0.5rem; font-weight: 600; padding: 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
+            <p style="color: #ef4444; font-size: 0.75rem; margin-top: 0.5rem; font-weight: 600; padding: 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
                 ⚠️ Note: This view represents a Hindsight Regime Fit. Historical points are evaluated using parameters learned from today's active correlation regime.
             </p>
         </div>
@@ -2666,6 +2934,7 @@ def render_similar_periods(mood_df):
             fig_bt.add_vline(x=0, line_color='#555', line_width=1, line_dash='dot')
 
             fig_bt.update_layout(
+                **PLOTLY_BASE,
                 height=400,
                 xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor=C_BG_GRID),
                 yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor=C_BG_GRID),
@@ -2678,7 +2947,6 @@ def render_similar_periods(mood_df):
                 ),
             )
 
-            apply_chart_theme(fig_bt)
             st.plotly_chart(fig_bt, config={'displayModeBar': False})
 
             # Interpretation — report both in-sample and out-of-sample
@@ -2720,8 +2988,8 @@ def render_correlation_analysis(raw_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: {C_PRIMARY}; margin: 0;">📋 Correlation & Predictor Analysis</h3>
-            <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
+            <h3 style="color: #FFC300; margin: 0;">📋 Correlation & Predictor Analysis</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -2741,8 +3009,8 @@ def render_correlation_analysis(raw_df):
     bad_anchors = [v['label'] for v in anchor_health.values() if not v['ok']]
     if bad_anchors:
         st.markdown(f"""
-        <div class="info-box" style="border-left: 4px solid {C_RED};">
-            <h4 style="color: {C_RED};">⚠️ Data Quality Issue</h4>
+        <div class="info-box" style="border-left: 4px solid #ef4444;">
+            <h4 style="color: #ef4444;">⚠️ Data Quality Issue</h4>
             <p><b>{', '.join(bad_anchors)}</b> has insufficient variance in the source data.
             If Earnings Yield is empty in the sheet, it is auto-derived from PE (1/PE × 100).
             Check that your Google Sheet has valid data for these columns.</p>
@@ -2766,14 +3034,14 @@ def render_correlation_analysis(raw_df):
             corrs_display = corrs.sort_values('correlation', key=abs, ascending=False)
             for _, row in corrs_display.iterrows():
                 corr_val = row['correlation']
-                color = C_GREEN if corr_val > 0 else C_RED
+                color = '#10b981' if corr_val > 0 else '#ef4444'
                 bar_width = abs(corr_val) * 100
                 strength_dot = '🟢' if abs(corr_val) >= 0.5 else '🟡' if abs(corr_val) >= 0.3 else '⚪'
                 st.markdown(f"""
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: {C_BG_CARD}; border-radius: 8px;">
+                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: #1A1A1A; border-radius: 8px;">
                     <span style="width: 14px; font-size: 0.6rem;">{strength_dot}</span>
-                    <span style="width: 130px; font-size: 0.8rem; color: {C_TEXT};">{row['variable']}</span>
-                    <div style="flex: 1; height: 8px; background: {C_BG_GRID}; border-radius: 4px; margin: 0 10px;">
+                    <span style="width: 130px; font-size: 0.8rem; color: #EAEAEA;">{row['variable']}</span>
+                    <div style="flex: 1; height: 8px; background: #2A2A2A; border-radius: 4px; margin: 0 10px;">
                         <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 4px;"></div>
                     </div>
                     <span style="width: 60px; text-align: right; font-size: 0.8rem; color: {color}; font-weight: 600;">{corr_val:+.2f}</span>
@@ -2788,8 +3056,8 @@ def render_correlation_analysis(raw_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: {C_PRIMARY}; margin: 0;">🎯 Predictor Quality Assessment</h3>
-            <p style="color: var(--ink-tertiary); font-size: 0.85rem; margin: 0;">
+            <h3 style="color: #FFC300; margin: 0;">🎯 Predictor Quality Assessment</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">
                 Each predictor scored by: correlation strength × information quality (1 − entropy).
                 High-entropy (noisy) variables are penalized. This is how the mood engine weights them internally.
             </p>
@@ -2854,29 +3122,29 @@ def render_correlation_analysis(raw_df):
             # Recommendation logic
             if row['quality'] >= max_quality * 0.5 and row['coverage'] > 50:
                 rec = '✅ KEEP'
-                rec_color = C_GREEN
+                rec_color = '#10b981'
             elif row['quality'] >= max_quality * 0.2 and row['coverage'] > 30:
                 rec = '🟡 USEFUL'
-                rec_color = C_AMBER
+                rec_color = '#f59e0b'
             elif row['coverage'] < 10:
                 rec = '❌ NO DATA'
-                rec_color = C_RED
+                rec_color = '#ef4444'
             else:
                 rec = '⚪ WEAK'
-                rec_color = C_MUTED
+                rec_color = '#888888'
             
             active_badge = '● Active' if row['active'] else '○ Inactive'
-            active_color = C_PRIMARY if row['active'] else C_MUTED
+            active_color = '#FFC300' if row['active'] else '#555555'
             
             st.markdown(f"""
-            <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.75rem; background: {C_BG_CARD}; border-radius: 8px; border: 1px solid {C_BG_GRID if row['active'] else C_BG_CARD};">
-                <span style="width: 24px; font-size: 0.75rem; color: var(--ink-tertiary); font-weight: 700;">{rank}</span>
-                <span style="width: 140px; font-size: 0.8rem; color: {C_TEXT}; font-weight: 600;">{row['variable']}</span>
-                <div style="flex: 1; height: 6px; background: {C_BG_GRID}; border-radius: 3px; margin: 0 12px;">
-                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, {C_PRIMARY}, {C_AMBER}); border-radius: 3px;"></div>
+            <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.75rem; background: #1A1A1A; border-radius: 8px; border: 1px solid {'#2A2A2A' if row['active'] else '#1A1A1A'};">
+                <span style="width: 24px; font-size: 0.75rem; color: #555; font-weight: 700;">{rank}</span>
+                <span style="width: 140px; font-size: 0.8rem; color: #EAEAEA; font-weight: 600;">{row['variable']}</span>
+                <div style="flex: 1; height: 6px; background: #2A2A2A; border-radius: 3px; margin: 0 12px;">
+                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, #FFC300, #f59e0b); border-radius: 3px;"></div>
                 </div>
-                <span style="width: 50px; font-size: 0.7rem; color: var(--ink-tertiary); text-align: center;">|ρ| {row['avg_corr']:.2f}</span>
-                <span style="width: 50px; font-size: 0.7rem; color: var(--ink-tertiary); text-align: center;">H {row['entropy']:.2f}</span>
+                <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">|ρ| {row['avg_corr']:.2f}</span>
+                <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">H {row['entropy']:.2f}</span>
                 <span style="width: 55px; font-size: 0.7rem; color: {rec_color}; font-weight: 700; text-align: center;">{rec}</span>
                 <span style="width: 65px; font-size: 0.65rem; color: {active_color}; text-align: right;">{active_badge}</span>
             </div>
@@ -2891,9 +3159,9 @@ def render_correlation_analysis(raw_df):
         <div class="info-box" style="margin-top: 1rem;">
             <h4>Recommendation Summary</h4>
             <p>
-                <b style="color: {C_GREEN};">✅ {keep_count} strong</b> predictors (high correlation × low entropy) ·
-                <b style="color: {C_AMBER};">🟡 {useful_count} useful</b> (moderate signal) ·
-                <b style="color: var(--ink-tertiary);">⚪ {weak_count} weak</b> (low signal or noisy)<br>
+                <b style="color: #10b981;">✅ {keep_count} strong</b> predictors (high correlation × low entropy) ·
+                <b style="color: #f59e0b;">🟡 {useful_count} useful</b> (moderate signal) ·
+                <b style="color: #888;">⚪ {weak_count} weak</b> (low signal or noisy)<br>
                 <span style="font-size: 0.8rem; color: #666;">
                     |ρ| = average |correlation| with PE & EY anchors · H = Shannon entropy of returns (lower = more structured) ·
                     Quality = |ρ| × (1−H) — same formula the mood engine uses internally for weighting.
