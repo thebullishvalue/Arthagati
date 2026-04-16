@@ -2178,7 +2178,7 @@ def render_historical_mood(mood_df, msf_df):
     )
 
     # Zero reference
-    fig.add_hline(y=0, line_color='C_MUTED', line_width=1, line_dash='dash', row=1, col=1)
+    fig.add_hline(y=0, line_color=C_MUTED, line_width=1, line_dash='dash', row=1, col=1)
 
     # Current-value annotation
     last_point = df.iloc[-1]
@@ -2294,7 +2294,7 @@ def render_historical_mood(mood_df, msf_df):
         row=2, col=1
     )
 
-    fig.add_hline(y=0, line_color='C_MUTED', line_width=1, row=2, col=1)
+    fig.add_hline(y=0, line_color=C_MUTED, line_width=1, row=2, col=1)
     
     # ─────────────────────────────────────────────────────────────────────────
     # DIVERGENCE SIGNALS (Triangles)
