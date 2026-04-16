@@ -33,7 +33,7 @@ logging.basicConfig(
 st.set_page_config(
     page_title="ARTHAGATI | Market Sentiment Analysis",
     layout="wide",
-    page_icon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9IiNmZmNjMDAwIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS13aWR0aD0iMiIgZD0iTTEwIDIwYTUuMzU1IDUuMzU1IDAgMSAxIDAtMTAuNzEgNS4zNTUgNS4zNTUgMCAxIDEgMCAxMC43MXptLTUuMzU1LTUuMzU1djJsNS4zNTUgNEg0LjY0Nkw3IDIydnptOC05LjM3MXY2bDUtNEg5LjY0NlpNNCA5LjM3MXY2bDUtNEg3LjM3MloiLz48L3N2Zz4=",
+    page_icon="📊",
     initial_sidebar_state="expanded"
 )
 
@@ -100,15 +100,15 @@ TIMEFRAMES: dict[str, int | None] = {
 # COLOUR PALETTE  (mirrors CSS :root variables — keep both in sync)
 # ══════════════════════════════════════════════════════════════════════════════
 
-C_PRIMARY = '#FFB000'
-C_GREEN   = '#00FF41'
-C_RED     = '#FF3333'
-C_AMBER   = '#FFB000'
-C_CYAN    = '#00D4FF'
-C_MUTED   = '#666666'
-C_BG_CARD = '#141414'
-C_BG_GRID = '#1E1E1E'
-C_TEXT    = '#E0E0E0'
+C_PRIMARY = '#FFC300'
+C_GREEN   = '#10b981'
+C_RED     = '#ef4444'
+C_AMBER   = '#f59e0b'
+C_CYAN    = '#06b6d4'
+C_MUTED   = '#888888'
+C_BG_CARD = '#1A1A1A'
+C_BG_GRID = '#2A2A2A'
+C_TEXT    = '#EAEAEA'
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODEL HYPERPARAMETERS
@@ -169,282 +169,271 @@ PLOTLY_BASE: dict = dict(
 
 _DESIGN_CSS = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
     
     :root {
-        --primary-color: #FFB000;
-        --primary-rgb: 255, 176, 0;
-        --background-color: #0A0A0A;
-        --secondary-background-color: #141414;
-        --bg-card: #141414;
-        --bg-elevated: #1E1E1E;
-        --text-primary: #E0E0E0;
-        --text-secondary: #B0B0B0;
-        --text-muted: #666666;
-        --border-color: #252525;
-        --border-light: #353535;
-        --success-green: #00FF41;
-        --danger-red: #FF3333;
-        --warning-amber: #FFB000;
-        --info-cyan: #00D4FF;
-        --neutral: #666666;
-        
-        --font-display: 'IBM Plex Mono', monospace;
-        --font-body: 'IBM Plex Sans', sans-serif;
-        
-        --space-xs: 0.25rem;
-        --space-sm: 0.5rem;
-        --space-md: 1rem;
-        --space-lg: 1.5rem;
-        --space-xl: 2rem;
+        --primary-color: #FFC300;
+        --primary-rgb: 255, 195, 0;
+        --background-color: #050505;
+        --secondary-background-color: rgba(20, 20, 22, 0.45);
+        --bg-card: rgba(15, 15, 18, 0.55);
+        --bg-elevated: rgba(30, 30, 35, 0.6);
+        --glass-border: rgba(255, 255, 255, 0.06);
+        --glass-border-highlight: rgba(255, 255, 255, 0.12);
+        --text-primary: #FAFAFA;
+        --text-secondary: #E0E0E0;
+        --text-muted: #888888;
+        --border-color: rgba(255, 255, 255, 0.08);
+        --border-light: rgba(255, 255, 255, 0.15);
+        --success-green: #10b981;
+        --danger-red: #ef4444;
+        --warning-amber: #f59e0b;
+        --info-cyan: #06b6d4;
+        --neutral: #888888;
+        --mesh-color-1: rgba(30, 30, 30, 0.3);
+        --mesh-color-2: rgba(10, 10, 10, 0.5);
     }
     
-    * { font-family: var(--font-body), -apple-system, BlinkMacSystemFont, sans-serif; }
-    .main, [data-testid="stSidebar"] { background-color: var(--background-color); color: var(--text-primary); }
+    * { font-family: 'Space Grotesk', -apple-system, sans-serif; }
+    h1, h2, h3, h4, h5, h6 { font-weight: 600; letter-spacing: -0.02em; }
+    .numeric, span:contains('.'), span:contains('%') { font-family: 'JetBrains Mono', monospace !important; }
+    
+    .main { background-color: transparent !important; z-index: 1; position: relative; }
+    [data-testid="stSidebar"] { 
+        background-color: var(--secondary-background-color); 
+        color: var(--text-primary); 
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border-right: 1px solid var(--glass-border);
+        z-index: 100;
+    }
+    
+    /* Dynamic Topology Background */
+    [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+        background-color: var(--background-color) !important;
+        position: relative;
+        z-index: 0;
+    }
+    [data-testid="stAppViewContainer"]::before, [data-testid="stApp"]::before {
+        content: '';
+        position: fixed;
+        top: -50%; left: -50%; right: -50%; bottom: -50%;
+        background: radial-gradient(circle at 30% 30%, var(--mesh-color-1) 0%, transparent 50%),
+                    radial-gradient(circle at 70% 70%, var(--mesh-color-2) 0%, transparent 60%);
+        animation: mesh-shift 25s ease-in-out infinite alternate;
+        z-index: -1;
+        pointer-events: none;
+    }
+    .block-container { position: relative; z-index: 10; padding-top: 3.5rem; max-width: 90%; padding-left: 2rem; padding-right: 2rem; }
+    
+    @keyframes mesh-shift {
+        0%   { transform: translate(0, 0) scale(1) rotate(0deg); }
+        50%  { transform: translate(4%, 6%) scale(1.05) rotate(2deg); }
+        100% { transform: translate(-3%, -5%) scale(1.1) rotate(-1deg); }
+    }
+    
     .stApp > header { background-color: transparent; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;}
-    .block-container { padding-top: 3.5rem; max-width: 90%; padding-left: 2rem; padding-right: 2rem; }
     
-    /* Sidebar toggle button - always visible */
+    /* Sidebar toggle button - always visible inside glass */
     [data-testid="collapsedControl"] {
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
         background-color: var(--secondary-background-color) !important;
-        border: 2px solid var(--primary-color) !important;
+        backdrop-filter: blur(12px) !important;
+        border: 1px solid var(--glass-border-highlight) !important;
         border-radius: 8px !important;
         padding: 10px !important;
         margin: 12px !important;
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.4) !important;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4) !important;
         z-index: 999999 !important;
         position: fixed !important;
         top: 14px !important;
         left: 14px !important;
         width: 40px !important;
         height: 40px !important;
-        align-items: center !important;
-        justify-content: center !important;
     }
     
     [data-testid="collapsedControl"]:hover {
-        background-color: rgba(var(--primary-rgb), 0.2) !important;
-        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.6) !important;
+        background-color: rgba(var(--primary-rgb), 0.15) !important;
+        border-color: var(--primary-color) !important;
+        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.4) !important;
         transform: scale(1.05);
     }
     
-    [data-testid="collapsedControl"] svg {
-        stroke: var(--primary-color) !important;
-        width: 20px !important;
-        height: 20px !important;
-    }
+    [data-testid="collapsedControl"] svg { stroke: var(--primary-color) !important; }
+    [data-testid="stSidebar"] button[kind="header"] { background-color: transparent !important; border: none !important; }
+    [data-testid="stSidebar"] button[kind="header"] svg { stroke: var(--primary-color) !important; }
     
-    [data-testid="stSidebar"] button[kind="header"] {
-        background-color: transparent !important;
-        border: none !important;
-    }
-    
-    [data-testid="stSidebar"] button[kind="header"] svg {
-        stroke: var(--primary-color) !important;
-    }
-    
-    button[kind="header"] {
-        z-index: 999999 !important;
-    }
-    
+    /* Obsidian Glass Headers */
     .premium-header {
         background: var(--secondary-background-color);
-        padding: 1.25rem 2rem;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        padding: 1.5rem 2rem;
         border-radius: 16px;
         margin-bottom: 1.5rem;
-        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.1);
-        border: 1px solid var(--border-color);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--glass-border);
+        border-top: 1px solid var(--glass-border-highlight);
         position: relative;
         overflow: hidden;
         margin-top: 1rem;
     }
     
-    .premium-header::before {
+    .premium-header::after {
         content: '';
         position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 20% 50%, rgba(var(--primary-rgb),0.08) 0%, transparent 50%);
-        pointer-events: none;
+        top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
     }
     
-    .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
-    .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
+    .premium-header h1 { margin: 0; font-size: 2.2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.04em; }
+    .premium-header .tagline { color: var(--text-muted); font-size: 0.95rem; margin-top: 0.35rem; font-weight: 400; letter-spacing: 0.02em; }
     
+    /* Glass Metric Cards */
     .metric-card {
         background-color: var(--bg-card);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         padding: 1.25rem;
-        border-radius: 4px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
+        border-radius: 14px;
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
         margin-bottom: 0.5rem;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         position: relative;
         overflow: hidden;
-        cursor: pointer;
     }
     
-    .metric-card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.3); border-color: var(--border-light); }
-    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-    .metric-card h2 { color: var(--text-primary); font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1; }
-    .metric-card .sub-metric { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
-    .metric-card.success h2 { color: var(--success-green); }
-    .metric-card.danger h2 { color: var(--danger-red); }
-    .metric-card.warning h2 { color: var(--warning-amber); }
-    .metric-card.info h2 { color: var(--info-cyan); }
-    .metric-card.neutral h2 { color: var(--neutral); }
-    .metric-card.primary h2 { color: var(--primary-color); }
+    .metric-card:hover { 
+        transform: translateY(-4px); 
+        box-shadow: 0 12px 32px rgba(0,0,0,0.4); 
+        border-color: var(--glass-border-highlight);
+        background-color: rgba(25, 25, 30, 0.65);
+    }
     
+    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+    .metric-card h2 { font-family: 'JetBrains Mono', monospace; color: var(--text-primary); font-size: 1.85rem; font-weight: 700; margin: 0; line-height: 1; letter-spacing: -0.03em; }
+    .metric-card .sub-metric { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
+    
+    .metric-card.success h2 { color: var(--success-green); text-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
+    .metric-card.danger h2 { color: var(--danger-red); text-shadow: 0 0 20px rgba(239, 68, 68, 0.3); }
+    .metric-card.warning h2 { color: var(--warning-amber); text-shadow: 0 0 20px rgba(245, 158, 11, 0.3); }
+    .metric-card.info h2 { color: var(--info-cyan); text-shadow: 0 0 20px rgba(6, 182, 212, 0.3); }
+    .metric-card.neutral h2 { color: var(--text-primary); }
+    .metric-card.primary h2 { color: var(--primary-color); text-shadow: 0 0 20px rgba(255, 195, 0, 0.3); }
+    
+    /* Signal Cards */
     .signal-card {
         background-color: var(--bg-card);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
+        border-radius: 14px;
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
         margin-bottom: 1rem;
         position: relative;
         overflow: hidden;
-        cursor: pointer;
     }
     
-    .signal-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
-    .signal-card.bullish::before { background: var(--success-green); }
-    .signal-card.bearish::before { background: var(--danger-red); }
-    .signal-card.neutral::before { background: var(--neutral); }
+    .signal-card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; box-shadow: 0 0 10px currentColor; }
+    .signal-card.bullish::before { background: var(--success-green); color: var(--success-green); }
+    .signal-card.bearish::before { background: var(--danger-red); color: var(--danger-red); }
+    .signal-card.neutral::before { background: var(--neutral); color: var(--neutral); }
     
-    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-    .status-badge.bullish { background: rgba(16, 185, 129, 0.15); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.3); }
-    .status-badge.bearish { background: rgba(239, 68, 68, 0.15); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.3); }
-    .status-badge.oversold { background: rgba(6, 182, 212, 0.15); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
-    .status-badge.overbought { background: rgba(245, 158, 11, 0.15); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
-    .status-badge.neutral { background: rgba(136, 136, 136, 0.15); color: var(--neutral); border: 1px solid rgba(136, 136, 136, 0.3); }
+    /* Badges */
+    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.8rem; border-radius: 20px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; backdrop-filter: blur(8px); }
+    .status-badge.bullish { background: rgba(16, 185, 129, 0.1); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.25); box-shadow: 0 0 10px rgba(16, 185, 129, 0.1); }
+    .status-badge.bearish { background: rgba(239, 68, 68, 0.1); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.25); box-shadow: 0 0 10px rgba(239, 68, 68, 0.1); }
+    .status-badge.oversold { background: rgba(6, 182, 212, 0.1); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.25); box-shadow: 0 0 10px rgba(6, 182, 212, 0.1); }
+    .status-badge.overbought { background: rgba(245, 158, 11, 0.1); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.25); box-shadow: 0 0 10px rgba(245, 158, 11, 0.1); }
+    .status-badge.neutral { background: rgba(136, 136, 136, 0.1); color: var(--text-secondary); border: 1px solid rgba(136, 136, 136, 0.25); }
     
-    .stButton>button { border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color); font-weight: 700; border-radius: 12px; padding: 0.75rem 2rem; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-transform: uppercase; letter-spacing: 0.5px; }
-    .stButton>button:hover { box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.6); background: var(--primary-color); color: var(--bg-card); transform: translateY(-2px); }
+    /* Neon Traced Buttons */
+    .stButton>button { 
+        border: 1px solid var(--primary-color); 
+        background: rgba(255, 195, 0, 0.05); 
+        color: var(--primary-color); 
+        font-weight: 600; 
+        border-radius: 12px; 
+        padding: 0.75rem 2rem; 
+        transition: all 0.3s ease; 
+        text-transform: uppercase; 
+        letter-spacing: 0.05em; 
+        backdrop-filter: blur(8px);
+        box-shadow: inset 0 0 10px rgba(255, 195, 0, 0.05), 0 0 15px rgba(255, 195, 0, 0.1);
+    }
+    .stButton>button:hover { 
+        box-shadow: inset 0 0 15px rgba(255, 195, 0, 0.2), 0 0 25px rgba(255, 195, 0, 0.3); 
+        background: rgba(255, 195, 0, 0.15); 
+        color: var(--primary-color); 
+        transform: translateY(-2px); 
+    }
     .stButton>button:active { transform: translateY(0); }
     
+    /* Tabs Base */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
-    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
-    .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); background: transparent !important; }
+    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: all 0.3s; background: transparent; font-weight: 500; padding: 0.5rem 0.25rem; }
+    .stTabs [aria-selected="true"] { color: var(--text-primary); border-bottom: 2px solid var(--primary-color); background: transparent !important; text-shadow: 0 0 10px rgba(255, 255, 255, 0.4); }
     
-    .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
-    .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); }
-    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
+    /* Base Overrides for default Streamlit Containers */
+    .stPlotlyChart { 
+        border-radius: 16px; 
+        background-color: var(--bg-card); 
+        backdrop-filter: blur(16px);
+        padding: 10px; 
+        border: 1px solid var(--glass-border); 
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); 
+    }
+    .stDataFrame { 
+        border-radius: 16px; 
+        background-color: var(--bg-card);
+        backdrop-filter: blur(16px);
+        border: 1px solid var(--glass-border); 
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--glass-border-highlight) 50%, transparent 100%); margin: 2rem 0; }
     
-    .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
+    .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.75rem; opacity: 0.8; }
     
-    [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
+    .stTextInput > div > div > input { background: var(--bg-elevated) !important; border: 1px solid var(--glass-border) !important; border-radius: 8px !important; color: var(--text-primary) !important; font-family: 'JetBrains Mono', monospace; }
+    .stTextInput > div > div > input:focus { border-color: var(--primary-color) !important; box-shadow: 0 0 0 1px var(--primary-color), 0 0 15px rgba(var(--primary-rgb), 0.2) !important; }
     
-    .stTextInput > div > div > input { background: var(--bg-elevated) !important; border: 1px solid var(--border-color) !important; border-radius: 8px !important; color: var(--text-primary) !important; }
-    .stTextInput > div > div > input:focus { border-color: var(--primary-color) !important; box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2) !important; }
-    
-    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
-    .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
-    .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
+    /* Frosted Info Boxes */
+    .info-box { 
+        background: var(--bg-elevated); 
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--glass-border); 
+        padding: 1.5rem; 
+        border-radius: 14px; 
+        margin: 0.5rem 0; 
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); 
+    }
+    .info-box h4 { color: var(--text-primary); margin: 0 0 0.5rem 0; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
+    .info-box p { color: var(--text-secondary); margin: 0; font-size: 0.9rem; line-height: 1.6; font-weight: 300; }
     
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: var(--background-color); }
     ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
 
-    /* ── Retro Broker Terminal Effects ─────────────────────────────────── */
-    .scanlines {
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        pointer-events: none;
-        z-index: 999998;
-        background: repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 2px,
-            rgba(0, 0, 0, 0.15) 2px,
-            rgba(0, 0, 0, 0.15) 4px
-        );
-        opacity: 0.03;
-    }
-    
-    .crt-glow {
-        text-shadow: 0 0 5px var(--primary-color), 0 0 10px var(--primary-color);
-    }
-    
-    .terminal-corner {
-        position: relative;
-    }
-    .terminal-corner::before {
-        content: '';
-        position: absolute;
-        top: -1px; left: -1px;
-        width: 8px; height: 8px;
-        border-top: 2px solid var(--primary-color);
-        border-left: 2px solid var(--primary-color);
-    }
-    .terminal-corner::after {
-        content: '';
-        position: absolute;
-        bottom: -1px; right: -1px;
-        width: 8px; height: 8px;
-        border-bottom: 2px solid var(--primary-color);
-        border-right: 2px solid var(--primary-color);
-    }
-
-    /* ── Responsive Container ─────────────────────────────────── */
-    .block-container {
-        max-width: min(95%, 1400px) !important;
-        margin: 0 auto !important;
-    }
-    
-    @media (max-width: 768px) {
-        .block-container {
-            max-width: 100% !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-        }
-        .premium-header {
-            padding: 1rem !important;
-        }
-        .metric-card {
-            padding: 1rem !important;
-        }
-    }
-
-    /* ── Card Animations ───────────────────────────────────── */
-    @keyframes cardReveal {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .metric-card {
-        animation: cardReveal 0.4s ease-out forwards;
-        opacity: 0;
-    }
-    .metric-card:nth-child(1) { animation-delay: 0.1s; }
-    .metric-card:nth-child(2) { animation-delay: 0.2s; }
-    .metric-card:nth-child(3) { animation-delay: 0.3s; }
-    .metric-card:nth-child(4) { animation-delay: 0.4s; }
-
-    .magnetic-hover {
-        transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
-    }
-    .magnetic-hover:hover {
-        transform: translateY(-2px) scale(1.01);
-        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
-    }
-
     /* ── Themed loading state ─────────────────────────────────────── */
     @keyframes pulse-glow {
-        0%, 100% { opacity: 0.6; }
-        50%       { opacity: 1.0; }
+        0%, 100% { opacity: 0.4; transform: scale(0.95); }
+        50%       { opacity: 1.0; transform: scale(1.05); }
     }
     .loading-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border-color);
-        border-left: 1px solid var(--border-color);
-        border-radius: 12px;
-        padding: 1.25rem 1.5rem;
-        margin: 0.75rem 0;
+        background: var(--bg-elevated);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border-highlight);
+        border-radius: 16px;
+        padding: 1.5rem 2rem;
+        margin: 1rem 0;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         position: relative;
         overflow: hidden;
     }
@@ -452,31 +441,34 @@ _DESIGN_CSS = """
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 0% 50%, rgba(var(--primary-rgb), 0.06) 0%, transparent 60%);
+        background: radial-gradient(circle at 10% 50%, rgba(var(--primary-rgb), 0.08) 0%, transparent 70%);
         pointer-events: none;
     }
     .loading-label {
-        font-size: 0.85rem;
-        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 0.9rem;
+        font-weight: 600;
         color: var(--text-primary);
-        letter-spacing: 0.3px;
+        letter-spacing: 0.02em;
         position: relative;
     }
     .loading-sub {
-        font-size: 0.72rem;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.7rem;
         color: var(--text-muted);
-        margin-top: 0.2rem;
+        margin-top: 0.4rem;
         font-weight: 400;
         position: relative;
-        letter-spacing: 0.2px;
+        letter-spacing: 0.02em;
     }
     .loading-dot {
         display: inline-block;
-        width: 5px; height: 5px;
+        width: 6px; height: 6px;
         border-radius: 50%;
         background: var(--primary-color);
-        animation: pulse-glow 1.2s ease-in-out infinite;
-        margin-right: 0.6rem;
+        box-shadow: 0 0 8px var(--primary-color);
+        animation: pulse-glow 1.5s ease-in-out infinite;
+        margin-right: 0.75rem;
         vertical-align: middle;
         position: relative;
         top: -1px;
@@ -486,7 +478,6 @@ _DESIGN_CSS = """
 """
 
 st.markdown(_DESIGN_CSS, unsafe_allow_html=True)
-st.markdown('<div class="scanlines"></div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
@@ -515,7 +506,7 @@ def _progress_bar(slot, pct: int, label: str, sub: str = "") -> None:
             <span class="loading-dot"></span>{label}
         </div>
         {"" if not sub else f'<div class="loading-sub">{sub}</div>'}
-        <div style="margin-top: 0.65rem; height: 3px; background: var(--border-color); border-radius: 2px; overflow: hidden;">
+        <div style="margin-top: 0.65rem; height: 3px; background: #2A2A2A; border-radius: 2px; overflow: hidden;">
             <div style="width: {pct}%; height: 100%;
                         background: linear-gradient(90deg, {bar_color}, {C_AMBER});
                         border-radius: 2px; transition: width 0.3s ease;">
@@ -1903,7 +1894,7 @@ def render_landing_page() -> None:
     with col1:
         st.markdown("""
         <div class='metric-card primary' style='min-height: 280px;'>
-            <h3 style='color: var(--primary-color); margin-bottom: 1rem;'><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="m3 3 18 18"/><path d="m18 9-5 5-4-4-3 3"/></svg>Historical Mood</h3>
+            <h3 style='color: var(--primary-color); margin-bottom: 1rem;'>📈 Historical Mood</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 Full sentiment timeline with OU forward projection, Kalman confidence bands,
                 and regime transition markers on a TradingView-style chart.
@@ -1922,7 +1913,7 @@ def render_landing_page() -> None:
     with col2:
         st.markdown("""
         <div class='metric-card success' style='min-height: 280px;'>
-            <h3 style='color: var(--success-green); margin-bottom: 1rem;'><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Similar Periods</h3>
+            <h3 style='color: var(--success-green); margin-bottom: 1rem;'>🔍 Similar Periods</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 Historical analog matching against the full dataset with forward-return
                 outcomes, aggregate win-rates, and a backtest scatter.
@@ -1941,7 +1932,7 @@ def render_landing_page() -> None:
     with col3:
         st.markdown("""
         <div class='metric-card info' style='min-height: 280px;'>
-            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--info-cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>Correlation Analysis</h3>
+            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>📋 Correlation Analysis</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 Full transparency into which variables drive the mood score and which
                 are noise, ranked by the engine's own quality formula.
@@ -1960,7 +1951,7 @@ def render_landing_page() -> None:
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Analysis Methodology ─────────────────────────────────────────
-    st.markdown("""<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg><span style="color:var(--primary-color);font-weight:600;">Analysis Methodology</span>""", unsafe_allow_html=True)
+    st.markdown("### 📊 Analysis Methodology")
 
     col_m1, col_m2, col_m3 = st.columns(3)
 
@@ -2018,7 +2009,7 @@ def render_landing_page() -> None:
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Mood Score Interpretation ────────────────────────────────────
-    st.markdown("""<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg><span style="color:var(--primary-color);font-weight:600;">Mood Score Interpretation</span>""", unsafe_allow_html=True)
+    st.markdown("### 🎯 Mood Score Interpretation")
 
     col_s1, col_s2, col_s3 = st.columns(3)
 
@@ -2026,7 +2017,7 @@ def render_landing_page() -> None:
         st.markdown("""
         <div style='background: rgba(16,185,129,0.1); border: 1px solid var(--success-green);
                     border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--success-green); margin-bottom: 0.75rem;'><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="10"/></svg>Bullish Zone</h4>
+            <h4 style='color: var(--success-green); margin-bottom: 0.75rem;'>🟢 Bullish Zone</h4>
             <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &gt; +20</p>
             <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
                 Positive sentiment. Trend-following strategies favoured.
@@ -2039,7 +2030,7 @@ def render_landing_page() -> None:
         st.markdown("""
         <div style='background: rgba(136,136,136,0.1); border: 1px solid var(--neutral);
                     border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--neutral); margin-bottom: 0.75rem;'><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--neutral)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="10"/></svg>Neutral Zone</h4>
+            <h4 style='color: var(--neutral); margin-bottom: 0.75rem;'>⚪ Neutral Zone</h4>
             <p style='color: var(--text-muted); font-size: 0.85rem;'>Score −20 to +20</p>
             <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
                 No strong directional bias. Await macro confirmation or use
@@ -2052,7 +2043,7 @@ def render_landing_page() -> None:
         st.markdown("""
         <div style='background: rgba(239,68,68,0.1); border: 1px solid var(--danger-red);
                     border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--danger-red); margin-bottom: 0.75rem;'><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="10" stroke="var(--danger-red)"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Bearish Zone</h4>
+            <h4 style='color: var(--danger-red); margin-bottom: 0.75rem;'>🔴 Bearish Zone</h4>
             <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &lt; −20</p>
             <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
                 Negative sentiment. Defensive positioning warranted.
@@ -2064,7 +2055,7 @@ def render_landing_page() -> None:
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── System Coverage ──────────────────────────────────────────────
-    st.markdown("""<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="M2 12a10 10 0 0 1 20 0"/><path d="M12 2v20"/><path d="m4.93 4.93 14.14 14.14"/><path d="m19.07 4.93-14.14 14.14"/></svg><span style="color:var(--primary-color);font-weight:600;">System Coverage</span>""", unsafe_allow_html=True)
+    st.markdown("### 📡 System Coverage")
 
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
@@ -2083,7 +2074,7 @@ def render_landing_page() -> None:
     # ── Getting Started ──────────────────────────────────────────────
     st.markdown("""
     <div class='info-box'>
-        <h4><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>Getting Started</h4>
+        <h4>🚀 Getting Started</h4>
         <p style='color: var(--text-muted); line-height: 1.7;'>
             Click <strong>▶ Run Analysis</strong> in the sidebar to fetch live data from Google Sheets
             and run the full 5-layer sentiment pipeline. Once loaded, use the sidebar to switch
@@ -2114,8 +2105,8 @@ def main():
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
-            <div style="font-size: 1.75rem; font-weight: 800; color: var(--primary-color);">ARTHAGATI</div>
-            <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">अर्थगति | Market Sentiment</div>
+            <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">ARTHAGATI</div>
+            <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">अर्थगति | Market Sentiment</div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -2174,20 +2165,20 @@ def main():
     with st.sidebar:
         view_mode = st.radio(
             "View Mode",
-            ["Historical Mood", "Similar Periods", "Correlation Analysis"],
+            ["📈 Historical Mood", "🔍 Similar Periods", "📋 Correlation Analysis"],
             label_visibility="collapsed"
         )
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-        st.markdown('<div class="sidebar-title"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Controls</div>', unsafe_allow_html=True)
-        if st.button("Refresh Data", use_container_width=True):
+        st.markdown('<div class="sidebar-title">⚙️ Controls</div>', unsafe_allow_html=True)
+        if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
         # ── Model Configuration ──
-        st.markdown('<div class="sidebar-title"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><path d="M12 2a8 8 0 0 0-8 8c0 1.892.783 3.63 2.046 4.912"/><path d="M12 18a8 8 0 0 0 8-8c0-1.892-.783-3.63-2.046-4.912"/><path d="M12 22a8 8 0 0 0 8-8c0-1.892-.783-3.63-2.046-4.912"/><path d="M12 2a8 8 0 0 0-8 8c0 1.892.783 3.63 2.046 4.912"/></svg>Model Configuration</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-title">🧠 Model Configuration</div>', unsafe_allow_html=True)
 
         with st.expander("Predictor Columns", expanded=False):
             st.caption("Select predictors, then click Apply to recompute.")
@@ -2202,7 +2193,7 @@ def main():
             )
 
             if not staging_predictors:
-                st.warning("Select at least one predictor.")
+                st.warning("⚠️ Select at least one predictor.")
                 staging_predictors = list(st.session_state['active_predictors'])
 
             # Show diff between staging and active
@@ -2258,11 +2249,11 @@ def main():
     # >3 days gap (accounts for weekends: Fri data on Mon = 3 days, fine)
     if data_age_days > 3:
         st.markdown(f"""
-        <div style="background: rgba(239,68,68,0.1); border: 1px solid var(--danger-red); border-radius: 10px; 
+        <div style="background: rgba(239,68,68,0.1); border: 1px solid #ef4444; border-radius: 10px; 
                     padding: 0.75rem 1.25rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 12px;">
-            <span style="font-size: 1.4rem;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--warning-amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21.33h8a2 2 0 0 0 1.92-1.45L12 15"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span>
+            <span style="font-size: 1.4rem;">⚠️</span>
             <div>
-                <span style="color: var(--danger-red); font-weight: 700;">Stale Data</span>
+                <span style="color: #ef4444; font-weight: 700;">Stale Data</span>
                 <span style="color: #888; font-size: 0.85rem;"> — Last data point is <b>{latest_date.strftime('%d %b %Y')}</b> ({data_age_days} days ago). 
                 Scores reflect the last available data, not current market state. Update your Google Sheet.</span>
             </div>
@@ -2369,6 +2360,24 @@ def main():
     current_regime = latest.get('Regime', 'Unknown')
     reg_color, reg_class = REGIME_STYLES.get(current_regime, (C_MUTED, 'neutral'))
     
+    # ── Inject Dynamic Topology CSS ──────────────────────────────────────
+    MESH_COLORS = {
+        'Trending':       ('rgba(16, 185, 129, 0.4)', 'rgba(4, 120, 87, 0.6)'),      # Deep Jade
+        'Volatile Trend': ('rgba(245, 158, 11, 0.4)', 'rgba(180, 83, 9, 0.6)'),      # Amber/Orange
+        'Mean-Reverting': ('rgba(6, 182, 212, 0.4)', 'rgba(3, 105, 161, 0.6)'),      # Ocean Blue
+        'Choppy':         ('rgba(239, 68, 68, 0.4)', 'rgba(185, 28, 28, 0.6)'),      # Soft Crimson
+        'Unknown':        ('rgba(30, 30, 30, 0.3)', 'rgba(10, 10, 10, 0.5)'),        # Neutral Obsidian
+    }
+    c_1, c_2 = MESH_COLORS.get(current_regime, MESH_COLORS['Unknown'])
+    st.markdown(f"""
+        <style>
+            :root {{
+                --mesh-color-1: {c_1};
+                --mesh-color-2: {c_2};
+            }}
+        </style>
+    """, unsafe_allow_html=True)
+    
     with d1:
         st.markdown(f"""
         <div class="metric-card {reg_class}">
@@ -2419,9 +2428,9 @@ def main():
     # VIEW MODES
     # ═══════════════════════════════════════════════════════════════════════════
     
-    if view_mode == "Historical Mood":
+    if view_mode == "📈 Historical Mood":
         render_historical_mood(mood_df, msf_df)
-    elif view_mode == "Similar Periods":
+    elif view_mode == "🔍 Similar Periods":
         render_similar_periods(mood_df)
     else:
         render_correlation_analysis(raw_df)
@@ -2445,8 +2454,8 @@ def render_historical_mood(mood_df, msf_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="m3 3 18 18"/><path d="m18 9-5 5-4-4-3 3"/></svg>Market Mood Terminal</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">TradingView-Style Analysis • Mood Score + MSF Spread Indicator</p>
+            <h3 style="color: #FFC300; margin: 0;">📈 Market Mood Terminal</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">TradingView-Style Analysis • Mood Score + MSF Spread Indicator</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -2808,7 +2817,7 @@ def render_historical_mood(mood_df, msf_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 0.75rem;">
-            <h4 style="color: var(--info-cyan); margin: 0;">MSF Component Breakdown</h4>
+            <h4 style="color: #06b6d4; margin: 0;">MSF Component Breakdown</h4>
             <p style="color: #888; font-size: 0.8rem; margin: 0;">Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)</p>
         </div>
     """, unsafe_allow_html=True)
@@ -2818,8 +2827,8 @@ def render_historical_mood(mood_df, msf_df):
     if msf_latest_idx >= 0 and not msf_filtered.empty:
         comp_names = ['momentum', 'structure', 'regime', 'flow']
         comp_labels = ['Momentum', 'Structure', 'Regime', 'Flow']
-        comp_colors = ['var(--warning-amber)', '#a78bfa', 'var(--success-green)', 'var(--info-cyan)']
-        comp_icons = ['<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>', '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="16" width="20" height="8" rx="2"/><rect x="4" y="8" width="20" height="8" rx="2"/></svg>', '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>', '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 6c0 1.1.9 2 2 2s2-.9 2-2"/><path d="M2 12c0 1.1.9 2 2 2s2-.9 2-2"/><path d="M2 18c0 1.1.9 2 2 2s2-.9 2-2"/><path d="M22 20c-2.5 0-4.5-2.1-4.5-5"/><path d="M12 14c-2.5 0-4.5-2.1-4.5-5"/><path d="M12 8c-2.5 0-4.5-2.1-4.5-5"/></svg>']
+        comp_colors = ['#f59e0b', '#a78bfa', '#10b981', '#06b6d4']
+        comp_icons = ['🚀', '🏗️', '📊', '🌊']
         
         c_cols = st.columns(4)
         for j, (name, label, color, icon) in enumerate(zip(comp_names, comp_labels, comp_colors, comp_icons)):
@@ -2832,12 +2841,12 @@ def render_historical_mood(mood_df, msf_df):
             
             with c_cols[j]:
                 st.markdown(f"""
-                <div style="background: var(--bg-card); border-radius: 10px; padding: 0.75rem; border: 1px solid var(--border-color);">
+                <div style="background: #1A1A1A; border-radius: 10px; padding: 0.75rem; border: 1px solid #2A2A2A;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
                         <span style="font-size: 0.75rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{icon} {label}</span>
                         <span style="font-size: 1.1rem; font-weight: 700; color: {color};">{val:+.1f}</span>
                     </div>
-                    <div style="height: 6px; background: var(--border-color); border-radius: 3px; position: relative;">
+                    <div style="height: 6px; background: #2A2A2A; border-radius: 3px; position: relative;">
                         <div style="position: absolute; left: 50%; top: 0; width: 1px; height: 6px; background: #555;"></div>
                         <div style="width: {bar_pct:.0f}%; height: 100%; background: {color}; border-radius: 3px; opacity: 0.8;"></div>
                     </div>
@@ -2854,8 +2863,8 @@ def render_similar_periods(mood_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Similar Historical Periods</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
+            <h3 style="color: #FFC300; margin: 0;">🔍 Similar Historical Periods</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -2879,7 +2888,7 @@ def render_similar_periods(mood_df):
                 return
             median_ret = np.median(values)
             positive_pct = sum(1 for v in values if v > 0) / len(values) * 100
-            ret_color = 'var(--success-green)' if median_ret > 0 else 'var(--danger-red)'
+            ret_color = '#10b981' if median_ret > 0 else '#ef4444'
             card_class = 'success' if median_ret > 0 else 'danger'
             with col:
                 st.markdown(f"""
@@ -2910,7 +2919,7 @@ def render_similar_periods(mood_df):
             for horizon, key in [(30, 'fwd_30d'), (60, 'fwd_60d'), (90, 'fwd_90d')]:
                 val = period.get(key)
                 if val is not None:
-                    fwd_color = 'var(--success-green)' if val > 0 else 'var(--danger-red)'
+                    fwd_color = '#10b981' if val > 0 else '#ef4444'
                     fwd_badges += f'<span style="font-size:0.7rem; color:{fwd_color}; margin-left:8px;">+{horizon}d: <b>{val:+.1f}%</b></span>'
                 else:
                     fwd_badges += f'<span style="font-size:0.7rem; color:#555; margin-left:8px;">+{horizon}d: —</span>'
@@ -2918,15 +2927,15 @@ def render_similar_periods(mood_df):
             st.markdown(f"""
             <div class="signal-card {mood_class}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                    <span style="font-weight: 700; color: var(--text-primary);">{period['date']}</span>
+                    <span style="font-weight: 700; color: #EAEAEA;">{period['date']}</span>
                     <span class="status-badge {mood_class}">{period['mood']}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.85rem;">
-                    <span>Similarity: <b style="color: var(--primary-color);">{similarity_pct:.1f}%</b></span>
+                <div style="display: flex; justify-content: space-between; color: #888888; font-size: 0.85rem;">
+                    <span>Similarity: <b style="color: #FFC300;">{similarity_pct:.1f}%</b></span>
                     <span>Mood: <b>{mood_val:.1f}</b></span>
                     <span>NIFTY: <b>{period['nifty']:,.0f}</b></span>
                 </div>
-                <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid var(--border-color);">
+                <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid #2A2A2A;">
                     <span style="font-size: 0.7rem; color: #666;">NIFTY After:</span>{fwd_badges}
                 </div>
             </div>
@@ -2939,13 +2948,13 @@ def render_similar_periods(mood_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>Backtest: Mood Score vs Forward NIFTY Return</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">
+            <h3 style="color: #FFC300; margin: 0;">📊 Backtest: Mood Score vs Forward NIFTY Return</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">
                 Does today's mood score predict tomorrow's market? Each dot = one historical day.
                 If there's a relationship, the scatter should show a pattern.
             </p>
-            <p style="color: var(--danger-red); font-size: 0.75rem; margin-top: 0.5rem; font-weight: 600; padding: 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21.33h8a2 2 0 0 0 1.92-1.45L12 15"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Note: This view represents a Hindsight Regime Fit. Historical points are evaluated using parameters learned from today's active correlation regime.
+            <p style="color: #ef4444; font-size: 0.75rem; margin-top: 0.5rem; font-weight: 600; padding: 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
+                ⚠️ Note: This view represents a Hindsight Regime Fit. Historical points are evaluated using parameters learned from today's active correlation regime.
             </p>
         </div>
     """, unsafe_allow_html=True)
@@ -3083,8 +3092,8 @@ def render_correlation_analysis(raw_df):
     
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>Correlation & Predictor Analysis</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
+            <h3 style="color: #FFC300; margin: 0;">📋 Correlation & Predictor Analysis</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -3104,8 +3113,8 @@ def render_correlation_analysis(raw_df):
     bad_anchors = [v['label'] for v in anchor_health.values() if not v['ok']]
     if bad_anchors:
         st.markdown(f"""
-        <div class="info-box" style="border-left: 4px solid var(--danger-red);">
-            <h4 style="color: var(--danger-red);"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21.33h8a2 2 0 0 0 1.92-1.45L12 15"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Data Quality Issue</h4>
+        <div class="info-box" style="border-left: 4px solid #ef4444;">
+            <h4 style="color: #ef4444;">⚠️ Data Quality Issue</h4>
             <p><b>{', '.join(bad_anchors)}</b> has insufficient variance in the source data.
             If Earnings Yield is empty in the sheet, it is auto-derived from PE (1/PE × 100).
             Check that your Google Sheet has valid data for these columns.</p>
@@ -3119,7 +3128,7 @@ def render_correlation_analysis(raw_df):
         with parent_col:
             st.markdown(f"#### {title}")
             if not anchor_health.get(anchor_col, {}).get('ok', False):
-                st.caption(f"{anchor_col} has insufficient data variance — correlations may be unreliable.")
+                st.caption(f"⚠️ {anchor_col} has insufficient data variance — correlations may be unreliable.")
             
             corrs = calculate_anchor_correlations(raw_df, anchor_col, active_preds)
             if corrs.empty:
@@ -3129,14 +3138,14 @@ def render_correlation_analysis(raw_df):
             corrs_display = corrs.sort_values('correlation', key=abs, ascending=False)
             for _, row in corrs_display.iterrows():
                 corr_val = row['correlation']
-                color = 'var(--success-green)' if corr_val > 0 else 'var(--danger-red)'
+                color = '#10b981' if corr_val > 0 else '#ef4444'
                 bar_width = abs(corr_val) * 100
-                strength_dot = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--success-green)"><circle cx="12" cy="12" r="10"/></svg>' if abs(corr_val) >= 0.5 else '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--warning-amber)"><circle cx="12" cy="12" r="10"/></svg>' if abs(corr_val) >= 0.3 else '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--text-muted)"><circle cx="12" cy="12" r="10"/></svg>'
+                strength_dot = '🟢' if abs(corr_val) >= 0.5 else '🟡' if abs(corr_val) >= 0.3 else '⚪'
                 st.markdown(f"""
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: var(--bg-card); border-radius: 8px;">
+                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: #1A1A1A; border-radius: 8px;">
                     <span style="width: 14px; font-size: 0.6rem;">{strength_dot}</span>
-                    <span style="width: 130px; font-size: 0.8rem; color: var(--text-primary);">{row['variable']}</span>
-                    <div style="flex: 1; height: 8px; background: var(--border-color); border-radius: 4px; margin: 0 10px;">
+                    <span style="width: 130px; font-size: 0.8rem; color: #EAEAEA;">{row['variable']}</span>
+                    <div style="flex: 1; height: 8px; background: #2A2A2A; border-radius: 4px; margin: 0 10px;">
                         <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 4px;"></div>
                     </div>
                     <span style="width: 60px; text-align: right; font-size: 0.8rem; color: {color}; font-weight: 600;">{corr_val:+.2f}</span>
@@ -3151,8 +3160,8 @@ def render_correlation_analysis(raw_df):
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
         <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Predictor Quality Assessment</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">
+            <h3 style="color: #FFC300; margin: 0;">🎯 Predictor Quality Assessment</h3>
+            <p style="color: #888888; font-size: 0.85rem; margin: 0;">
                 Each predictor scored by: correlation strength × information quality (1 − entropy).
                 High-entropy (noisy) variables are penalized. This is how the mood engine weights them internally.
             </p>
@@ -3217,26 +3226,26 @@ def render_correlation_analysis(raw_df):
             # Recommendation logic
             if row['quality'] >= max_quality * 0.5 and row['coverage'] > 50:
                 rec = '✅ KEEP'
-                rec_color = 'var(--success-green)'
+                rec_color = '#10b981'
             elif row['quality'] >= max_quality * 0.2 and row['coverage'] > 30:
-                rec = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--warning-amber)" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="10"/></svg>USEFUL'
-                rec_color = 'var(--warning-amber)'
+                rec = '🟡 USEFUL'
+                rec_color = '#f59e0b'
             elif row['coverage'] < 10:
                 rec = '❌ NO DATA'
-                rec_color = 'var(--danger-red)'
+                rec_color = '#ef4444'
             else:
-                rec = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--text-muted)" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="10"/></svg>WEAK'
-                rec_color = 'var(--text-muted)'
+                rec = '⚪ WEAK'
+                rec_color = '#888888'
             
             active_badge = '● Active' if row['active'] else '○ Inactive'
-            active_color = 'var(--primary-color)' if row['active'] else '#555555'
+            active_color = '#FFC300' if row['active'] else '#555555'
             
             st.markdown(f"""
-            <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.75rem; background: var(--bg-card); border-radius: 8px; border: 1px solid {'var(--border-color)' if row['active'] else 'var(--bg-card)'};">
+            <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.75rem; background: #1A1A1A; border-radius: 8px; border: 1px solid {'#2A2A2A' if row['active'] else '#1A1A1A'};">
                 <span style="width: 24px; font-size: 0.75rem; color: #555; font-weight: 700;">{rank}</span>
-                <span style="width: 140px; font-size: 0.8rem; color: var(--text-primary); font-weight: 600;">{row['variable']}</span>
-                <div style="flex: 1; height: 6px; background: var(--border-color); border-radius: 3px; margin: 0 12px;">
-                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, var(--primary-color), var(--warning-amber)); border-radius: 3px;"></div>
+                <span style="width: 140px; font-size: 0.8rem; color: #EAEAEA; font-weight: 600;">{row['variable']}</span>
+                <div style="flex: 1; height: 6px; background: #2A2A2A; border-radius: 3px; margin: 0 12px;">
+                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, #FFC300, #f59e0b); border-radius: 3px;"></div>
                 </div>
                 <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">|ρ| {row['avg_corr']:.2f}</span>
                 <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">H {row['entropy']:.2f}</span>
@@ -3254,9 +3263,9 @@ def render_correlation_analysis(raw_df):
         <div class="info-box" style="margin-top: 1rem;">
             <h4>Recommendation Summary</h4>
             <p>
-                <b style="color: var(--success-green);">✅ {keep_count} strong</b> predictors (high correlation × low entropy) ·
-                <b style="color: var(--warning-amber);"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--warning-amber)" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="10"/></svg>{useful_count} useful</b> (moderate signal) ·
-                <b style="color: #888;"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--text-muted)" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="10"/></svg>{weak_count} weak</b> (low signal or noisy)<br>
+                <b style="color: #10b981;">✅ {keep_count} strong</b> predictors (high correlation × low entropy) ·
+                <b style="color: #f59e0b;">🟡 {useful_count} useful</b> (moderate signal) ·
+                <b style="color: #888;">⚪ {weak_count} weak</b> (low signal or noisy)<br>
                 <span style="font-size: 0.8rem; color: #666;">
                     |ρ| = average |correlation| with PE & EY anchors · H = Shannon entropy of returns (lower = more structured) ·
                     Quality = |ρ| × (1−H) — same formula the mood engine uses internally for weighting.
