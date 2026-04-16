@@ -124,6 +124,7 @@ html {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     *,
     *::before,
     *::after {
@@ -194,17 +195,17 @@ body,
     position: fixed;
     inset: 0;
     background:
-        radial-gradient(ellipse 80% 60% at 20% 10%, var(--mesh-color-1, rgba(212, 168, 83, 0.03)) 0%, transparent 70%),
-        radial-gradient(ellipse 60% 80% at 80% 90%, var(--mesh-color-2, rgba(34, 211, 238, 0.02)) 0%, transparent 70%),
-        url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.015'/%3E%3C/svg%3E");
+        radial-gradient(ellipse 80% 60% at 20% 10%, var(--mesh-color-1, rgba(212, 168, 83, 0.003)) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 80% at 80% 90%, var(--mesh-color-2, rgba(34, 211, 238, 0.002)) 0%, transparent 70%),
+        url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.0015'/%3E%3C/svg%3E");
     pointer-events: none;
     z-index: 0;
 }
 
 [data-theme="light"] .stApp::before {
     background:
-        radial-gradient(ellipse 80% 60% at 20% 10%, var(--mesh-color-1, rgba(180, 140, 60, 0.03)) 0%, transparent 70%),
-        radial-gradient(ellipse 60% 80% at 80% 90%, var(--mesh-color-2, rgba(0, 150, 200, 0.02)) 0%, transparent 70%);
+        radial-gradient(ellipse 80% 60% at 20% 10%, var(--mesh-color-1, rgba(180, 140, 60, 0.003)) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 80% at 80% 90%, var(--mesh-color-2, rgba(0, 150, 200, 0.002)) 0%, transparent 70%);
 }
 
 /* Subtle grid pattern overlay */
