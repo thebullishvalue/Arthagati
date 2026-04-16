@@ -155,329 +155,15 @@ REGIME_STYLES: dict[str, tuple[str, str]] = {
     'Unknown':        (C_MUTED, 'neutral'),
 }
 
-# Shared Plotly dark-theme base for all figures
-PLOTLY_BASE: dict = dict(
-    template='plotly_dark',
-    plot_bgcolor=C_BG_CARD,
-    paper_bgcolor=C_BG_CARD,
-    font=dict(color=C_TEXT, family='Inter'),
-)
-
 # ══════════════════════════════════════════════════════════════════════════════
 # DESIGN SYSTEM
 # ══════════════════════════════════════════════════════════════════════════════
 
-_DESIGN_CSS = """
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
-    
-    :root {
-        --primary-color: #FFC300;
-        --primary-rgb: 255, 195, 0;
-        --background-color: #050505;
-        --secondary-background-color: rgba(20, 20, 22, 0.45);
-        --bg-card: rgba(15, 15, 18, 0.55);
-        --bg-elevated: rgba(30, 30, 35, 0.6);
-        --glass-border: rgba(255, 255, 255, 0.06);
-        --glass-border-highlight: rgba(255, 255, 255, 0.12);
-        --text-primary: #FAFAFA;
-        --text-secondary: #E0E0E0;
-        --text-muted: #888888;
-        --border-color: rgba(255, 255, 255, 0.08);
-        --border-light: rgba(255, 255, 255, 0.15);
-        --success-green: #10b981;
-        --danger-red: #ef4444;
-        --warning-amber: #f59e0b;
-        --info-cyan: #06b6d4;
-        --neutral: #888888;
-        --mesh-color-1: rgba(30, 30, 30, 0.3);
-        --mesh-color-2: rgba(10, 10, 10, 0.5);
-    }
-    
-    * { font-family: 'Space Grotesk', -apple-system, sans-serif; }
-    h1, h2, h3, h4, h5, h6 { font-weight: 600; letter-spacing: -0.02em; }
-    .numeric, span:contains('.'), span:contains('%') { font-family: 'JetBrains Mono', monospace !important; }
-    
-    .main { background-color: transparent !important; z-index: 1; position: relative; }
-    [data-testid="stSidebar"] { 
-        background-color: var(--secondary-background-color); 
-        color: var(--text-primary); 
-        backdrop-filter: blur(24px);
-        -webkit-backdrop-filter: blur(24px);
-        border-right: 1px solid var(--glass-border);
-        z-index: 100;
-    }
-    
-    /* Dynamic Topology Background */
-    [data-testid="stAppViewContainer"], [data-testid="stApp"] {
-        background-color: var(--background-color) !important;
-        position: relative;
-        z-index: 0;
-    }
-    [data-testid="stAppViewContainer"]::before, [data-testid="stApp"]::before {
-        content: '';
-        position: fixed;
-        top: -50%; left: -50%; right: -50%; bottom: -50%;
-        background: radial-gradient(circle at 30% 30%, var(--mesh-color-1) 0%, transparent 50%),
-                    radial-gradient(circle at 70% 70%, var(--mesh-color-2) 0%, transparent 60%);
-        animation: mesh-shift 25s ease-in-out infinite alternate;
-        z-index: -1;
-        pointer-events: none;
-    }
-    .block-container { position: relative; z-index: 10; padding-top: 3.5rem; max-width: 90%; padding-left: 2rem; padding-right: 2rem; }
-    
-    @keyframes mesh-shift {
-        0%   { transform: translate(0, 0) scale(1) rotate(0deg); }
-        50%  { transform: translate(4%, 6%) scale(1.05) rotate(2deg); }
-        100% { transform: translate(-3%, -5%) scale(1.1) rotate(-1deg); }
-    }
-    
-    .stApp > header { background-color: transparent; }
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
-    
-    /* Sidebar toggle button - always visible inside glass */
-    [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        background-color: var(--secondary-background-color) !important;
-        backdrop-filter: blur(12px) !important;
-        border: 1px solid var(--glass-border-highlight) !important;
-        border-radius: 8px !important;
-        padding: 10px !important;
-        margin: 12px !important;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4) !important;
-        z-index: 999999 !important;
-        position: fixed !important;
-        top: 14px !important;
-        left: 14px !important;
-        width: 40px !important;
-        height: 40px !important;
-    }
-    
-    [data-testid="collapsedControl"]:hover {
-        background-color: rgba(var(--primary-rgb), 0.15) !important;
-        border-color: var(--primary-color) !important;
-        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.4) !important;
-        transform: scale(1.05);
-    }
-    
-    [data-testid="collapsedControl"] svg { stroke: var(--primary-color) !important; }
-    [data-testid="stSidebar"] button[kind="header"] { background-color: transparent !important; border: none !important; }
-    [data-testid="stSidebar"] button[kind="header"] svg { stroke: var(--primary-color) !important; }
-    
-    /* Obsidian Glass Headers */
-    .premium-header {
-        background: var(--secondary-background-color);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        padding: 1.5rem 2rem;
-        border-radius: 16px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-        border: 1px solid var(--glass-border);
-        border-top: 1px solid var(--glass-border-highlight);
-        position: relative;
-        overflow: hidden;
-        margin-top: 1rem;
-    }
-    
-    .premium-header::after {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-    }
-    
-    .premium-header h1 { margin: 0; font-size: 2.2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.04em; }
-    .premium-header .tagline { color: var(--text-muted); font-size: 0.95rem; margin-top: 0.35rem; font-weight: 400; letter-spacing: 0.02em; }
-    
-    /* Glass Metric Cards */
-    .metric-card {
-        background-color: var(--bg-card);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        padding: 1.25rem;
-        border-radius: 14px;
-        border: 1px solid var(--glass-border);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-        margin-bottom: 0.5rem;
-        transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .metric-card:hover { 
-        transform: translateY(-4px); 
-        box-shadow: 0 12px 32px rgba(0,0,0,0.4); 
-        border-color: var(--glass-border-highlight);
-        background-color: rgba(25, 25, 30, 0.65);
-    }
-    
-    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
-    .metric-card h2 { font-family: 'JetBrains Mono', monospace; color: var(--text-primary); font-size: 1.85rem; font-weight: 700; margin: 0; line-height: 1; letter-spacing: -0.03em; }
-    .metric-card .sub-metric { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
-    
-    .metric-card.success h2 { color: var(--success-green); text-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
-    .metric-card.danger h2 { color: var(--danger-red); text-shadow: 0 0 20px rgba(239, 68, 68, 0.3); }
-    .metric-card.warning h2 { color: var(--warning-amber); text-shadow: 0 0 20px rgba(245, 158, 11, 0.3); }
-    .metric-card.info h2 { color: var(--info-cyan); text-shadow: 0 0 20px rgba(6, 182, 212, 0.3); }
-    .metric-card.neutral h2 { color: var(--text-primary); }
-    .metric-card.primary h2 { color: var(--primary-color); text-shadow: 0 0 20px rgba(255, 195, 0, 0.3); }
-    
-    /* Signal Cards */
-    .signal-card {
-        background-color: var(--bg-card);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        padding: 1.5rem;
-        border-radius: 14px;
-        border: 1px solid var(--glass-border);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-        margin-bottom: 1rem;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .signal-card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; box-shadow: 0 0 10px currentColor; }
-    .signal-card.bullish::before { background: var(--success-green); color: var(--success-green); }
-    .signal-card.bearish::before { background: var(--danger-red); color: var(--danger-red); }
-    .signal-card.neutral::before { background: var(--neutral); color: var(--neutral); }
-    
-    /* Badges */
-    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.8rem; border-radius: 20px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; backdrop-filter: blur(8px); }
-    .status-badge.bullish { background: rgba(16, 185, 129, 0.1); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.25); box-shadow: 0 0 10px rgba(16, 185, 129, 0.1); }
-    .status-badge.bearish { background: rgba(239, 68, 68, 0.1); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.25); box-shadow: 0 0 10px rgba(239, 68, 68, 0.1); }
-    .status-badge.oversold { background: rgba(6, 182, 212, 0.1); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.25); box-shadow: 0 0 10px rgba(6, 182, 212, 0.1); }
-    .status-badge.overbought { background: rgba(245, 158, 11, 0.1); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.25); box-shadow: 0 0 10px rgba(245, 158, 11, 0.1); }
-    .status-badge.neutral { background: rgba(136, 136, 136, 0.1); color: var(--text-secondary); border: 1px solid rgba(136, 136, 136, 0.25); }
-    
-    /* Neon Traced Buttons */
-    .stButton>button { 
-        border: 1px solid var(--primary-color); 
-        background: rgba(255, 195, 0, 0.05); 
-        color: var(--primary-color); 
-        font-weight: 600; 
-        border-radius: 12px; 
-        padding: 0.75rem 2rem; 
-        transition: all 0.3s ease; 
-        text-transform: uppercase; 
-        letter-spacing: 0.05em; 
-        backdrop-filter: blur(8px);
-        box-shadow: inset 0 0 10px rgba(255, 195, 0, 0.05), 0 0 15px rgba(255, 195, 0, 0.1);
-    }
-    .stButton>button:hover { 
-        box-shadow: inset 0 0 15px rgba(255, 195, 0, 0.2), 0 0 25px rgba(255, 195, 0, 0.3); 
-        background: rgba(255, 195, 0, 0.15); 
-        color: var(--primary-color); 
-        transform: translateY(-2px); 
-    }
-    .stButton>button:active { transform: translateY(0); }
-    
-    /* Tabs Base */
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
-    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: all 0.3s; background: transparent; font-weight: 500; padding: 0.5rem 0.25rem; }
-    .stTabs [aria-selected="true"] { color: var(--text-primary); border-bottom: 2px solid var(--primary-color); background: transparent !important; text-shadow: 0 0 10px rgba(255, 255, 255, 0.4); }
-    
-    /* Base Overrides for default Streamlit Containers */
-    .stPlotlyChart { 
-        border-radius: 16px; 
-        background-color: var(--bg-card); 
-        backdrop-filter: blur(16px);
-        padding: 10px; 
-        border: 1px solid var(--glass-border); 
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); 
-    }
-    .stDataFrame { 
-        border-radius: 16px; 
-        background-color: var(--bg-card);
-        backdrop-filter: blur(16px);
-        border: 1px solid var(--glass-border); 
-        font-family: 'JetBrains Mono', monospace;
-    }
-    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--glass-border-highlight) 50%, transparent 100%); margin: 2rem 0; }
-    
-    .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.75rem; opacity: 0.8; }
-    
-    .stTextInput > div > div > input { background: var(--bg-elevated) !important; border: 1px solid var(--glass-border) !important; border-radius: 8px !important; color: var(--text-primary) !important; font-family: 'JetBrains Mono', monospace; }
-    .stTextInput > div > div > input:focus { border-color: var(--primary-color) !important; box-shadow: 0 0 0 1px var(--primary-color), 0 0 15px rgba(var(--primary-rgb), 0.2) !important; }
-    
-    /* Frosted Info Boxes */
-    .info-box { 
-        background: var(--bg-elevated); 
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid var(--glass-border); 
-        padding: 1.5rem; 
-        border-radius: 14px; 
-        margin: 0.5rem 0; 
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); 
-    }
-    .info-box h4 { color: var(--text-primary); margin: 0 0 0.5rem 0; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
-    .info-box p { color: var(--text-secondary); margin: 0; font-size: 0.9rem; line-height: 1.6; font-weight: 300; }
-    
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--background-color); }
-    ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+from ui.theme import inject_css, apply_chart_theme
+from ui.components import render_metric_card, render_header, render_section_header, render_info_box, section_gap
 
-    /* ── Themed loading state ─────────────────────────────────────── */
-    @keyframes pulse-glow {
-        0%, 100% { opacity: 0.4; transform: scale(0.95); }
-        50%       { opacity: 1.0; transform: scale(1.05); }
-    }
-    .loading-card {
-        background: var(--bg-elevated);
-        backdrop-filter: blur(20px);
-        border: 1px solid var(--glass-border-highlight);
-        border-radius: 16px;
-        padding: 1.5rem 2rem;
-        margin: 1rem 0;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-        position: relative;
-        overflow: hidden;
-    }
-    .loading-card::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 10% 50%, rgba(var(--primary-rgb), 0.08) 0%, transparent 70%);
-        pointer-events: none;
-    }
-    .loading-label {
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: 0.9rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        letter-spacing: 0.02em;
-        position: relative;
-    }
-    .loading-sub {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.7rem;
-        color: var(--text-muted);
-        margin-top: 0.4rem;
-        font-weight: 400;
-        position: relative;
-        letter-spacing: 0.02em;
-    }
-    .loading-dot {
-        display: inline-block;
-        width: 6px; height: 6px;
-        border-radius: 50%;
-        background: var(--primary-color);
-        box-shadow: 0 0 8px var(--primary-color);
-        animation: pulse-glow 1.5s ease-in-out infinite;
-        margin-right: 0.75rem;
-        vertical-align: middle;
-        position: relative;
-        top: -1px;
-    }
-
-</style>
-"""
-
-st.markdown(_DESIGN_CSS, unsafe_allow_html=True)
+# Inject Pragyam Obsidian CSS
+inject_css()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
@@ -2059,15 +1745,15 @@ def render_landing_page() -> None:
 
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        st.markdown('<div class="metric-card neutral"><h4>Score Anchors</h4><h2>2</h2><div class="sub-metric">PE · Earnings Yield</div></div>', unsafe_allow_html=True)
+        render_metric_card("Score Anchors", "2", subtext="PE · Earnings Yield", color_class="neutral")
     with c2:
-        st.markdown(f'<div class="metric-card neutral"><h4>Predictors</h4><h2>{len(DEPENDENT_VARS)}</h2><div class="sub-metric">Macro + Breadth vars</div></div>', unsafe_allow_html=True)
+        render_metric_card("Predictors", str(len(DEPENDENT_VARS)), subtext="Macro + Breadth vars", color_class="neutral")
     with c3:
-        st.markdown('<div class="metric-card neutral"><h4>Math Primitives</h4><h2>12</h2><div class="sub-metric">Pure NumPy functions</div></div>', unsafe_allow_html=True)
+        render_metric_card("Math Primitives", "12", subtext="Pure NumPy functions", color_class="neutral")
     with c4:
-        st.markdown('<div class="metric-card neutral"><h4>OU Projection</h4><h2>90d</h2><div class="sub-metric">Forward reversion path</div></div>', unsafe_allow_html=True)
+        render_metric_card("OU Projection", "90d", subtext="Forward reversion path", color_class="neutral")
     with c5:
-        st.markdown('<div class="metric-card neutral"><h4>Analog Returns</h4><h2>3</h2><div class="sub-metric">30 · 60 · 90 day</div></div>', unsafe_allow_html=True)
+        render_metric_card("Analog Returns", "3", subtext="30 · 60 · 90 day", color_class="neutral")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -2318,41 +2004,17 @@ def main():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.markdown(f"""
-        <div class="metric-card primary">
-            <h4>Mood Score</h4>
-            <h2>{mood_score:.2f}</h2>
-            <div class="sub-metric">{latest['Mood']}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_metric_card("Mood Score", f"{mood_score:.2f}", subtext=latest['Mood'], color_class="primary")
     
     with col2:
-        st.markdown(f"""
-        <div class="metric-card {msf_class}">
-            <h4>MSF Spread</h4>
-            <h2 style="color: {C_CYAN};">{msf_spread:+.2f}</h2>
-            <div class="sub-metric">{msf_label}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_metric_card("MSF Spread", f"{msf_spread:+.2f}", subtext=msf_label, color_class=msf_class, val_color=C_CYAN)
     
     with col3:
         nifty_val = latest['NIFTY']
-        st.markdown(f"""
-        <div class="metric-card primary">
-            <h4>NIFTY 50</h4>
-            <h2>{nifty_val:,.0f}</h2>
-            <div class="sub-metric">Index Level</div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_metric_card("NIFTY 50", f"{nifty_val:,.0f}", subtext="Index Level", color_class="primary")
     
     with col4:
-        st.markdown(f"""
-        <div class="metric-card neutral">
-            <h4>Analysis Date</h4>
-            <h2>{latest['DATE'].strftime('%d %b')}</h2>
-            <div class="sub-metric">{latest['DATE'].strftime('%Y')}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_metric_card("Analysis Date", latest['DATE'].strftime('%d %b'), subtext=latest['DATE'].strftime('%Y'), color_class="neutral")
     
     # ── Diagnostics Row ─────────────────────────────────────────────────
     d1, d2, d3, d4 = st.columns(4)
@@ -2379,47 +2041,23 @@ def main():
     """, unsafe_allow_html=True)
     
     with d1:
-        st.markdown(f"""
-        <div class="metric-card {reg_class}">
-            <h4>Market Regime</h4>
-            <h2 style="font-size: 1.25rem;">{current_regime}</h2>
-            <div class="sub-metric">Hurst + Entropy</div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_metric_card("Market Regime", current_regime, subtext="Hurst + Entropy", color_class=reg_class)
     
     with d2:
         ou_hl = latest.get('OU_Half_Life', 0)
-        st.markdown(f"""
-        <div class="metric-card primary">
-            <h4>OU Half-Life</h4>
-            <h2>{ou_hl:.0f}d</h2>
-            <div class="sub-metric">Expected reversion time</div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_metric_card("OU Half-Life", f"{ou_hl:.0f}d", subtext="Expected reversion time", color_class="primary")
     
     with d3:
         h_val = latest.get('Hurst', 0.5)
         h_label = 'Trending' if h_val > 0.55 else 'Random' if h_val > 0.45 else 'Reverting'
         h_class = 'success' if h_val > 0.55 else 'neutral' if h_val > 0.45 else 'info'
-        st.markdown(f"""
-        <div class="metric-card {h_class}">
-            <h4>Hurst Exponent</h4>
-            <h2>{h_val:.2f}</h2>
-            <div class="sub-metric">{h_label}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_metric_card("Hurst Exponent", f"{h_val:.2f}", subtext=h_label, color_class=h_class)
     
     with d4:
         s_val = latest.get('Market_Entropy', 0.5)
         s_label = 'Disordered' if s_val > 0.6 else 'Ordered' if s_val < 0.4 else 'Mixed'
         s_class = 'danger' if s_val > 0.6 else 'success' if s_val < 0.4 else 'neutral'
-        st.markdown(f"""
-        <div class="metric-card {s_class}">
-            <h4>Market Entropy</h4>
-            <h2>{s_val:.2f}</h2>
-            <div class="sub-metric">{s_label}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_metric_card("Market Entropy", f"{s_val:.2f}", subtext=s_label, color_class=s_class)
     
     # Separator between cards and chart section
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -2753,6 +2391,7 @@ def render_historical_mood(mood_df, msf_df):
     fig.update_xaxes(showgrid=False, row=1, col=1)
     fig.update_xaxes(showgrid=True, gridcolor=C_BG_GRID, row=2, col=1)
     
+    apply_chart_theme(fig)
     st.plotly_chart(fig, config={
         'displayModeBar': True,
         'scrollZoom': True,
@@ -2815,14 +2454,12 @@ def render_historical_mood(mood_df, msf_df):
     # ═══════════════════════════════════════════════════════════════════════════
     
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.markdown("""
-        <div style="margin-bottom: 0.75rem;">
-            <h4 style="color: #06b6d4; margin: 0;">MSF Component Breakdown</h4>
-            <p style="color: #888; font-size: 0.8rem; margin: 0;">Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Get latest MSF component values
+    render_section_header(
+        title="MSF Component Breakdown",
+        description="Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)",
+        icon="layers",
+        accent="cyan"
+    )    # Get latest MSF component values
     msf_latest_idx = min(len(msf_filtered) - 1, len(df) - 1)
     if msf_latest_idx >= 0 and not msf_filtered.empty:
         comp_names = ['momentum', 'structure', 'regime', 'flow']
@@ -2836,24 +2473,16 @@ def render_historical_mood(mood_df, msf_df):
             # Compute period average for context
             period_val = msf_filtered[name].mean() if name in msf_filtered.columns else 0
             
-            bar_pct = (val + 10) / 20 * 100  # Map [-10, +10] → [0%, 100%]
-            bar_pct = max(0, min(100, bar_pct))
-            
             with c_cols[j]:
-                st.markdown(f"""
-                <div style="background: #1A1A1A; border-radius: 10px; padding: 0.75rem; border: 1px solid #2A2A2A;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-                        <span style="font-size: 0.75rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{icon} {label}</span>
-                        <span style="font-size: 1.1rem; font-weight: 700; color: {color};">{val:+.1f}</span>
-                    </div>
-                    <div style="height: 6px; background: #2A2A2A; border-radius: 3px; position: relative;">
-                        <div style="position: absolute; left: 50%; top: 0; width: 1px; height: 6px; background: #555;"></div>
-                        <div style="width: {bar_pct:.0f}%; height: 100%; background: {color}; border-radius: 3px; opacity: 0.8;"></div>
-                    </div>
-                    <div style="font-size: 0.65rem; color: #555; margin-top: 0.3rem;">Period avg: {period_val:+.1f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
+                # Combine label and icon for the new card format
+                full_label = f"{icon} {label}"
+                render_metric_card(
+                    label=full_label,
+                    value=f"{val:+.1f}",
+                    subtext=f"Period avg: {period_val:+.1f}",
+                    val_color=color,
+                    color_class="neutral"
+                )
 # ══════════════════════════════════════════════════════════════════════════════
 # SIMILAR PERIODS VIEW
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3038,7 +2667,6 @@ def render_similar_periods(mood_df):
             fig_bt.add_vline(x=0, line_color='#555', line_width=1, line_dash='dot')
 
             fig_bt.update_layout(
-                **PLOTLY_BASE,
                 height=400,
                 xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor=C_BG_GRID),
                 yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor=C_BG_GRID),
@@ -3051,6 +2679,7 @@ def render_similar_periods(mood_df):
                 ),
             )
 
+            apply_chart_theme(fig_bt)
             st.plotly_chart(fig_bt, config={'displayModeBar': False})
 
             # Interpretation — report both in-sample and out-of-sample
