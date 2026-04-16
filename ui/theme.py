@@ -7,10 +7,14 @@ from __future__ import annotations
 from pathlib import Path
 import streamlit as st
 
+VERSION = "1.0.0"
+PRODUCT_NAME = "Arthagati"
+COMPANY = "@thebullishvalue"
+
 CSS_PATH = Path(__file__).parent / "theme.css"
 
 # ── Shared Plotly layout config ─────────────────────────────────────────────
-# Adapted from Nishkarsh Institutional Research Terminal
+# Adapted from Pragyam & Nishkarsh Institutional Research Terminal
 
 PLOTLY_FONT = dict(family="JetBrains Mono, monospace", color="#94A3B8", size=10)
 PLOTLY_HOVERLABEL = dict(
@@ -31,6 +35,16 @@ PLOTLY_LEGEND = dict(
 PLOTLY_MARGIN = dict(t=20, l=50, r=20, b=40)
 PLOTLY_GRID = "rgba(255,255,255,0.035)"
 PLOTLY_GRID_ZERO = "rgba(255,255,255,0.06)"
+
+# Interactive chart config — click + zoom + pan
+PLOTLY_MODEBAR = dict(
+    modeBarButtonsToRemove=["lasso2d", "select2d"],
+    modeBarButtonsToAdd=[
+        "drawline",
+        "eraseshape",
+    ],
+    displaylogo=False,
+)
 
 def chart_layout(
     height: int = 360,
@@ -104,6 +118,6 @@ def inject_css() -> None:
 
 
 def apply_chart_theme(fig) -> None:
-    """Apply the Nishkarsh theme to a Plotly figure."""
+    """Apply the Obsidian Quant Terminal theme to a Plotly figure (mutates in place)."""
     fig.update_layout(**chart_layout())
     style_axes(fig)
