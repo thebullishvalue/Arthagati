@@ -102,8 +102,18 @@ def section_gap() -> None:
 
 
 def section_divider() -> None:
-    """Insert a thin gradient divider line."""
+    """Insert a thin horizontal gradient divider line."""
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+
+def vertical_divider() -> None:
+    """Insert a vertical gradient divider with a centred amber dot.
+
+    Use inside a thin spacer column between two side-by-side sections —
+    e.g. ``st.columns([10, 1, 10])`` where the middle column hosts this
+    divider. Auto-hides on screens ≤ 768px where columns stack.
+    """
+    st.markdown('<div class="column-vdivider"></div>', unsafe_allow_html=True)
 
 
 # ── Cards ───────────────────────────────────────────────────────────────────
