@@ -231,6 +231,25 @@ def get_default_hyperparams() -> dict:
     return {k: globals()[k] for k in TUNABLE_HYPERPARAMS}
 
 
+# Set to True by ``calibration_quiet_mode()`` while Optuna trials run. The
+# engine's trailing per-call detail log line is suppressed when this is
+# True — otherwise N trials would emit N noisy log lines on the operator
+# console, drowning the structured calibration phase output.
+_CALIBRATION_QUIET: bool = False
+
+
+@_contextmanager
+def calibration_quiet_mode():
+    """Suppress engine detail logs for the duration of a calibration sweep."""
+    global _CALIBRATION_QUIET
+    prev = _CALIBRATION_QUIET
+    _CALIBRATION_QUIET = True
+    try:
+        yield
+    finally:
+        _CALIBRATION_QUIET = prev
+
+
 @_contextmanager
 def hyperparam_overrides(params: dict | None):
     """Temporarily swap engine-level hyperparameter constants.
@@ -1356,12 +1375,13 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
         'Regime': regime_labels,
     })
 
-    console.detail(
-        f"Mood engine complete — {n:,} rows in {time.time() - start_time:.2f}s  ·  "
-        f"OU: θ={theta:.3f} μ={mu:.2f} t½={ou_half_life:.0f}d  ·  "
-        f"Hurst={hurst_vals[-1]:.2f} Entropy={entropy_vals[-1]:.2f} Regime={regime_labels[-1]}  ·  "
-        f"Walk-forward checkpoints: {len(checkpoints)}"
-    )
+    if not _CALIBRATION_QUIET:
+        console.detail(
+            f"Mood engine complete — {n:,} rows in {time.time() - start_time:.2f}s  ·  "
+            f"OU: θ={theta:.3f} μ={mu:.2f} t½={ou_half_life:.0f}d  ·  "
+            f"Hurst={hurst_vals[-1]:.2f} Entropy={entropy_vals[-1]:.2f} Regime={regime_labels[-1]}  ·  "
+            f"Walk-forward checkpoints: {len(checkpoints)}"
+        )
     return result_df
 
 
@@ -1497,10 +1517,11 @@ def _calculate_msf_spread_impl(df, mood_col='Mood_Score', nifty_col='NIFTY', bre
     result['flow']       = flow_norm      * MSF_SCALE
     
     weight_str = '  '.join(f"{k}={v:.0%}" for k, v in weights.items())
-    console.detail(
-        f"MSF Spread complete — {time.time() - start_time:.2f}s  ·  "
-        f"Inverse-variance weights: {weight_str}"
-    )
+    if not _CALIBRATION_QUIET:
+        console.detail(
+            f"MSF Spread complete — {time.time() - start_time:.2f}s  ·  "
+            f"Inverse-variance weights: {weight_str}"
+        )
     return result
 
 
@@ -1701,7 +1722,9 @@ def _render_intelligence_passport() -> None:
         key="passport_intel_toggle",
     )
     if intel_on != prev_on:
+        # Toggling IM changes active hyperparams ⇒ engine output is stale.
         st.session_state.pop("_intel_calibration_done", None)
+        _invalidate_engine_cache()
     st.session_state["intelligence_mode"] = intel_on
 
     # ── Calibration settings (collapsed by default) ────────────────────
@@ -1726,14 +1749,16 @@ def _render_intelligence_passport() -> None:
                 help="Gap between train end and val start each fold.",
             )
 
-            # Changing any setting also invalidates the cal-done flag so the
-            # next Run Analysis rerun calibrates with the new config.
+            # Changing any setting invalidates the cal-done flag AND the
+            # engine output cache (new hyperparams may emerge from the
+            # re-search).
             _sig = (st.session_state["intel_n_trials"],
                     st.session_state["intel_n_folds"],
                     st.session_state["intel_embargo"])
             if st.session_state.get("_intel_settings_sig") != _sig:
                 st.session_state["_intel_settings_sig"] = _sig
                 st.session_state.pop("_intel_calibration_done", None)
+                _invalidate_engine_cache()
 
     # ── Status card ────────────────────────────────────────────────────
     if intel_on and profile is not None:
@@ -1787,6 +1812,99 @@ def _resolve_active_hyperparams() -> dict:
     return {k: v for k, v in profile.weights.items() if k in TUNABLE_HYPERPARAMS}
 
 
+def _compute_engine_output(
+    raw_df: pd.DataFrame,
+    selected_preds,
+    active_hp: dict,
+    prog_slot,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return (mood_df, msf_df), session-cached by input fingerprint.
+
+    This is the system's fast-path. On view-mode switches, timeframe
+    button clicks, predictor diff displays, theme toggles, expander
+    opens — anything that triggers a Streamlit rerun — the fingerprint
+    matches the previous run, the cached frames are returned, and the
+    engine doesn't run. Only changes to (raw_df, predictors, hyperparams)
+    invalidate the cache and force a recompute.
+
+    The cache lives in ``st.session_state`` (not ``@st.cache_data``)
+    because we mutate module globals via ``hyperparam_overrides`` — the
+    Streamlit cache key wouldn't see that and could return stale rows.
+    """
+    import intelligence as _intel
+
+    fp = _intel.dataset_fingerprint(raw_df, selected_preds, active_hp)
+    cached_fp = st.session_state.get("_engine_fp")
+    if cached_fp == fp:
+        cached_mood = st.session_state.get("_engine_mood_df")
+        cached_msf  = st.session_state.get("_engine_msf_df")
+        if cached_mood is not None and cached_msf is not None:
+            console.detail(
+                "Engine cache HIT — reusing mood + MSF frames "
+                f"({len(cached_mood):,} rows). Skipping recompute."
+            )
+            _progress_bar(_prog_done := prog_slot, 100, "Ready", "Engine Output Cached")
+            time.sleep(0.15)
+            prog_slot.empty()
+            return cached_mood, cached_msf
+
+    # ── Compute mood ────────────────────────────────────────────────────
+    console.start_phase("Sentiment Engine", num=4, total=5)
+    console.step(4, "OU normalisation · Kalman smoothing · 5-layer pipeline")
+    _progress_bar(
+        prog_slot, 80,
+        "Running Sentiment Engine",
+        "OU Normalisation · Kalman Smoothing · 5-Layer Pipeline"
+        + (" · Calibrated Weights" if active_hp else " · Factory Defaults"),
+    )
+    if active_hp:
+        with hyperparam_overrides(active_hp):
+            mood_df = _calculate_historical_mood_impl(raw_df, selected_preds)
+    else:
+        mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
+    if mood_df.empty:
+        prog_slot.empty()
+        console.error("calculate_historical_mood returned empty DataFrame")
+        console.end_phase("Sentiment Engine")
+        st.error("Failed to calculate mood scores.")
+        st.stop()
+    latest_mood = float(mood_df["Mood_Score"].iloc[-1])
+    console.success(f"Mood score computed: {latest_mood:+.2f}")
+    console.checkpoint("Mood frame integrity", "OK")
+    console.end_phase("Sentiment Engine")
+
+    # ── Compute MSF Spread ──────────────────────────────────────────────
+    console.start_phase("MSF Spread", num=5, total=5)
+    console.step(5, "Momentum · Structure · Regime · Flow (inverse-variance weights)")
+    _progress_bar(prog_slot, 95, "Computing MSF Spread", "Momentum · Structure · Regime · Flow")
+    if active_hp:
+        with hyperparam_overrides(active_hp):
+            msf_df = _calculate_msf_spread_impl(mood_df)
+    else:
+        msf_df = calculate_msf_spread(mood_df)
+    mood_df["MSF_Spread"] = msf_df["msf_spread"].values if not msf_df.empty else 0
+    latest_msf = float(mood_df["MSF_Spread"].iloc[-1]) if not mood_df.empty else 0.0
+    console.success(f"MSF Spread computed: {latest_msf:+.2f}")
+    console.end_phase("MSF Spread")
+
+    # ── Persist into session cache ──────────────────────────────────────
+    st.session_state["_engine_fp"]      = fp
+    st.session_state["_engine_mood_df"] = mood_df
+    st.session_state["_engine_msf_df"]  = msf_df
+
+    _progress_bar(prog_slot, 100, "Ready", "All Systems Nominal")
+    time.sleep(0.2)
+    prog_slot.empty()
+    return mood_df, msf_df
+
+
+def _invalidate_engine_cache() -> None:
+    """Drop the session-cached engine frames. Call when inputs change
+    (data refreshed, predictor set changed, IM toggled, profile imported)."""
+    for k in ("_engine_fp", "_engine_mood_df", "_engine_msf_df"):
+        st.session_state.pop(k, None)
+
+
 def _auto_calibrate_if_needed(
     raw_df: pd.DataFrame,
     active_predictors,
@@ -1794,27 +1912,47 @@ def _auto_calibrate_if_needed(
     pct_start: int,
     pct_end: int,
 ) -> dict:
-    """Run Intelligence-Mode auto-calibration if appropriate.
+    """Run Intelligence-Mode auto-calibration if and only if the saved profile
+    isn't already fresh for this (data, predictor set).
 
     Decision matrix:
-      • IM OFF                  → return {}, no work
-      • IM ON, already done     → return current active hyperparams (no re-run)
-      • IM ON, not yet done     → run Optuna search, persist profile,
-                                  set the one-shot ``_intel_calibration_done``
-                                  session flag, return new hyperparams
+      • IM OFF                                  → {}, no work
+      • IM ON · session flag set                → reuse hyperparams in session
+      • IM ON · disk profile fresh              → use disk profile, no calibration
+      • IM ON · stale / missing / mismatch      → run full calibration
 
-    Progress callback maps ``trial_num / n_trials`` linearly onto the
-    ``pct_start → pct_end`` slice of the global progress bar so the rest
-    of the pipeline phases keep marching forward.
+    "Fresh" is defined in ``intelligence.is_profile_fresh``: profile exists,
+    has positive val IR, matches the active predictor count, was fit on
+    data ≤ PROFILE_FRESHNESS_DAYS old. This is what makes the system feel
+    instant on repeat visits — calibration is heavy work that only runs
+    when its inputs have materially changed.
     """
     import intelligence as _intel
 
     if not st.session_state.get("intelligence_mode"):
         return {}
 
-    # Already calibrated in this session — just use the saved profile.
+    # Same Streamlit session — short-circuit on the in-memory flag.
     if st.session_state.get("_intel_calibration_done"):
         return _resolve_active_hyperparams()
+
+    # Cross-session check: is the saved profile still valid for this run?
+    existing = _intel.load_active_profile()
+    fresh, reason = _intel.is_profile_fresh(existing, raw_df, active_predictors)
+    if fresh and existing is not None:
+        console.section("Intelligence: Using Cached Profile", phase="INTEL")
+        console.item("Status",       reason)
+        console.item("Profile",      f"{existing.quality_check} · val IR {existing.val_ir:+.4f}")
+        console.item("Fit on",       existing.data_end)
+        console.item("Predictors",   f"{existing.n_predictors}")
+        console.success("Skipped calibration — cached profile is fresh")
+        st.session_state["_intel_calibration_done"] = True
+        st.session_state["intel_last_profile"] = existing
+        return {k: v for k, v in (existing.weights or {}).items() if k in TUNABLE_HYPERPARAMS}
+
+    # Stale / missing → run a fresh calibration.
+    console.section("Intelligence: Recalibrating", phase="INTEL")
+    console.item("Reason", reason)
 
     n_trials = int(st.session_state.get("intel_n_trials", _intel.DEFAULT_TRIALS))
     n_folds  = int(st.session_state.get("intel_n_folds",  _intel.DEFAULT_FOLDS))
@@ -1824,7 +1962,6 @@ def _auto_calibrate_if_needed(
     console.step(3, f"Auto-calibrating · {n_trials} trials · {n_folds} folds · embargo {embargo}d")
     console.item("Predictors",           f"{len(active_predictors)}")
     console.item("Horizons",             " · ".join(f"+{h}D" for h in _intel.DEFAULT_HORIZONS))
-    console.item("Train + Val rows",     f"{len(raw_df):,}")
 
     _progress_bar(
         prog_slot, pct_start,
@@ -1837,6 +1974,7 @@ def _auto_calibrate_if_needed(
             raw_df, active_predictors,
             n_folds=n_folds, embargo_days=embargo,
         )
+        console.item("Calibration dataset", f"{tuner.n:,} rows (full history, fidelity-preserving)")
     except ValueError as exc:
         # Dataset too thin for CV — fall back to defaults, don't block the run.
         console.warning(f"Calibration skipped: {exc}")
@@ -1983,8 +2121,9 @@ def main():
         sidebar_title("Controls", icon="settings")
         if st.button("Refresh Data", use_container_width=True):
             st.cache_data.clear()
-            # Fresh data ⇒ any cached calibration is stale; force re-run.
+            # Fresh data ⇒ any cached calibration + engine output is stale.
             st.session_state.pop("_intel_calibration_done", None)
+            _invalidate_engine_cache()
             st.rerun()
         section_divider()
 
@@ -2024,9 +2163,10 @@ def main():
             if apply_clicked and has_changes:
                 st.session_state["active_predictors"] = tuple(staging_predictors)
                 st.cache_data.clear()
-                # Different predictor set ⇒ the calibrated profile no longer
-                # applies; force a fresh calibration on the next rerun.
+                # Different predictor set ⇒ the calibrated profile + engine
+                # output no longer apply; force a fresh run.
                 st.session_state.pop("_intel_calibration_done", None)
+                _invalidate_engine_cache()
                 st.rerun()
 
             active_count = len(st.session_state["active_predictors"])
@@ -2087,51 +2227,13 @@ def main():
     else:
         console.detail("Engine running on factory defaults (IM off or no edge)")
 
-    # ── Phase 4 · Sentiment engine (calibrated weights applied if any) ─────
-    console.start_phase("Sentiment Engine", num=4, total=5)
-    console.step(4, "OU normalisation · Kalman smoothing · 5-layer pipeline")
-    _progress_bar(
-        _prog, 80,
-        "Running Sentiment Engine",
-        "OU Normalisation · Kalman Smoothing · 5-Layer Pipeline"
-        + (" · Calibrated Weights" if active_hp else " · Factory Defaults"),
-    )
-    # When hyperparams are overridden we deliberately bypass the
-    # @st.cache_data wrapper — caching on swapped globals would return
-    # stale rows for tuned configs.
-    if active_hp:
-        with hyperparam_overrides(active_hp):
-            mood_df = _calculate_historical_mood_impl(raw_df, selected_preds)
-    else:
-        mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
-    if mood_df.empty:
-        _prog.empty()
-        console.error("calculate_historical_mood returned empty DataFrame")
-        console.end_phase("Sentiment Engine")
-        st.error("Failed to calculate mood scores.")
-        st.stop()
+    # ── Phases 4-5 · Sentiment engine + MSF Spread (session-cached) ───────
+    # _compute_engine_output is the smart fast-path: on view/timeframe
+    # switches it returns the cached frames in milliseconds; only true
+    # input changes trigger a recompute.
+    mood_df, msf_df = _compute_engine_output(raw_df, selected_preds, active_hp, _prog)
     latest_mood = float(mood_df["Mood_Score"].iloc[-1])
-    console.success(f"Mood score computed: {latest_mood:+.2f}")
-    console.checkpoint("Mood frame integrity", "OK" if not mood_df.empty else "FAIL")
-    console.end_phase("Sentiment Engine")
-
-    # ── Phase 5 · MSF Spread ──────────────────────────────────────────────
-    console.start_phase("MSF Spread", num=5, total=5)
-    console.step(5, "Momentum · Structure · Regime · Flow (inverse-variance weights)")
-    _progress_bar(_prog, 93, "Computing MSF Spread", "Momentum · Structure · Regime · Flow · Inverse-Variance Weights")
-    if active_hp:
-        with hyperparam_overrides(active_hp):
-            msf_df = _calculate_msf_spread_impl(mood_df)
-    else:
-        msf_df = calculate_msf_spread(mood_df)
-    mood_df["MSF_Spread"] = msf_df["msf_spread"].values if not msf_df.empty else 0
-    latest_msf = float(mood_df["MSF_Spread"].iloc[-1]) if not mood_df.empty else 0.0
-    console.success(f"MSF Spread computed: {latest_msf:+.2f}")
-    console.end_phase("MSF Spread")
-
-    _progress_bar(_prog, 100, "Ready", "All Systems Nominal")
-    time.sleep(0.25)
-    _prog.empty()
+    latest_msf  = float(mood_df["MSF_Spread"].iloc[-1])
 
     # ── Pipeline summary ──────────────────────────────────────────────────
     _last = mood_df.iloc[-1]

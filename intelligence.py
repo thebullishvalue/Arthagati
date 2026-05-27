@@ -75,13 +75,30 @@ DEFAULT_EMBARGO_DAYS: int = 5     # gap between train end and val start per fold
 DEFAULT_TRAIN_FRAC: float = 0.70  # only used for the legacy single-split view
 DEFAULT_L2_ALPHA: float = 0.001
 
+# Calibration runs on the FULL dataset for fidelity. Cost is amortised by:
+#   1. Cross-session profile caching (profile is reused if (data_end_date,
+#      predictor count) match the active profile's fingerprint)
+#   2. Session-level engine-output caching (mood_df + msf_df are cached
+#      by input fingerprint, so view/timeframe switches are O(1))
+# A user calibrates ONCE per genuine input change, not once per Run Analysis.
+CALIBRATION_MAX_ROWS: int | None = None   # None == full dataset
+
+# Stale-profile threshold — re-calibrate if the saved profile was fit on
+# data older than this. NIFTY's structural regime doesn't change weekly,
+# so 14 days is a safe re-calibration cadence.
+PROFILE_FRESHNESS_DAYS: int = 14
+
+# Optuna pruner cutoffs (MedianPruner)
+PRUNER_WARMUP_TRIALS: int = 8     # finish this many trials before pruning anyone
+PRUNER_WARMUP_STEPS:  int = 1     # report intermediate value after this many steps
+
 # ── Quality gate thresholds (used when deciding to ship a profile) ──────
 GATE_MIN_VAL_IR: float = 0.0        # val IR must be strictly > 0
 GATE_OVERFIT_STABILITY: float = 0.30  # val/train ratio floor — below this == overfit
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Search-space definitions
+# Search-space definitions (full bounds — fidelity-preserving)
 # ──────────────────────────────────────────────────────────────────────────────
 
 SEARCH_SPACE: dict[str, dict] = {
@@ -229,6 +246,83 @@ def list_profiles() -> list[Path]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Profile freshness + dataset fingerprints
+# ──────────────────────────────────────────────────────────────────────────────
+
+def profile_age_days(profile: CalibrationProfile) -> float:
+    """Approximate age of a profile in days (UTC). 9e9 if timestamp is malformed."""
+    try:
+        ts = profile.timestamp.replace("Z", "")
+        fit_at = datetime.fromisoformat(ts)
+        return (datetime.utcnow() - fit_at).total_seconds() / 86400.0
+    except Exception:
+        return 9e9
+
+
+def is_profile_fresh(
+    profile: CalibrationProfile | None,
+    raw_df: pd.DataFrame,
+    active_predictors: Iterable[str],
+    *,
+    max_age_days: float = PROFILE_FRESHNESS_DAYS,
+) -> tuple[bool, str]:
+    """Return (fresh?, reason). Used by the auto-calibrator to decide whether
+    to skip calibration this run.
+
+    Fresh ⇔ all of:
+      • profile exists and quality_check != "No Edge"
+      • profile.data_end is within max_age_days of raw_df's last row
+      • profile.n_predictors == len(active_predictors)
+      • profile age (timestamp) is within max_age_days
+    """
+    if profile is None:
+        return False, "no profile on disk"
+    if profile.quality_check == "No Edge":
+        return False, "previous calibration failed quality gate"
+
+    n_active = len(tuple(active_predictors))
+    if profile.n_predictors != n_active:
+        return False, f"predictor count changed ({profile.n_predictors} → {n_active})"
+
+    data_end = pd.Timestamp(raw_df["DATE"].max())
+    try:
+        profile_end = pd.Timestamp(profile.data_end)
+        gap_days = (data_end - profile_end).days
+    except Exception:
+        return False, "profile data_end is malformed"
+    if gap_days > max_age_days:
+        return False, f"data extends {gap_days}d beyond profile (>{max_age_days}d threshold)"
+    if gap_days < -1:
+        # profile claims newer data than what we have — suspicious; recalibrate
+        return False, f"profile data_end is in the future ({-gap_days}d ahead)"
+
+    age = profile_age_days(profile)
+    if age > max_age_days:
+        return False, f"profile is {age:.0f}d old (>{max_age_days}d threshold)"
+
+    return True, f"profile fresh · {age:.1f}d old · data within {gap_days}d"
+
+
+def dataset_fingerprint(
+    raw_df: pd.DataFrame,
+    predictors: Iterable[str],
+    hyperparams: dict,
+) -> tuple:
+    """Hashable fingerprint of the inputs that determine engine output.
+
+    Used as a session-state cache key for ``mood_df`` and ``msf_df`` so
+    view-switches and timeframe-button clicks don't rerun the engine.
+    """
+    return (
+        int(len(raw_df)),
+        str(raw_df["DATE"].iloc[0].date()) if len(raw_df) else "",
+        str(raw_df["DATE"].iloc[-1].date()) if len(raw_df) else "",
+        tuple(sorted(predictors)),
+        tuple(sorted((k, v) for k, v in hyperparams.items())),
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Walk-forward CV: fold generator
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -358,10 +452,12 @@ def _run_pipeline(raw_df: pd.DataFrame, dependent_vars, hyperparams: dict) -> np
     """Run the engine with the given hyperparams and return the Mood_Score array.
 
     Deferred imports avoid circular dependency with arthagati at module load.
+    Calibration-quiet mode suppresses the engine's per-call detail log so
+    the operator console stays readable across a 20-trial sweep.
     """
     import arthagati  # local import — engine + override CM
 
-    with arthagati.hyperparam_overrides(hyperparams):
+    with arthagati.calibration_quiet_mode(), arthagati.hyperparam_overrides(hyperparams):
         mood_df = arthagati._calculate_historical_mood_impl(raw_df, dependent_vars)
     if mood_df is None or mood_df.empty:
         return np.array([])
@@ -417,15 +513,34 @@ class IntelligenceTuner:
         n_folds: int = DEFAULT_FOLDS,
         embargo_days: int = DEFAULT_EMBARGO_DAYS,
         l2_alpha: float = DEFAULT_L2_ALPHA,
+        max_rows: int | None = CALIBRATION_MAX_ROWS,
     ):
+        """Build a calibration tuner.
+
+        Parameters
+        ----------
+        max_rows :
+            If set, calibration runs on only the LAST ``max_rows`` rows of
+            ``raw_df``. The default (1500 ≈ 6 trading years) keeps trials
+            fast while preserving recent regime dynamics. Pass ``None`` to
+            calibrate on the full dataset (slow).
+        """
         import arthagati  # for default hyperparams
 
-        self.raw_df          = raw_df.copy()  # frozen snapshot
+        # Frozen snapshot. Default behaviour (max_rows=None) calibrates on
+        # the full dataset for fidelity — engine + profile output caches
+        # make the once-per-fortnight wall time acceptable.
+        src = raw_df.copy()
+        if max_rows is not None and len(src) > max_rows:
+            src = src.tail(max_rows).reset_index(drop=True)
+        self.raw_df          = src
+
         self.dependent_vars  = tuple(dependent_vars)
         self.horizons        = tuple(int(h) for h in horizons)
         self.n_folds         = int(n_folds)
         self.embargo_days    = int(embargo_days)
         self.l2_alpha        = float(l2_alpha)
+        self.max_rows        = max_rows
         self.defaults        = arthagati.get_default_hyperparams()
 
         self.nifty_arr       = self.raw_df["NIFTY"].to_numpy(dtype=np.float64)
@@ -477,7 +592,12 @@ class IntelligenceTuner:
         seed: int = 42,
         progress_callback: Callable[[int, int, float], None] | None = None,
     ) -> CalibrationProfile:
-        """Run TPE Bayesian search. Returns the best validated profile."""
+        """Run TPE Bayesian search with median pruning.
+
+        The objective runs the mood engine once per trial, scores it on
+        each (fold, horizon) pair, and reports an intermediate value after
+        each fold so MedianPruner can short-circuit obviously-bad trials.
+        """
         try:
             import optuna  # type: ignore
         except ImportError as exc:
@@ -499,9 +619,41 @@ class IntelligenceTuner:
 
         def _objective(trial) -> float:
             hp = _suggest(trial)
-            train_ir, val_ir, _, _ = self._score(hp)
-            # Validation IR is the primary signal; mild train weight prevents
-            # accepting hyperparams that fail entirely on train.
+            # One engine run per trial — produces the mood-score array.
+            try:
+                mood_arr = _run_pipeline(self.raw_df, self.dependent_vars, hp)
+            except Exception as exc:
+                warnings.warn(f"Pipeline failure on hyperparams={hp}: {exc}")
+                return -100.0
+            if len(mood_arr) != self.n:
+                return -100.0
+
+            # Walk folds in order, reporting intermediate val IR each step.
+            # MedianPruner uses these reports to abort losing trials early.
+            train_rhos: list[float] = []
+            val_rhos:   list[float] = []
+            for step, (train_slc, val_slc) in enumerate(self.folds):
+                train_rhos.extend(_fold_score(mood_arr, self.nifty_arr, train_slc, self.horizons))
+                val_rhos.extend(  _fold_score(mood_arr, self.nifty_arr, val_slc,   self.horizons))
+                # Intermediate IR (partial — fewer folds so far)
+                if val_rhos:
+                    v = np.asarray([r for r in val_rhos if np.isfinite(r)], dtype=np.float64)
+                    if len(v) >= 3:
+                        partial_ir = float(v.mean() / max(v.std(ddof=1), 1e-6))
+                        trial.report(partial_ir, step)
+                        if trial.should_prune():
+                            raise optuna.TrialPruned()
+
+            # Final scores
+            def _ir(rhos: list[float]) -> float:
+                arr = np.asarray([r for r in rhos if np.isfinite(r)], dtype=np.float64)
+                if len(arr) < 3:
+                    return 0.0
+                return float(arr.mean() / max(arr.std(ddof=1), 1e-6))
+
+            train_ir = _ir(train_rhos)
+            val_ir   = _ir(val_rhos)
+
             score = 0.65 * val_ir + 0.35 * train_ir
             score -= _l2_penalty(hp, self.defaults, self.l2_alpha)
             if progress_callback:
@@ -514,6 +666,10 @@ class IntelligenceTuner:
         self.study = optuna.create_study(
             direction="maximize",
             sampler=optuna.samplers.TPESampler(seed=seed),
+            pruner=optuna.pruners.MedianPruner(
+                n_startup_trials=PRUNER_WARMUP_TRIALS,
+                n_warmup_steps=PRUNER_WARMUP_STEPS,
+            ),
         )
         self.study.optimize(_objective, n_trials=n_trials, show_progress_bar=False)
 
