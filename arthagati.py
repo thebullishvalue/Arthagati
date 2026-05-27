@@ -124,13 +124,11 @@ EXPECTED_COLUMNS = [
 ]
 
 DEPENDENT_VARS = [
-    'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'BREADTH', 'COUNT',
+    'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'COUNT',
     'IN10Y', 'IN02Y', 'IN30Y', 'INIRYY',
-    'REPO', 'CRR',
-    'US02Y', 'US10Y', 'US30Y', 'US_FED',
+    'REPO',
+    'US02Y', 'US10Y', 'US30Y',
     'NIFTY50_DY', 'NIFTY50_PB',
-    'PE_DEV', 'EY_DEV',
-    'IN_TERM_SPREAD', 'US_TERM_SPREAD',  # derived yield-curve slopes
 ]
 
 # Columns that are anchors or index keys, never predictors
