@@ -2234,7 +2234,8 @@ def main():
     ]
     current_preds = st.session_state.get("active_predictors")
     if not current_preds:
-        st.session_state["active_predictors"] = tuple(available_predictors)
+        default_preds = [p for p in DEPENDENT_VARS if p in available_predictors]
+        st.session_state["active_predictors"] = tuple(default_preds) if default_preds else tuple(available_predictors)
     else:
         valid = tuple(p for p in current_preds if p in available_predictors)
         st.session_state["active_predictors"] = valid if valid else tuple(available_predictors)

@@ -424,6 +424,46 @@ def quality_check(train_ir: float, val_ir: float) -> tuple[str, str]:
     return "Quality OK", "success"
 
 
+def score_series_ir(
+    series: np.ndarray,
+    mood_df: pd.DataFrame,
+    horizons: Iterable[int] = DEFAULT_HORIZONS,
+    n_folds: int = DEFAULT_FOLDS,
+    embargo_days: int = DEFAULT_EMBARGO_DAYS,
+) -> tuple[float, float, dict[int, float]]:
+    """Compute (train_ir, val_ir, per_horizon_val_ir) for any 1-D signal
+    aligned to ``mood_df``.
+
+    Used by the Intelligence Center to compute the baseline ``raw Mood
+    Score`` IR alongside the calibrated conviction IR, so users can see
+    the actual lift the ensemble provides.
+    """
+    n = len(mood_df)
+    if len(series) != n or n < 252:
+        return 0.0, 0.0, {int(h): 0.0 for h in horizons}
+    folds = _walk_forward_folds(n, n_folds, embargo_days, 252)
+    if not folds:
+        return 0.0, 0.0, {int(h): 0.0 for h in horizons}
+
+    nifty = mood_df["NIFTY"].to_numpy(dtype=np.float64)
+    sig   = np.asarray(series, dtype=np.float64)
+    fwd   = _precompute_forward_returns(nifty, horizons)
+
+    train_rhos: list[float] = []
+    val_rhos:   list[float] = []
+    per_h_val: dict[int, list[float]] = {int(h): [] for h in horizons}
+    for train_slc, val_slc in folds:
+        for h in horizons:
+            h_int = int(h)
+            r_t = _spearman_safe(sig[train_slc], fwd[h_int][train_slc])
+            r_v = _spearman_safe(sig[val_slc],   fwd[h_int][val_slc])
+            train_rhos.append(r_t)
+            val_rhos.append(r_v)
+            per_h_val[h_int].append(r_v)
+    per_h_ir = {h: _ir(rhos) for h, rhos in per_h_val.items()}
+    return _ir(train_rhos), _ir(val_rhos), per_h_ir
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public tuner — fast post-engine ensemble calibration
 # ──────────────────────────────────────────────────────────────────────────────
