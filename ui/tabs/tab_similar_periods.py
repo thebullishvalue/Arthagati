@@ -80,46 +80,54 @@ def _render_period_card(period: dict) -> None:
 
     mood_color = "pos" if mood_val > 0 else "neg" if mood_val < 0 else "neutral"
 
+    # NOTE on layout: the multi-line f-string below has NO blank lines and
+    # starts at column 0 (`f"""\`). Both rules are load-bearing:
+    #
+    #   • Streamlit feeds the string to a CommonMark parser. A blank line
+    #     inside an HTML block CLOSES the block; subsequent indented HTML
+    #     then renders as raw text (indented code block).
+    #   • The opening tag must have ≤3 spaces of leading indent to be
+    #     recognised as an HTML block at all.
+    #
+    # If you reformat this, keep the first line flush-left and avoid blank
+    # lines between sub-elements.
     st.markdown(
-        f"""
-        <div class="position-card analog-card {tier_cls}">
-            <div class="analog-card-head">
-                <div class="analog-card-id">
-                    <div class="analog-eyebrow">Analog · Historical Match</div>
-                    <div class="analog-symbol">{html_mod.escape(period['date'])}</div>
-                </div>
-                <span class="position-card-badge {badge_cls}">{badge_label}</span>
-            </div>
-
-            <div class="analog-stat-row">
-                <div class="analog-stat">
-                    <span class="analog-stat-label">Similarity</span>
-                    <span class="analog-stat-value amber">{similarity_pct:.1f}%</span>
-                </div>
-                <div class="analog-stat">
-                    <span class="analog-stat-label">Mood at T</span>
-                    <span class="analog-stat-value {mood_color}">{mood_val:+.1f}</span>
-                </div>
-                <div class="analog-stat">
-                    <span class="analog-stat-label">NIFTY at T</span>
-                    <span class="analog-stat-value">{nifty_val:,.0f}</span>
-                </div>
-            </div>
-
-            <div class="analog-fwd-block">
-                <div class="analog-fwd-block-label">Forward NIFTY Return</div>
-                <div class="analog-fwd-grid">{fwd_tiles}</div>
-            </div>
-
-            <div class="analog-card-foot">
-                <span class="analog-foot-label">Similarity</span>
-                <div class="conviction-bar">
-                    <div class="conviction-bar-fill {bar_cls}" style="width:{similarity_pct:.0f}%;"></div>
-                </div>
-                <span class="analog-foot-pct">{similarity_pct:.0f}%</span>
-            </div>
-        </div>
-        """,
+        f"""\
+<div class="position-card analog-card {tier_cls}">
+  <div class="analog-card-head">
+    <div class="analog-card-id">
+      <div class="analog-eyebrow">Analog · Historical Match</div>
+      <div class="analog-symbol">{html_mod.escape(period['date'])}</div>
+    </div>
+    <span class="position-card-badge {badge_cls}">{badge_label}</span>
+  </div>
+  <div class="analog-stat-row">
+    <div class="analog-stat">
+      <span class="analog-stat-label">Similarity</span>
+      <span class="analog-stat-value amber">{similarity_pct:.1f}%</span>
+    </div>
+    <div class="analog-stat">
+      <span class="analog-stat-label">Mood at T</span>
+      <span class="analog-stat-value {mood_color}">{mood_val:+.1f}</span>
+    </div>
+    <div class="analog-stat">
+      <span class="analog-stat-label">NIFTY at T</span>
+      <span class="analog-stat-value">{nifty_val:,.0f}</span>
+    </div>
+  </div>
+  <div class="analog-fwd-block">
+    <div class="analog-fwd-block-label">Forward NIFTY Return</div>
+    <div class="analog-fwd-grid">{fwd_tiles}</div>
+  </div>
+  <div class="analog-card-foot">
+    <span class="analog-foot-label">Similarity</span>
+    <div class="conviction-bar">
+      <div class="conviction-bar-fill {bar_cls}" style="width:{similarity_pct:.0f}%;"></div>
+    </div>
+    <span class="analog-foot-pct">{similarity_pct:.0f}%</span>
+  </div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 

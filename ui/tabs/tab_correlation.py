@@ -18,6 +18,7 @@ from ui.components import (
     render_interpretation_card,
     section_divider,
     section_gap,
+    vertical_divider,
 )
 
 
@@ -44,19 +45,21 @@ def _render_corr_card(variable: str, corr_val: float) -> None:
     bar_pct = min(abs(corr_val) * 100, 100)
     value_cls = "pos" if corr_val > 0 else "neg"
 
+    # See _render_period_card for the rationale behind flush-left + no
+    # blank lines in this f-string.
     st.markdown(
-        f"""
-        <div class="position-card corr-card {tier_cls}">
-            <div class="corr-card-row">
-                <div class="corr-card-var">{html_mod.escape(variable)}</div>
-                <div class="corr-card-val {value_cls}">{corr_val:+.2f}</div>
-            </div>
-            <div class="conviction-bar corr-card-bar">
-                <div class="conviction-bar-fill {fill_cls}" style="width:{bar_pct:.0f}%;"></div>
-            </div>
-            <div class="corr-card-tier">{tier_label}</div>
-        </div>
-        """,
+        f"""\
+<div class="position-card corr-card {tier_cls}">
+  <div class="corr-card-row">
+    <div class="corr-card-var">{html_mod.escape(variable)}</div>
+    <div class="corr-card-val {value_cls}">{corr_val:+.2f}</div>
+  </div>
+  <div class="conviction-bar corr-card-bar">
+    <div class="conviction-bar-fill {fill_cls}" style="width:{bar_pct:.0f}%;"></div>
+  </div>
+  <div class="corr-card-tier">{tier_label}</div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 
@@ -96,36 +99,37 @@ def _render_qual_card(rank: int, row: dict, max_quality: float) -> None:
     active_dot = "●" if row["active"] else "○"
     active_label = "Active" if row["active"] else "Inactive"
 
+    # Flush-left + no blank lines — see _render_period_card.
     st.markdown(
-        f"""
-        <div class="position-card qual-card {tier_cls}">
-            <div class="qual-card-head">
-                <div class="qual-card-id">
-                    <span class="qual-card-rank">{rank:02d}</span>
-                    <span class="qual-card-var">{html_mod.escape(row['variable'])}</span>
-                </div>
-                <span class="position-card-badge {badge_cls}">{badge_label}</span>
-            </div>
-            <div class="conviction-bar qual-card-bar">
-                <div class="conviction-bar-fill {fill_cls}" style="width:{bar_pct:.0f}%;"></div>
-            </div>
-            <div class="qual-card-stats">
-                <div class="qual-stat">
-                    <span class="qual-stat-label">|ρ|</span>
-                    <span class="qual-stat-value">{row['avg_corr']:.2f}</span>
-                </div>
-                <div class="qual-stat">
-                    <span class="qual-stat-label">H</span>
-                    <span class="qual-stat-value">{row['entropy']:.2f}</span>
-                </div>
-                <div class="qual-stat">
-                    <span class="qual-stat-label">Coverage</span>
-                    <span class="qual-stat-value">{row['coverage']:.0f}%</span>
-                </div>
-                <div class="qual-card-active {active_state}">{active_dot} {active_label}</div>
-            </div>
-        </div>
-        """,
+        f"""\
+<div class="position-card qual-card {tier_cls}">
+  <div class="qual-card-head">
+    <div class="qual-card-id">
+      <span class="qual-card-rank">{rank:02d}</span>
+      <span class="qual-card-var">{html_mod.escape(row['variable'])}</span>
+    </div>
+    <span class="position-card-badge {badge_cls}">{badge_label}</span>
+  </div>
+  <div class="conviction-bar qual-card-bar">
+    <div class="conviction-bar-fill {fill_cls}" style="width:{bar_pct:.0f}%;"></div>
+  </div>
+  <div class="qual-card-stats">
+    <div class="qual-stat">
+      <span class="qual-stat-label">|ρ|</span>
+      <span class="qual-stat-value">{row['avg_corr']:.2f}</span>
+    </div>
+    <div class="qual-stat">
+      <span class="qual-stat-label">H</span>
+      <span class="qual-stat-value">{row['entropy']:.2f}</span>
+    </div>
+    <div class="qual-stat">
+      <span class="qual-stat-label">Coverage</span>
+      <span class="qual-stat-value">{row['coverage']:.0f}%</span>
+    </div>
+    <div class="qual-card-active {active_state}">{active_dot} {active_label}</div>
+  </div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 
@@ -172,9 +176,13 @@ def render(
         )
 
     # ── PE & EY Correlations — side-by-side sections, each with a 2-col
-    #    nested card grid (cards = ~half-of-half width).
+    #    nested card grid (cards = ~half-of-half width). A thin amber-tinted
+    #    vertical divider sits between them to break up the dense grid.
     section_divider()
-    pe_col, ey_col = st.columns(2, gap="small")
+    pe_col, mid_col, ey_col = st.columns([10, 1, 10], gap="small")
+
+    with mid_col:
+        vertical_divider()
 
     with pe_col:
         render_section_header(
