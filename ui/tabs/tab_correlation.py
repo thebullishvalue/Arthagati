@@ -2,6 +2,7 @@
 Arthagati — Correlation & Predictor Analysis view.
 
 Decay-weighted Spearman vs PE/EY anchors + entropy quality ranking.
+Cards use the Obsidian Quant ``position-card`` system with tier accents.
 """
 
 from __future__ import annotations
@@ -16,121 +17,120 @@ from ui.components import (
     render_warning_box,
     render_interpretation_card,
     section_divider,
-    get_icon,
+    section_gap,
 )
 
 
-def _render_corr_row(variable: str, corr_val: float) -> None:
-    """One correlation row (variable name + bar + numeric value)."""
-    color = "var(--emerald-bright)" if corr_val > 0 else "var(--rose-bright)"
+# ── Correlation card ────────────────────────────────────────────────────────
+
+def _corr_tier(corr_val: float) -> tuple[str, str, str]:
+    """Map an absolute-correlation magnitude to (tier_cls, fill_cls, label)."""
+    abs_v = abs(corr_val)
+    direction = "Positive" if corr_val > 0 else "Negative"
+    if abs_v >= 0.5:
+        if corr_val > 0:
+            return "tier-strong-buy", "fill-strong-buy", f"Strong {direction}"
+        return "tier-caution",    "fill-caution",    f"Strong {direction}"
+    if abs_v >= 0.3:
+        if corr_val > 0:
+            return "tier-buy",     "fill-buy",        f"Moderate {direction}"
+        return "tier-caution",    "fill-caution",    f"Moderate {direction}"
+    return "tier-hold",            "fill-hold",       f"Weak {direction}"
+
+
+def _render_corr_card(variable: str, corr_val: float) -> None:
+    """One correlation entry rendered as a proper Obsidian Quant card."""
+    tier_cls, fill_cls, tier_label = _corr_tier(corr_val)
     bar_pct = min(abs(corr_val) * 100, 100)
-    if abs(corr_val) >= 0.5:
-        dot_color, dot_label = "var(--emerald)", "strong"
-    elif abs(corr_val) >= 0.3:
-        dot_color, dot_label = "var(--amber)", "moderate"
-    else:
-        dot_color, dot_label = "var(--ink-tertiary)", "weak"
+    value_cls = "pos" if corr_val > 0 else "neg"
 
     st.markdown(
         f"""
-        <div style="
-            display:flex; align-items:center; margin-bottom:0.4rem;
-            padding:0.55rem 0.8rem;
-            background: linear-gradient(145deg, rgba(17,24,39,0.45) 0%, rgba(17,24,39,0.35) 100%);
-            backdrop-filter: blur(6px);
-            border:1px solid var(--border); border-radius:var(--r-sm);
-            transition: all 200ms cubic-bezier(0.16,1,0.3,1);
-        ">
-            <span style="width:8px; height:8px; border-radius:50%;
-                         background:{dot_color}; box-shadow:0 0 6px {dot_color};
-                         margin-right:0.7rem;"
-                  title="{dot_label}"></span>
-            <span style="width:140px; font-family:var(--data); font-size:0.78rem;
-                         color:var(--ink-primary); font-weight:500;">
-                {html_mod.escape(variable)}
-            </span>
-            <div style="flex:1; height:5px; background:rgba(255,255,255,0.04);
-                        border-radius:3px; margin:0 12px; position:relative;">
-                <div style="width:{bar_pct}%; height:100%; background:{color};
-                            border-radius:3px; box-shadow:0 0 6px {color};"></div>
+        <div class="position-card corr-card {tier_cls}">
+            <div class="corr-card-row">
+                <div class="corr-card-var">{html_mod.escape(variable)}</div>
+                <div class="corr-card-val {value_cls}">{corr_val:+.2f}</div>
             </div>
-            <span style="width:64px; text-align:right; font-family:var(--data);
-                         font-size:0.78rem; color:{color}; font-weight:700;
-                         font-variant-numeric:tabular-nums;">
-                {corr_val:+.2f}
-            </span>
+            <div class="conviction-bar corr-card-bar">
+                <div class="conviction-bar-fill {fill_cls}" style="width:{bar_pct:.0f}%;"></div>
+            </div>
+            <div class="corr-card-tier">{tier_label}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-def _render_quality_row(rank: int, row: dict, max_quality: float) -> None:
-    """One predictor-quality row (ranked, with bar + recommendation badge)."""
-    bar_pct = (row["quality"] / max_quality) * 100 if max_quality else 0
+def _render_corr_grid(corrs: pd.DataFrame) -> None:
+    """Render a list of correlations as a 2-column card grid."""
+    if corrs is None or corrs.empty:
+        st.caption("No correlations computed. Check data source.")
+        return
+    corrs_display = corrs.sort_values("correlation", key=abs, ascending=False)
+    rows = list(corrs_display.iterrows())
+    cols = st.columns(2, gap="medium")
+    for i, (_, r) in enumerate(rows):
+        with cols[i % 2]:
+            _render_corr_card(r["variable"], r["correlation"])
+            st.markdown('<div style="height: var(--sp-2);"></div>', unsafe_allow_html=True)
 
+
+# ── Quality card ────────────────────────────────────────────────────────────
+
+def _qual_tier(row: dict, max_quality: float) -> tuple[str, str, str, str]:
+    """Map a quality row → (tier_cls, fill_cls, badge_cls, label)."""
     if row["quality"] >= max_quality * 0.5 and row["coverage"] > 50:
-        rec_label, badge_class = "KEEP", "badge-strong-buy"
-    elif row["quality"] >= max_quality * 0.2 and row["coverage"] > 30:
-        rec_label, badge_class = "USEFUL", "badge-hold"
-    elif row["coverage"] < 10:
-        rec_label, badge_class = "NO DATA", "badge-caution"
-    else:
-        rec_label, badge_class = "WEAK", "badge-caution"
+        return "tier-strong-buy", "fill-strong-buy", "badge-strong-buy", "Keep"
+    if row["quality"] >= max_quality * 0.2 and row["coverage"] > 30:
+        return "tier-hold",        "fill-hold",        "badge-hold",      "Useful"
+    if row["coverage"] < 10:
+        return "tier-caution",     "fill-caution",     "badge-caution",   "No Data"
+    return "tier-caution",         "fill-caution",     "badge-caution",   "Weak"
 
-    active_dot = (
-        '<span style="color:var(--amber);">●</span>'
-        if row["active"]
-        else '<span style="color:var(--ink-tertiary);">○</span>'
-    )
+
+def _render_qual_card(rank: int, row: dict, max_quality: float) -> None:
+    """One predictor-quality entry as a card."""
+    tier_cls, fill_cls, badge_cls, badge_label = _qual_tier(row, max_quality)
+    bar_pct = (row["quality"] / max_quality) * 100 if max_quality else 0
+    active_state = "active" if row["active"] else "inactive"
+    active_dot = "●" if row["active"] else "○"
     active_label = "Active" if row["active"] else "Inactive"
 
     st.markdown(
         f"""
-        <div style="
-            display:flex; align-items:center; gap:var(--sp-3);
-            margin-bottom:0.4rem; padding:0.6rem 0.85rem;
-            background: linear-gradient(145deg, rgba(17,24,39,0.45) 0%, rgba(17,24,39,0.35) 100%);
-            backdrop-filter: blur(6px);
-            border:1px solid {'rgba(212,168,83,0.18)' if row['active'] else 'var(--border)'};
-            border-radius:var(--r-sm);
-        ">
-            <span style="width:22px; font-family:var(--data); font-size:0.7rem;
-                         color:var(--ink-tertiary); font-weight:700;">
-                {rank:02d}
-            </span>
-            <span style="width:140px; font-family:var(--data); font-size:0.8rem;
-                         color:var(--ink-primary); font-weight:600;">
-                {html_mod.escape(row['variable'])}
-            </span>
-            <div style="flex:1; height:5px; background:rgba(255,255,255,0.04);
-                        border-radius:3px; position:relative;">
-                <div style="width:{bar_pct:.0f}%; height:100%;
-                            background:linear-gradient(90deg, var(--amber) 0%, var(--amber-bright) 100%);
-                            border-radius:3px; box-shadow:0 0 8px var(--amber-glow);"></div>
+        <div class="position-card qual-card {tier_cls}">
+            <div class="qual-card-head">
+                <div class="qual-card-id">
+                    <span class="qual-card-rank">{rank:02d}</span>
+                    <span class="qual-card-var">{html_mod.escape(row['variable'])}</span>
+                </div>
+                <span class="position-card-badge {badge_cls}">{badge_label}</span>
             </div>
-            <span style="width:64px; text-align:right; font-family:var(--data);
-                         font-size:0.7rem; color:var(--ink-secondary);
-                         font-variant-numeric:tabular-nums;">
-                |ρ| {row['avg_corr']:.2f}
-            </span>
-            <span style="width:64px; text-align:right; font-family:var(--data);
-                         font-size:0.7rem; color:var(--ink-secondary);
-                         font-variant-numeric:tabular-nums;">
-                H {row['entropy']:.2f}
-            </span>
-            <span class="position-card-badge {badge_class}" style="font-size:0.62rem; min-width:78px; justify-content:center;">
-                {rec_label}
-            </span>
-            <span style="width:90px; text-align:right; font-family:var(--data);
-                         font-size:0.7rem; color:var(--ink-secondary);">
-                {active_dot} {active_label}
-            </span>
+            <div class="conviction-bar qual-card-bar">
+                <div class="conviction-bar-fill {fill_cls}" style="width:{bar_pct:.0f}%;"></div>
+            </div>
+            <div class="qual-card-stats">
+                <div class="qual-stat">
+                    <span class="qual-stat-label">|ρ|</span>
+                    <span class="qual-stat-value">{row['avg_corr']:.2f}</span>
+                </div>
+                <div class="qual-stat">
+                    <span class="qual-stat-label">H</span>
+                    <span class="qual-stat-value">{row['entropy']:.2f}</span>
+                </div>
+                <div class="qual-stat">
+                    <span class="qual-stat-label">Coverage</span>
+                    <span class="qual-stat-value">{row['coverage']:.0f}%</span>
+                </div>
+                <div class="qual-card-active {active_state}">{active_dot} {active_label}</div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
+
+# ── Main view ───────────────────────────────────────────────────────────────
 
 def render(
     raw_df,
@@ -171,33 +171,33 @@ def render(
             ),
         )
 
-    # ── Correlation bars (PE + EY side by side) ──────────────────────────
+    # ── PE Ratio Correlations (full width, 2-col card grid) ──────────────
     section_divider()
-    col1, col2 = st.columns(2, gap="small")
+    render_section_header(
+        title="PE Ratio Correlations",
+        description="Variables ranked by |ρ| with NIFTY50_PE",
+        icon="chart",
+        accent="cyan",
+    )
+    if not anchor_health.get("NIFTY50_PE", {}).get("ok", False):
+        st.caption("NIFTY50_PE has insufficient data variance — correlations may be unreliable.")
+    pe_corrs = calculate_anchor_correlations(raw_df, "NIFTY50_PE", active_preds)
+    _render_corr_grid(pe_corrs)
 
-    def _render_corr_block(parent_col, anchor_col: str, title: str, icon: str):
-        with parent_col:
-            render_section_header(
-                title=title,
-                description=f"Variables ranked by |ρ| with {anchor_col}",
-                icon=icon,
-                accent="cyan" if anchor_col == "NIFTY50_PE" else "emerald",
-            )
-            if not anchor_health.get(anchor_col, {}).get("ok", False):
-                st.caption(f"{anchor_col} has insufficient data variance — correlations may be unreliable.")
-            corrs = calculate_anchor_correlations(raw_df, anchor_col, active_preds)
-            if corrs.empty:
-                st.caption("No correlations computed. Check data source.")
-                return corrs
-            corrs_display = corrs.sort_values("correlation", key=abs, ascending=False)
-            for _, r in corrs_display.iterrows():
-                _render_corr_row(r["variable"], r["correlation"])
-            return corrs
+    # ── Earnings Yield Correlations (full width, 2-col card grid) ────────
+    section_gap()
+    render_section_header(
+        title="Earnings Yield Correlations",
+        description="Variables ranked by |ρ| with NIFTY50_EY",
+        icon="bar-chart",
+        accent="emerald",
+    )
+    if not anchor_health.get("NIFTY50_EY", {}).get("ok", False):
+        st.caption("NIFTY50_EY has insufficient data variance — correlations may be unreliable.")
+    ey_corrs = calculate_anchor_correlations(raw_df, "NIFTY50_EY", active_preds)
+    _render_corr_grid(ey_corrs)
 
-    pe_corrs = _render_corr_block(col1, "NIFTY50_PE", "PE Ratio Correlations", "chart")
-    ey_corrs = _render_corr_block(col2, "NIFTY50_EY", "Earnings Yield Correlations", "bar-chart")
-
-    # ── Predictor quality assessment ─────────────────────────────────────
+    # ── Predictor Quality Assessment (full width, 2-col card grid) ───────
     section_divider()
     render_section_header(
         title="Predictor Quality Assessment",
@@ -245,8 +245,11 @@ def render(
         return
 
     max_quality = max(r["quality"] for r in quality_rows) or 1.0
-    for rank, row in enumerate(quality_rows, 1):
-        _render_quality_row(rank, row, max_quality)
+    qcols = st.columns(2, gap="medium")
+    for i, row in enumerate(quality_rows):
+        with qcols[i % 2]:
+            _render_qual_card(i + 1, row, max_quality)
+            st.markdown('<div style="height: var(--sp-2);"></div>', unsafe_allow_html=True)
 
     # ── Summary interpretation ───────────────────────────────────────────
     keep_count = sum(1 for r in quality_rows if r["quality"] >= max_quality * 0.5 and r["coverage"] > 50)
@@ -256,6 +259,7 @@ def render(
     )
     weak_count = len(quality_rows) - keep_count - useful_count
 
+    section_gap()
     summary_body = (
         f"<strong style='color:var(--emerald);'>{keep_count} strong</strong> predictors "
         f"(high correlation × low entropy) · "

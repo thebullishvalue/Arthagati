@@ -15,7 +15,6 @@ from ui.components import (
     render_metric_card,
     render_interpretation_card,
     section_divider,
-    get_icon,
 )
 from ui.theme import (
     C_AMBER,
@@ -29,58 +28,95 @@ from ui.theme import (
 )
 
 
+def _classify_mood(mood_val: float) -> tuple[str, str, str, str]:
+    """Map a mood score to (tier_class, badge_class, badge_label, bar_fill_class)."""
+    if mood_val >= 40:
+        return "tier-strong-buy", "badge-strong-buy", "Strong Bull", "fill-strong-buy"
+    if mood_val >= 15:
+        return "tier-buy",        "badge-buy",        "Bullish",     "fill-buy"
+    if mood_val <= -40:
+        return "tier-caution",    "badge-caution",    "Strong Bear", "fill-caution"
+    if mood_val <= -15:
+        return "tier-caution",    "badge-caution",    "Bearish",     "fill-caution"
+    return     "tier-hold",       "badge-hold",       "Neutral",     "fill-hold"
+
+
+def _render_fwd_tile(horizon: int, val: float | None) -> str:
+    """Render one forward-return tile in the analog card's footer grid."""
+    if val is None:
+        return (
+            f'<div class="analog-fwd-tile neutral">'
+            f'<span class="analog-fwd-label">+{horizon}D</span>'
+            f'<span class="analog-fwd-value">—</span>'
+            f"</div>"
+        )
+    cls = "pos" if val > 0 else "neg"
+    return (
+        f'<div class="analog-fwd-tile {cls}">'
+        f'<span class="analog-fwd-label">+{horizon}D</span>'
+        f'<span class="analog-fwd-value">{val:+.1f}%</span>'
+        f"</div>"
+    )
+
+
 def _render_period_card(period: dict) -> None:
-    """Render one analog-period card in the unified glass / corner-dot system."""
-    mood_val = period["mood_score"]
-    if mood_val > 20:
-        sig_class, sig_label = "buy", "Bullish"
-    elif mood_val < -20:
-        sig_class, sig_label = "sell", "Bearish"
-    else:
-        sig_class, sig_label = "hold", "Neutral"
+    """Render one analog-period card — Obsidian Quant fidelity.
 
-    fwd_html = ""
-    for horizon, key in [(30, "fwd_30d"), (60, "fwd_60d"), (90, "fwd_90d")]:
-        val = period.get(key)
-        if val is None:
-            fwd_html += (
-                f'<div class="position-signal">'
-                f'<span class="position-signal-label">+{horizon}D</span>'
-                f'<span class="position-signal-value">—</span>'
-                f"</div>"
-            )
-        else:
-            cls = "bullish" if val > 0 else "bearish"
-            fwd_html += (
-                f'<div class="position-signal">'
-                f'<span class="position-signal-label">+{horizon}D</span>'
-                f'<span class="position-signal-value {cls}">{val:+.1f}%</span>'
-                f"</div>"
-            )
-
+    Anatomy:
+      • Eyebrow + date (symbol) + tier badge
+      • Hero stat row: Similarity · Mood · NIFTY (3-col grid)
+      • Forward NIFTY Return tile group (3-col, signed-coloured)
+      • Footer: similarity progress bar
+    """
+    mood_val       = period["mood_score"]
     similarity_pct = period["similarity"] * 100
-    tier_class = f"tier-{'buy' if sig_class == 'buy' else 'caution' if sig_class == 'sell' else 'hold'}"
+    nifty_val      = period["nifty"]
+    tier_cls, badge_cls, badge_label, bar_cls = _classify_mood(mood_val)
+
+    fwd_tiles = "".join(
+        _render_fwd_tile(h, period.get(k))
+        for h, k in [(30, "fwd_30d"), (60, "fwd_60d"), (90, "fwd_90d")]
+    )
+
+    mood_color = "pos" if mood_val > 0 else "neg" if mood_val < 0 else "neutral"
 
     st.markdown(
         f"""
-        <div class="position-card {tier_class}">
-            <div class="position-card-header">
-                <div class="position-card-symbol">{html_mod.escape(period['date'])}</div>
-                <div class="position-card-conviction">
-                    <span class="position-card-score">{mood_val:+.1f}</span>
-                    <span class="position-card-badge badge-{sig_class}">{sig_label}</span>
+        <div class="position-card analog-card {tier_cls}">
+            <div class="analog-card-head">
+                <div class="analog-card-id">
+                    <div class="analog-eyebrow">Analog · Historical Match</div>
+                    <div class="analog-symbol">{html_mod.escape(period['date'])}</div>
+                </div>
+                <span class="position-card-badge {badge_cls}">{badge_label}</span>
+            </div>
+
+            <div class="analog-stat-row">
+                <div class="analog-stat">
+                    <span class="analog-stat-label">Similarity</span>
+                    <span class="analog-stat-value amber">{similarity_pct:.1f}%</span>
+                </div>
+                <div class="analog-stat">
+                    <span class="analog-stat-label">Mood at T</span>
+                    <span class="analog-stat-value {mood_color}">{mood_val:+.1f}</span>
+                </div>
+                <div class="analog-stat">
+                    <span class="analog-stat-label">NIFTY at T</span>
+                    <span class="analog-stat-value">{nifty_val:,.0f}</span>
                 </div>
             </div>
-            <div class="position-card-signals">
-                <div class="position-signal">
-                    <span class="position-signal-label">Similarity</span>
-                    <span class="position-signal-value" style="color:var(--amber-bright);">{similarity_pct:.1f}%</span>
+
+            <div class="analog-fwd-block">
+                <div class="analog-fwd-block-label">Forward NIFTY Return</div>
+                <div class="analog-fwd-grid">{fwd_tiles}</div>
+            </div>
+
+            <div class="analog-card-foot">
+                <span class="analog-foot-label">Similarity</span>
+                <div class="conviction-bar">
+                    <div class="conviction-bar-fill {bar_cls}" style="width:{similarity_pct:.0f}%;"></div>
                 </div>
-                <div class="position-signal">
-                    <span class="position-signal-label">NIFTY</span>
-                    <span class="position-signal-value">{period['nifty']:,.0f}</span>
-                </div>
-                {fwd_html}
+                <span class="analog-foot-pct">{similarity_pct:.0f}%</span>
             </div>
         </div>
         """,
@@ -137,9 +173,9 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
     for i, period in enumerate(similar_periods[:10]):
         with analog_cols[i % 2]:
             _render_period_card(period)
-            # Inter-row spacing — the gap="medium" handles horizontal, this
-            # adds vertical breathing room between rows on each column.
-            st.markdown('<div style="height: var(--sp-2);"></div>', unsafe_allow_html=True)
+            # Extra inter-row breathing room — the position-card animation has
+            # a translateX(-12) entry; pair it with vertical rhythm.
+            st.markdown('<div style="height: var(--sp-3);"></div>', unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════════════════
     # BACKTEST SANITY CHECK
