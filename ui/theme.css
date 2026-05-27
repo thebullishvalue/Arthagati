@@ -5456,3 +5456,384 @@ div[data-multi-file-uploader] > div {
 /* Sidebar Model Passport now reuses the .metric-card system directly —
    colour class (success / warning / neutral) drives the visual state.
    See _render_intelligence_passport() in arthagati.py. */
+
+/* ================================================================
+   Intelligence Center — Ensemble Weight cards
+   Extends .position-card · tier strip + bar + magnitude badge.
+   ================================================================ */
+.weight-card {
+    padding: var(--sp-4) var(--sp-5);
+    padding-left: calc(var(--sp-5) + 4px);
+}
+
+.weight-card::before { width: 3px; }
+
+.weight-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-3);
+    padding-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.weight-card-id {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.weight-eyebrow {
+    font-family: var(--data);
+    font-size: 0.56rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--ink-tertiary);
+}
+
+.weight-name {
+    font-family: var(--display);
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--ink-primary);
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+}
+
+.weight-key {
+    font-family: var(--data);
+    font-size: 0.6rem;
+    color: var(--ink-tertiary);
+    letter-spacing: 0.04em;
+}
+
+.weight-card-value {
+    font-family: var(--display);
+    font-size: 1.5rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: var(--sp-3);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+.weight-card-value.pos {
+    color: var(--emerald-bright);
+    text-shadow: 0 0 18px var(--emerald-glow);
+}
+
+.weight-card-value.neg {
+    color: var(--rose-bright);
+    text-shadow: 0 0 18px var(--rose-glow);
+}
+
+.weight-card-value.neutral { color: var(--ink-secondary); }
+
+.weight-card-bar {
+    height: 5px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: var(--sp-3);
+}
+
+.weight-card-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.weight-card-bar-fill.pos {
+    background: linear-gradient(90deg, var(--emerald) 0%, var(--emerald-bright) 100%);
+    box-shadow: 0 0 8px var(--emerald-glow);
+}
+
+.weight-card-bar-fill.neg {
+    background: linear-gradient(90deg, var(--rose) 0%, var(--rose-bright) 100%);
+    box-shadow: 0 0 8px var(--rose-glow);
+}
+
+.weight-card-bar-fill.neutral {
+    background: linear-gradient(90deg, var(--ink-tertiary) 0%, var(--slate-warm) 100%);
+}
+
+.weight-card-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--data);
+    font-size: 0.62rem;
+}
+
+.weight-foot-label {
+    color: var(--ink-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.56rem;
+}
+
+.weight-foot-val {
+    color: var(--ink-secondary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ================================================================
+   Intelligence Center — Parameter Importance cards
+   ================================================================ */
+.importance-card {
+    padding: var(--sp-4) var(--sp-5);
+    padding-left: calc(var(--sp-5) + 3px);
+}
+
+.importance-card::before {
+    width: 2px;
+    background: linear-gradient(180deg, var(--violet) 0%, var(--amber) 100%);
+}
+
+.importance-card-head {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-3);
+}
+
+.importance-rank {
+    font-family: var(--data);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--ink-tertiary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 0.2rem 0.5rem;
+    font-variant-numeric: tabular-nums;
+    min-width: 32px;
+    text-align: center;
+}
+
+.importance-id {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.importance-name {
+    font-family: var(--display);
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--ink-primary);
+    line-height: 1.2;
+}
+
+.importance-key {
+    font-family: var(--data);
+    font-size: 0.6rem;
+    color: var(--ink-tertiary);
+}
+
+.importance-pct {
+    font-family: var(--display);
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--amber-bright);
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 14px var(--amber-glow);
+}
+
+.importance-bar {
+    height: 5px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.importance-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--violet) 0%, var(--amber) 100%);
+    box-shadow: 0 0 8px rgba(139, 92, 246, 0.25);
+    border-radius: 3px;
+    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ================================================================
+   Intelligence Center — Profile stat-card grid
+   ================================================================ */
+.profile-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--sp-3);
+    margin-top: var(--sp-2);
+}
+
+.profile-stat {
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--sp-4) var(--sp-4);
+    position: relative;
+    overflow: hidden;
+    transition: all 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.profile-stat::before {
+    content: "";
+    position: absolute;
+    top: var(--sp-3);
+    right: var(--sp-3);
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 8px var(--cyan-glow);
+    opacity: 0.7;
+}
+
+.profile-stat:hover {
+    border-color: rgba(6, 182, 212, 0.20);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2), 0 0 14px var(--cyan-glow);
+}
+
+.profile-stat-label {
+    font-family: var(--data);
+    font-size: 0.56rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--ink-tertiary);
+    margin-bottom: var(--sp-2);
+    padding-right: 14px; /* leave room for the corner dot */
+}
+
+.profile-stat-value {
+    font-family: var(--display);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--ink-primary);
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    word-break: break-word;
+}
+
+.profile-stat-sub {
+    font-family: var(--data);
+    font-size: 0.62rem;
+    color: var(--ink-tertiary);
+    margin-top: var(--sp-2);
+    letter-spacing: 0.04em;
+}
+
+/* ================================================================
+   Intelligence Center — Calibration Impact: table + driver cards
+   ================================================================ */
+.impact-table tbody tr.total td {
+    border-top: 1px solid rgba(212, 168, 83, 0.25) !important;
+    font-weight: 700;
+    background: rgba(212, 168, 83, 0.04);
+}
+
+.impact-table tbody tr.total td.key {
+    color: var(--amber-bright);
+}
+
+/* Top-driver card — compact, rank + name + weight + bar */
+.driver-card {
+    padding: var(--sp-3) var(--sp-4);
+    padding-left: calc(var(--sp-4) + 2px);
+}
+
+.driver-card::before { width: 2px; }
+
+.driver-head {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: baseline;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-2);
+}
+
+.driver-rank {
+    font-family: var(--data);
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--ink-tertiary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 0.12rem 0.45rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.driver-name {
+    font-family: var(--display);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--ink-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.driver-weight {
+    font-family: var(--display);
+    font-size: 1.0rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.driver-weight.pos { color: var(--emerald-bright); }
+.driver-weight.neg { color: var(--rose-bright); }
+.driver-weight.neutral { color: var(--ink-secondary); }
+
+.driver-bar {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: var(--sp-2);
+}
+
+.driver-bar-fill { height: 100%; border-radius: 2px; }
+.driver-bar-fill.pos {
+    background: linear-gradient(90deg, var(--emerald) 0%, var(--emerald-bright) 100%);
+    box-shadow: 0 0 6px var(--emerald-glow);
+}
+.driver-bar-fill.neg {
+    background: linear-gradient(90deg, var(--rose) 0%, var(--rose-bright) 100%);
+    box-shadow: 0 0 6px var(--rose-glow);
+}
+.driver-bar-fill.neutral {
+    background: linear-gradient(90deg, var(--ink-tertiary) 0%, var(--slate-warm) 100%);
+}
+
+.driver-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--data);
+    font-size: 0.6rem;
+}
+
+.driver-label {
+    color: var(--ink-tertiary);
+    letter-spacing: 0.04em;
+}
+
+.driver-sign {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.55rem;
+    font-weight: 700;
+}
+
+.driver-sign.pos { color: var(--emerald-bright); }
+.driver-sign.neg { color: var(--rose-bright); }
+.driver-sign.neutral { color: var(--ink-secondary); }
