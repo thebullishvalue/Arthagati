@@ -1,23 +1,24 @@
 """
-Arthagati — Intelligence Center view (dashboard only).
+Arthagati — Intelligence Center (read-only dashboard).
 
-The actual calibration runs automatically when the user clicks
-*Run Analysis* (see ``arthagati.main`` for the pipeline integration).
-This view is a read-only dashboard surfacing:
+Five sections, all using the Obsidian Quant card system:
+  1. Dataset strip (5 metric cards)
+  2. Calibration Diagnostics (4 metric cards: Train IR · Val IR · Stability · Quality)
+  3. Calibration Impact (NEW — shows what changes when Intelligence is ON):
+     raw Mood vs Calibrated Conviction, per-horizon IR lift, top drivers
+  4. Ensemble Weights — 2-column card grid (per-feature weight cards)
+  5. Parameter Importance — 2-column card grid (fANOVA / weight-share)
+  6. Profile metadata — stat-card grid
 
-  • Dataset shape & profile state
-  • Calibration diagnostics (Train IR / Val IR / Stability / Quality)
-  • Default vs Calibrated weights table
-  • Parameter importance (fANOVA)
-  • Profile provenance + export / import / reset controls
+Import / Export / Reset controls live in the sidebar passport — this
+view is intentionally read-only.
 """
 
 from __future__ import annotations
 
 import html as html_mod
-import json
-import time
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -62,75 +63,369 @@ def _val_ir_severity(val_ir: float) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Weights table + importance rows
+# Ensemble Weights — 2-col card grid
 # ════════════════════════════════════════════════════════════════════════════
 
-def _fmt(v) -> str:
-    if isinstance(v, float):
-        return f"{v:.2f}" if abs(v) < 10 else f"{v:.0f}"
-    return f"{v}"
+# Human-readable labels for the engine-output features
+_FEATURE_LABELS = {
+    "mood":          "Mood Score (raw)",
+    "mood_smooth":   "Smoothed Mood",
+    "mood_diverge":  "Mood Divergence",
+    "mood_squared":  "Mood² (amplified)",
+    "mood_sqrt":     "√Mood (damped)",
+    "msf_spread":    "MSF Spread",
+    "msf_momentum":  "MSF · Momentum",
+    "msf_structure": "MSF · Structure",
+    "msf_regime":    "MSF · Regime",
+    "msf_flow":      "MSF · Flow",
+}
 
 
-def _render_weights_table(weights: dict, defaults: dict) -> None:
-    """Render the calibrated ensemble weights table.
+def _weight_card(name: str, weight: float, max_abs: float) -> str:
+    """One feature-weight card. Tier-coloured strip + value + bar + badge."""
+    if weight >= 0.15:
+        tier, badge_cls, badge_label = "tier-strong-buy", "badge-strong-buy", "Bullish+"
+    elif weight >= 0.05:
+        tier, badge_cls, badge_label = "tier-buy",        "badge-buy",        "Bullish"
+    elif weight <= -0.15:
+        tier, badge_cls, badge_label = "tier-caution",    "badge-caution",    "Bearish+"
+    elif weight <= -0.05:
+        tier, badge_cls, badge_label = "tier-caution",    "badge-caution",    "Bearish"
+    else:
+        tier, badge_cls, badge_label = "tier-hold",       "badge-hold",       "Neutral"
 
-    Each row is one engine-output feature; the weight is the linear
-    coefficient applied to that feature when composing the calibrated
-    conviction. Positive = bullish-contributing, negative = bearish.
-    Magnitude indicates importance in the linear combination.
-    """
-    body: list[str] = []
-    for k in defaults:
-        cur = float(weights.get(k, defaults[k]))
-        # Direction badge from sign
-        if cur > 0.05:
-            dir_str, dir_cls = "Bullish", "pos"
-        elif cur < -0.05:
-            dir_str, dir_cls = "Bearish", "neg"
-        else:
-            dir_str, dir_cls = "—", "neutral"
-        mag = abs(cur)
-        body.append(
-            f"<tr>"
-            f"<td class=\"key\">{html_mod.escape(k)}</td>"
-            f"<td class=\"value\">{cur:+.3f}</td>"
-            f"<td class=\"value\">{mag:.3f}</td>"
-            f"<td class=\"value delta {dir_cls}\">{dir_str}</td>"
-            f"</tr>"
-        )
+    val_cls = "pos" if weight > 0 else "neg" if weight < 0 else "neutral"
+    bar_pct = (abs(weight) / max_abs * 100.0) if max_abs > 0 else 0.0
+    label   = _FEATURE_LABELS.get(name, name)
 
-    html = f"""\
-<div class="weights-table-wrap">
-  <table class="weights-table">
-    <thead><tr><th>Feature</th><th>Weight</th><th>|Weight|</th><th>Contribution</th></tr></thead>
-    <tbody>{"".join(body)}</tbody>
-  </table>
+    return f"""\
+<div class="position-card weight-card {tier}">
+  <div class="weight-card-head">
+    <div class="weight-card-id">
+      <div class="weight-eyebrow">Feature</div>
+      <div class="weight-name">{html_mod.escape(label)}</div>
+      <div class="weight-key">{html_mod.escape(name)}</div>
+    </div>
+    <span class="position-card-badge {badge_cls}">{badge_label}</span>
+  </div>
+  <div class="weight-card-value {val_cls}">{weight:+.3f}</div>
+  <div class="weight-card-bar">
+    <div class="weight-card-bar-fill {val_cls}" style="width:{bar_pct:.0f}%;"></div>
+  </div>
+  <div class="weight-card-foot">
+    <span class="weight-foot-label">Magnitude</span>
+    <span class="weight-foot-val">{bar_pct:.0f}% of max</span>
+  </div>
 </div>
 """
-    st.markdown(html, unsafe_allow_html=True)
 
 
-def _render_importance(importance: dict) -> None:
+def _render_weight_cards(weights: dict, defaults: dict) -> None:
+    """Render all feature weights as a 2-column grid of cards."""
+    values = [float(weights.get(k, defaults.get(k, 0.0))) for k in defaults]
+    max_abs = max((abs(v) for v in values), default=1.0) or 1.0
+
+    cols = st.columns(2, gap="medium")
+    for i, k in enumerate(defaults):
+        with cols[i % 2]:
+            st.markdown(_weight_card(k, float(weights.get(k, 0.0)), max_abs),
+                        unsafe_allow_html=True)
+            st.markdown('<div style="height: var(--sp-2);"></div>',
+                        unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Parameter Importance — 2-col card grid
+# ════════════════════════════════════════════════════════════════════════════
+
+def _importance_card(rank: int, name: str, pct: float, max_pct: float) -> str:
+    bar_pct = (pct / max_pct * 100.0) if max_pct > 0 else 0.0
+    label   = _FEATURE_LABELS.get(name, name)
+    return f"""\
+<div class="position-card importance-card">
+  <div class="importance-card-head">
+    <span class="importance-rank">{rank:02d}</span>
+    <div class="importance-id">
+      <div class="importance-name">{html_mod.escape(label)}</div>
+      <div class="importance-key">{html_mod.escape(name)}</div>
+    </div>
+    <span class="importance-pct">{pct:.1f}%</span>
+  </div>
+  <div class="importance-bar">
+    <div class="importance-bar-fill" style="width:{bar_pct:.0f}%;"></div>
+  </div>
+</div>
+"""
+
+
+def _render_importance_cards(importance: dict) -> None:
     if not importance:
         st.caption("Importance data not yet available — calibration produces this on completion.")
         return
     rows = sorted(importance.items(), key=lambda kv: kv[1], reverse=True)
-    max_v = max((v for _, v in rows), default=1.0) or 1.0
-    parts: list[str] = []
-    for k, v in rows:
-        pct = (v / max_v) * 100.0
-        parts.append(f"""\
-<div class="importance-row">
-  <span class="importance-key">{html_mod.escape(k)}</span>
-  <div class="importance-track"><div class="importance-fill" style="width:{pct:.0f}%;"></div></div>
-  <span class="importance-val">{v:.1f}%</span>
-</div>
-""")
-    st.markdown("".join(parts), unsafe_allow_html=True)
+    max_pct = rows[0][1] if rows else 1.0
+    cols = st.columns(2, gap="medium")
+    for i, (k, v) in enumerate(rows):
+        with cols[i % 2]:
+            st.markdown(_importance_card(i + 1, k, v, max_pct),
+                        unsafe_allow_html=True)
+            st.markdown('<div style="height: var(--sp-2);"></div>',
+                        unsafe_allow_html=True)
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Public render
+# Profile metadata — stat-card grid
+# ════════════════════════════════════════════════════════════════════════════
+
+def _stat_card(label: str, value: str, sub: str = "") -> str:
+    sub_html = (
+        f'<div class="profile-stat-sub">{html_mod.escape(sub)}</div>'
+        if sub else ""
+    )
+    return f"""\
+<div class="profile-stat">
+  <div class="profile-stat-label">{html_mod.escape(label)}</div>
+  <div class="profile-stat-value">{html_mod.escape(value)}</div>
+  {sub_html}
+</div>
+"""
+
+
+def _render_profile_grid(profile: intel.CalibrationProfile) -> None:
+    """Profile metadata as a 3-column grid of stat-cards."""
+    age = intel.profile_age_days(profile)
+    if age < 1.0:
+        age_str = "today"
+    elif age < 2.0:
+        age_str = "yesterday"
+    elif age < 30:
+        age_str = f"{age:.0f}d ago"
+    else:
+        age_str = f"{age / 30:.1f}mo ago"
+
+    horizons_str = " · ".join(f"+{h}D" for h in profile.horizons)
+    pieces = [
+        ("Last Calibration",  profile.timestamp.replace("T", " ").rstrip("Z")[:16],
+         f"Fit {age_str}"),
+        ("Engine Version",    profile.arthagati_version, "Arthagati build"),
+        ("Profile Schema",    f"v{profile.schema_version}", "JSON envelope"),
+        ("Predictors",        f"{profile.n_predictors}", "active in calibration"),
+        ("Data Window",       profile.data_end, f"from {profile.data_start}"),
+        ("Trials Run",        f"{profile.n_trials}",    "Optuna TPE"),
+        ("CV Folds",          f"{profile.n_folds}",     f"embargo {profile.embargo_days}d"),
+        ("Train Rows",        f"{profile.n_dates_train:,}", "expanding windows"),
+        ("Val Rows",          f"{profile.n_dates_val:,}",   "purged validation"),
+        ("Horizons",          horizons_str, "forward NIFTY return"),
+    ]
+    rows_html = "".join(_stat_card(lbl, val, sub) for lbl, val, sub in pieces)
+    st.markdown(
+        f'<div class="profile-stat-grid">{rows_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Calibration Impact — NEW: shows what changed due to calibration
+# ════════════════════════════════════════════════════════════════════════════
+
+def _render_calibration_impact(
+    profile: intel.CalibrationProfile,
+    mood_df: pd.DataFrame,
+    msf_df: pd.DataFrame,
+) -> None:
+    """Show before/after impact of the calibration.
+
+    Renders three blocks:
+      A) Latest signal comparison: Raw Mood vs Calibrated Conviction +
+         shift + direction-change badge
+      B) Predictive power table: Spearman IR per horizon for raw mood
+         vs calibrated conviction, plus the lift %
+      C) Top contributing features (ranked by |weight| × importance)
+    """
+    render_section_header(
+        title="Calibration Impact",
+        description="What the post-engine ensemble changes vs the raw engine output",
+        icon="zap",
+        accent="emerald",
+    )
+    section_gap()
+
+    # ── A) Latest signal comparison strip ───────────────────────────────
+    raw_last = float(mood_df["Mood_Score"].iloc[-1])
+    calibrated_series = intel.apply_calibration(mood_df, msf_df, profile.weights)
+    cal_last = float(calibrated_series[-1])
+    shift    = cal_last - raw_last
+
+    if abs(raw_last) > 5 and abs(cal_last) > 5:
+        flipped = (raw_last > 0) != (cal_last > 0)
+    else:
+        flipped = False
+    if flipped:
+        dir_label, dir_sub, dir_cls = "Flipped", "Sign reversed by calibration", "warning"
+    elif abs(shift) > 30:
+        dir_label, dir_sub, dir_cls = "Amplified", "Large magnitude shift", "info"
+    elif abs(shift) > 5:
+        dir_label, dir_sub, dir_cls = "Adjusted",  "Moderate shift",          "info"
+    else:
+        dir_label, dir_sub, dir_cls = "Preserved", "Calibration broadly agrees", "success"
+
+    raw_zone = ("Bullish" if raw_last > 20 else
+                "Bearish" if raw_last < -20 else "Neutral")
+    cal_zone = ("Bullish" if cal_last > 20 else
+                "Bearish" if cal_last < -20 else "Neutral")
+
+    c1, c2, c3, c4 = st.columns(4, gap="small")
+    with c1:
+        render_metric_card(
+            label="Raw Mood (Engine)",
+            value=f"{raw_last:+.2f}",
+            subtext=f"{raw_zone} · factory pipeline",
+            color_class="success" if raw_last > 20 else "danger" if raw_last < -20 else "neutral",
+            icon="activity",
+        )
+    with c2:
+        render_metric_card(
+            label="Calibrated Conviction",
+            value=f"{cal_last:+.2f}",
+            subtext=f"{cal_zone} · post-engine ensemble",
+            color_class="success" if cal_last > 20 else "danger" if cal_last < -20 else "warning",
+            icon="target",
+        )
+    with c3:
+        render_metric_card(
+            label="Net Shift",
+            value=f"{shift:+.2f}",
+            subtext="Δ vs raw mood",
+            color_class="warning" if abs(shift) > 30 else "info",
+            icon="trending-up" if shift > 0 else "trending-down",
+        )
+    with c4:
+        render_metric_card(
+            label="Signal Direction",
+            value=dir_label,
+            subtext=dir_sub,
+            color_class=dir_cls,
+            icon="compass",
+        )
+
+    section_gap()
+
+    # ── B + C side by side: IR comparison + Top drivers ─────────────────
+    left, mid, right = st.columns([11, 1, 9], gap="small")
+    with mid:
+        vertical_divider()
+
+    with left:
+        render_section_header(
+            title="Predictive Power Lift",
+            description="Spearman IR — raw Mood Score vs Calibrated Conviction · per horizon",
+            icon="bar-chart",
+            accent="cyan",
+        )
+        # Compute baseline IR for raw mood across the same fold structure.
+        raw_train_ir, raw_val_ir, raw_per_h = intel.score_series_ir(
+            mood_df["Mood_Score"].to_numpy(dtype=np.float64),
+            mood_df,
+            horizons=profile.horizons,
+            n_folds=profile.n_folds,
+            embargo_days=profile.embargo_days,
+        )
+        cal_train_ir, cal_val_ir, cal_per_h = intel.score_series_ir(
+            calibrated_series,
+            mood_df,
+            horizons=profile.horizons,
+            n_folds=profile.n_folds,
+            embargo_days=profile.embargo_days,
+        )
+
+        # Per-horizon table
+        rows_html = []
+        for h in profile.horizons:
+            h = int(h)
+            raw_v = raw_per_h.get(h, 0.0)
+            cal_v = cal_per_h.get(h, 0.0)
+            lift = (cal_v - raw_v)
+            lift_cls = "pos" if lift > 0 else "neg" if lift < 0 else "neutral"
+            lift_pct = (lift / abs(raw_v) * 100.0) if abs(raw_v) > 1e-6 else 0.0
+            lift_str = f"{lift:+.3f}  ({lift_pct:+.0f}%)" if abs(raw_v) > 1e-6 else f"{lift:+.3f}"
+            rows_html.append(
+                f"<tr>"
+                f"<td class='key'>+{h}D</td>"
+                f"<td class='value'>{raw_v:+.3f}</td>"
+                f"<td class='value'>{cal_v:+.3f}</td>"
+                f"<td class='value delta {lift_cls}'>{lift_str}</td>"
+                f"</tr>"
+            )
+        # Overall row
+        ov_lift = cal_val_ir - raw_val_ir
+        ov_lift_cls = "pos" if ov_lift > 0 else "neg" if ov_lift < 0 else "neutral"
+        ov_lift_pct = (ov_lift / abs(raw_val_ir) * 100.0) if abs(raw_val_ir) > 1e-6 else 0.0
+        ov_lift_str = (
+            f"{ov_lift:+.3f}  ({ov_lift_pct:+.0f}%)"
+            if abs(raw_val_ir) > 1e-6 else f"{ov_lift:+.3f}"
+        )
+        rows_html.append(
+            f"<tr class='total'>"
+            f"<td class='key'>Overall IR</td>"
+            f"<td class='value'>{raw_val_ir:+.3f}</td>"
+            f"<td class='value'>{cal_val_ir:+.3f}</td>"
+            f"<td class='value delta {ov_lift_cls}'>{ov_lift_str}</td>"
+            f"</tr>"
+        )
+
+        st.markdown(
+            f"""\
+<div class="weights-table-wrap">
+  <table class="weights-table impact-table">
+    <thead><tr><th>Horizon</th><th>Raw Mood</th><th>Calibrated</th><th>Lift</th></tr></thead>
+    <tbody>{"".join(rows_html)}</tbody>
+  </table>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+    with right:
+        render_section_header(
+            title="Top Drivers",
+            description="Largest-magnitude features in the calibrated ensemble",
+            icon="layers",
+            accent="amber",
+        )
+        # Combined ranking by |weight| (the actual contribution to F @ w)
+        ranked = sorted(
+            profile.weights.items(),
+            key=lambda kv: -abs(float(kv[1])),
+        )[:5]
+        max_abs_w = max((abs(float(v)) for _, v in ranked), default=1.0)
+        for i, (name, w) in enumerate(ranked):
+            wf = float(w)
+            sign_cls = "pos" if wf > 0 else "neg" if wf < 0 else "neutral"
+            sign_label = "Bullish" if wf > 0.05 else "Bearish" if wf < -0.05 else "Neutral"
+            bar_pct = (abs(wf) / max_abs_w * 100.0)
+            st.markdown(
+                f"""\
+<div class="position-card driver-card">
+  <div class="driver-head">
+    <span class="driver-rank">{i + 1}</span>
+    <span class="driver-name">{html_mod.escape(_FEATURE_LABELS.get(name, name))}</span>
+    <span class="driver-weight {sign_cls}">{wf:+.3f}</span>
+  </div>
+  <div class="driver-bar"><div class="driver-bar-fill {sign_cls}" style="width:{bar_pct:.0f}%;"></div></div>
+  <div class="driver-foot">
+    <span class="driver-label">{html_mod.escape(name)}</span>
+    <span class="driver-sign {sign_cls}">{sign_label}</span>
+  </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+            st.markdown('<div style="height: var(--sp-2);"></div>',
+                        unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Main view
 # ════════════════════════════════════════════════════════════════════════════
 
 def render(
@@ -142,8 +437,8 @@ def render(
     """Intelligence Center: read-only dashboard.
 
     Calibration is fired automatically by ``arthagati.main`` when the user
-    clicks **Run Analysis**, gated by the sidebar Intelligence Mode toggle
-    and a one-shot session-state flag.
+    clicks **Run Analysis**. Import/Export/Reset live in the sidebar
+    Model Passport — this view is purely diagnostic.
     """
     render_section_header(
         title="Intelligence Center",
@@ -158,6 +453,10 @@ def render(
     if profile is None and last_run is not None:
         profile = last_run
 
+    # Need the engine output for the impact section
+    mood_df = st.session_state.get("_engine_mood_df")
+    msf_df  = st.session_state.get("_engine_msf_df")
+
     n_rows  = int(len(raw_df))
     n_dates = int(raw_df["DATE"].nunique())
     n_pred  = len(active_predictors)
@@ -167,10 +466,10 @@ def render(
     if profile is None:
         profile_label = "Not Calibrated" if intel_on else "Default"
         profile_color = "warning"        if intel_on else "neutral"
+        profile_sub   = "Active engine config"
     else:
         profile_label = "Calibrated" if intel_on else "Available · Inactive"
         profile_color = "success"    if intel_on else "warning"
-        # Show profile age — informs the freshness story.
         age_d = intel.profile_age_days(profile)
         if age_d < 1.0:
             age_str = "today"
@@ -178,7 +477,7 @@ def render(
             age_str = "yesterday"
         else:
             age_str = f"{age_d:.0f}d ago"
-        profile_sub = f"Fit {age_str} · stays cached for {intel.PROFILE_FRESHNESS_DAYS}d"
+        profile_sub = f"Fit {age_str} · {profile.quality_check}"
 
     # ── Dataset strip ───────────────────────────────────────────────────
     section_gap()
@@ -192,15 +491,11 @@ def render(
     with c4:
         render_metric_card("Horizons",     "30 · 60 · 90", "Forward NIFTY return (days)", "warning", icon="target")
     with c5:
-        render_metric_card(
-            "Profile State", profile_label,
-            profile_sub if profile is not None else "Active engine config",
-            profile_color, icon="shield",
-        )
+        render_metric_card("Profile State", profile_label, profile_sub, profile_color, icon="shield")
 
     section_divider()
 
-    # ── No-profile state ────────────────────────────────────────────────
+    # ── No-profile early-out ────────────────────────────────────────────
     if profile is None:
         if intel_on:
             render_interpretation_card(
@@ -226,7 +521,7 @@ def render(
             )
         return
 
-    # ── 4-metric diagnostics strip ──────────────────────────────────────
+    # ── Calibration Diagnostics strip ───────────────────────────────────
     render_section_header(
         title="Calibration Diagnostics",
         description=(
@@ -237,7 +532,6 @@ def render(
         icon="activity",
         accent="emerald",
     )
-
     section_gap()
     m1, m2, m3, m4 = st.columns(4, gap="small")
     with m1:
@@ -269,92 +563,48 @@ def render(
             icon="shield",
         )
 
-    section_gap()
+    section_divider()
 
-    # ── Active weights + importance side by side ────────────────────────
-    weights_col, mid_col, imp_col = st.columns([10, 1, 9], gap="small")
-    with mid_col:
-        vertical_divider()
-    with weights_col:
-        render_section_header(
-            title="Ensemble Weights",
-            description="Linear coefficients on engine-output features · post-engine layer",
-            icon="grid",
-            accent="amber",
-        )
-        _render_weights_table(profile.weights or defaults, defaults)
-    with imp_col:
-        render_section_header(
-            title="Parameter Importance",
-            description="fANOVA importance (Optuna) · weight-share fallback",
-            icon="bar-chart",
-            accent="violet",
-        )
-        _render_importance(profile.importance)
+    # ── NEW: Calibration Impact ─────────────────────────────────────────
+    if mood_df is not None and msf_df is not None and profile.weights:
+        _render_calibration_impact(profile, mood_df, msf_df)
+        section_divider()
+    else:
+        st.caption("Calibration Impact section requires cached engine output (run analysis first).")
+
+    # ── Ensemble Weights (2-col card grid) ──────────────────────────────
+    render_section_header(
+        title="Ensemble Weights",
+        description="Per-feature linear coefficients · post-engine layer",
+        icon="grid",
+        accent="amber",
+    )
+    section_gap()
+    _render_weight_cards(profile.weights or defaults, defaults)
 
     section_divider()
 
-    # ── Provenance + lifecycle controls ────────────────────────────────
+    # ── Parameter Importance (2-col card grid) ──────────────────────────
+    render_section_header(
+        title="Parameter Importance",
+        description="fANOVA importance (Optuna) · weight-share fallback",
+        icon="bar-chart",
+        accent="violet",
+    )
+    section_gap()
+    _render_importance_cards(profile.importance)
+
+    section_divider()
+
+    # ── Profile metadata (stat-card grid) ───────────────────────────────
     render_section_header(
         title="Profile",
-        description="Provenance · integrity · lifecycle",
+        description="Provenance · integrity · calibration run details",
         icon="file-text",
         accent="cyan",
     )
-
-    meta_col, action_col = st.columns([3, 2], gap="small")
-    with meta_col:
-        meta_rows = [
-            ("Run timestamp",     profile.timestamp),
-            ("Arthagati version", profile.arthagati_version),
-            ("Predictors",        f"{profile.n_predictors}"),
-            ("Data window",       f"{profile.data_start} → {profile.data_end}"),
-            ("CV folds",          f"{profile.n_folds} (embargo {profile.embargo_days}d)"),
-            ("Train rows",        f"{profile.n_dates_train:,}"),
-            ("Val rows",          f"{profile.n_dates_val:,}"),
-            ("Horizons",          " · ".join(f"+{h}D" for h in profile.horizons)),
-            ("Schema version",    f"v{profile.schema_version}"),
-        ]
-        rows_html = "".join(
-            f"<div class='lookback-row'><span class='label'>{html_mod.escape(k)}</span>"
-            f"<span class='value'>{html_mod.escape(str(v))}</span></div>"
-            for k, v in meta_rows
-        )
-        st.markdown(
-            f"<div class='intel-meta-card'>{rows_html}</div>",
-            unsafe_allow_html=True,
-        )
-
-    with action_col:
-        st.download_button(
-            label="⤓  Export Profile (JSON)",
-            data=profile.to_json(),
-            file_name=f"arthagati_profile_{profile.timestamp.replace(':', '').replace('-', '')[:15]}.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-        uploaded = st.file_uploader(
-            "Import a profile JSON",
-            type=["json"],
-            label_visibility="visible",
-        )
-        if uploaded is not None:
-            _handle_profile_upload(uploaded)
-
-        if intel.load_active_profile() is not None:
-            if st.button(
-                "Reset to Default Hyperparameters",
-                use_container_width=True,
-                type="secondary",
-            ):
-                from arthagati import _invalidate_engine_cache
-                intel.delete_active_profile()
-                st.session_state.pop("intel_last_profile", None)
-                st.session_state.pop("_intel_calibration_done", None)
-                _invalidate_engine_cache()
-                st.success("Active profile cleared. Engine reverted to factory defaults.")
-                time.sleep(0.4)
-                st.rerun()
+    section_gap()
+    _render_profile_grid(profile)
 
 
 def _quality_subtext(profile: intel.CalibrationProfile) -> str:
@@ -363,22 +613,3 @@ def _quality_subtext(profile: intel.CalibrationProfile) -> str:
     if profile.quality_check == "Overfit":
         return "Train ≫ Val — fewer trials or broader window"
     return "No overfit / no-edge issues detected"
-
-
-def _handle_profile_upload(uploaded) -> None:
-    from core.logger_config import console
-    from arthagati import _invalidate_engine_cache
-    try:
-        raw = json.loads(uploaded.read().decode("utf-8"))
-        profile = intel.CalibrationProfile.from_dict(raw)
-        intel.save_active_profile(profile)
-        st.session_state["intel_last_profile"] = profile
-        st.session_state.pop("_intel_calibration_done", None)
-        _invalidate_engine_cache()
-        console.success(f"Profile imported from {uploaded.name}")
-        st.success(f"Profile from {uploaded.name} is now active.")
-        time.sleep(0.4)
-        st.rerun()
-    except Exception as exc:
-        console.error(f"Profile import failed: {exc}")
-        st.error(f"Import failed: {exc}")
