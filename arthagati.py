@@ -1910,7 +1910,6 @@ def main():
         render_historical_mood(
             mood_df, msf_df,
             timeframes=TIMEFRAMES,
-            regime_styles=REGIME_STYLES,
             mood_scale=MOOD_SCALE,
             ou_proj_days=OU_PROJ_DAYS,
         )
