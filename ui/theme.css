@@ -1929,19 +1929,6 @@ footer {
     pointer-events: none;
 }
 
-.column-vdivider::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--amber);
-    box-shadow: 0 0 12px var(--amber-glow), 0 0 4px var(--amber);
-    transform: translate(-50%, -50%);
-}
-
 /* Hide the divider on narrow screens — sections stack vertically anyway */
 @media (max-width: 768px) {
     .column-vdivider {
