@@ -1892,61 +1892,33 @@ footer {
 
 /* ================================================================
    Vertical divider — slot inside a thin spacer column between two
-   side-by-side sections. Mirrors the horizontal section-divider
-   gradient but rotated, with a centred amber accent dot.
+   side-by-side sections. Uses absolute positioning so the divider
+   spans the parent column edge-to-edge regardless of Streamlit's
+   nested wrapper chain. We deliberately DO NOT force flex-direction
+   on the column or its descendants — doing so would break any nested
+   st.columns() that sibling sections render (e.g. the 2-col card grids
+   inside PE / EY correlation sections).
 
-   Height propagation: Streamlit wraps each column in 5–6 nested div
-   layers. To make the divider stretch from the top of the row to the
-   bottom of the tallest sibling column, we must force flex-grow through
-   every wrapper using the same `:has()` pattern that drives metric-card
-   equal-heights elsewhere in this file.
+   How it works:
+   1. The row's existing `align-items: stretch` (from the global
+      `[data-testid="stHorizontalBlock"]` rule near the top of this
+      file) gives the divider's column the row's full height.
+   2. We make that column `position: relative` so it becomes the
+      containing block for an absolutely-positioned child.
+   3. The divider absolute-fills the column with top:0 / bottom:0.
    ================================================================ */
 
-/* 1. The horizontal block is a flex row, stretching all sibling columns
-      to match the tallest. */
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) {
-    display: flex !important;
-    align-items: stretch !important;
+[data-testid="stColumn"]:has(.column-vdivider) {
+    position: relative;
 }
 
-/* 2. The divider's column (and its peers in the same row) become flex
-      columns that fill the row height. */
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * {
-    display: flex !important;
-    flex-direction: column !important;
-    align-self: stretch !important;
-}
-
-/* 3. Every wrapper div between the column and the divider propagates the
-      flex chain so flex:1 1 auto bubbles all the way down. */
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div,
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div > div,
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div > div > div,
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div > div > div > div,
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div > div > div > div > div {
-    display: flex !important;
-    flex-direction: column !important;
-    flex: 1 1 auto !important;
-}
-
-/* 4. Cover Streamlit's testid-named wrappers (DOM variants across versions). */
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="stColumn"],
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="stVerticalBlock"],
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="element-container"],
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="stElementContainer"],
-[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="stMarkdownContainer"] {
-    display: flex !important;
-    flex-direction: column !important;
-    flex: 1 1 auto !important;
-}
-
-/* 5. The divider itself — fills its column edge-to-edge. */
 .column-vdivider {
-    flex: 1 1 auto !important;
-    align-self: stretch !important;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
     width: 1px;
-    min-height: 320px;
-    margin: 0 auto;
     background: linear-gradient(180deg,
         transparent 0%,
         var(--border) 6%,
@@ -1954,7 +1926,7 @@ footer {
         var(--border) 94%,
         transparent 100%);
     opacity: 0.55;
-    position: relative;
+    pointer-events: none;
 }
 
 .column-vdivider::before {
