@@ -8,9 +8,11 @@ TradingView-style charting with institutional-grade analytics.
 
 import logging
 import os
+import sys
 import time
 from datetime import datetime
 from io import StringIO
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -20,11 +22,22 @@ import requests
 import streamlit as st
 from plotly.subplots import make_subplots
 
+# ── Make ui/ + core/ importable when running `streamlit run arthagati.py`
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# Structured terminal console (banner / phase / step / checkpoint / summary).
+from core.logger_config import console, generate_run_id, get_run_id, Colors
+
+# Quiet noisy library loggers — the structured console handles user-facing output
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s  %(levelname)-8s  %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
+    level=logging.WARNING,
+    format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
 )
+for _noisy in ("urllib3", "requests", "streamlit", "matplotlib"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIGURATION
@@ -33,17 +46,56 @@ logging.basicConfig(
 st.set_page_config(
     page_title="ARTHAGATI | Market Sentiment Analysis",
     layout="wide",
-    page_icon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9IiNmZmNjMDAwIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS13aWR0aD0iMiIgZD0iTTEwIDIwYTUuMzU1IDUuMzU1IDAgMSAxIDAtMTAuNzEgNS4zNTUgNS4zNTUgMCAxIDEgMCAxMC43MXptLTUuMzU1LTUuMzU1djJsNS4zNTUgNEg0LjY0Nkw3IDIydnptOC05LjM3MXY2bDUtNEg5LjY0NlpNNCA5LjM3MXY2bDUtNEg3LjM3MloiLz48L3N2Zz4=",
+    page_icon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0Q0QTg1MyIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTggMTRsMy01IDIgMyAzLTQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0Q0QTg1MyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=",
     initial_sidebar_state="expanded"
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# IDENTITY
+# UI MODULE — Obsidian Quant design system
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION      = "v2.6.0"
-PRODUCT_NAME = "Arthagati"
-COMPANY      = "@thebullishvalue"
+from ui.theme import (
+    inject_css,
+    progress_bar,
+    VERSION,
+    PRODUCT_NAME,
+    COMPANY,
+    C_AMBER,
+    C_AMBER_BRIGHT,
+    C_CYAN,
+    C_EMERALD,
+    C_ROSE,
+    C_MUTED,
+    C_BG_CARD,
+    C_TEXT,
+    PLOTLY_BASE,
+    PLOTLY_GRID,
+)
+from ui.components import (
+    render_header,
+    render_section_header,
+    render_metric_card,
+    render_info_box,
+    render_warning_box,
+    sidebar_title,
+    sidebar_masthead,
+    sidebar_passport,
+    section_gap,
+    section_divider,
+    render_footer,
+    get_icon,
+)
+from ui.tabs.tab_landing import render_landing_page
+from ui.tabs.tab_historical_mood import render as render_historical_mood
+from ui.tabs.tab_similar_periods import render as render_similar_periods
+from ui.tabs.tab_correlation import render as render_correlation_analysis
+
+# Legacy aliases kept inside arthagati.py for engine code paths
+C_PRIMARY = C_AMBER
+C_GREEN   = C_EMERALD
+C_RED     = C_ROSE
+C_AMBER_LEGACY = C_AMBER
+C_BG_GRID = PLOTLY_GRID
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA SOURCE
@@ -96,19 +148,9 @@ TIMEFRAMES: dict[str, int | None] = {
     'MAX': None,   # all available rows
 }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# COLOUR PALETTE  (mirrors CSS :root variables — keep both in sync)
-# ══════════════════════════════════════════════════════════════════════════════
-
-C_PRIMARY = '#FFB000'
-C_GREEN   = '#00FF41'
-C_RED     = '#FF3333'
-C_AMBER   = '#FFB000'
-C_CYAN    = '#00D4FF'
-C_MUTED   = '#666666'
-C_BG_CARD = '#141414'
-C_BG_GRID = '#1E1E1E'
-C_TEXT    = '#E0E0E0'
+# Note: Colour palette + Plotly base are now sourced from ui.theme — see
+# the imports above. C_PRIMARY/C_GREEN/C_RED/C_CYAN/C_MUTED/C_BG_CARD/C_BG_GRID
+# remain in scope for engine code paths.
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODEL HYPERPARAMETERS
@@ -148,384 +190,39 @@ OU_PROJ_DAYS    = 90     # OU mean-reversion projection horizon (calendar days)
 
 # Maps regime label → (hex colour, CSS card class)
 REGIME_STYLES: dict[str, tuple[str, str]] = {
-    'Trending':       (C_GREEN, 'success'),
-    'Volatile Trend': (C_AMBER, 'warning'),
-    'Mean-Reverting': (C_CYAN,  'info'),
-    'Choppy':         (C_RED,   'danger'),
-    'Unknown':        (C_MUTED, 'neutral'),
+    'Trending':       (C_EMERALD,      'success'),
+    'Volatile Trend': (C_AMBER,        'warning'),
+    'Mean-Reverting': (C_CYAN,         'info'),
+    'Choppy':         (C_ROSE,         'danger'),
+    'Unknown':        (C_MUTED,        'neutral'),
 }
 
-# Shared Plotly dark-theme base for all figures
-PLOTLY_BASE: dict = dict(
-    template='plotly_dark',
-    plot_bgcolor=C_BG_CARD,
-    paper_bgcolor=C_BG_CARD,
-    font=dict(color=C_TEXT, family='Inter'),
-)
+# PLOTLY_BASE imported from ui.theme (transparent paper/plot + JetBrains Mono).
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DESIGN SYSTEM
+# DESIGN SYSTEM — injected from ui/theme.css (Obsidian Quant)
 # ══════════════════════════════════════════════════════════════════════════════
 
-_DESIGN_CSS = """
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
-    
-    :root {
-        --primary-color: #FFB000;
-        --primary-rgb: 255, 176, 0;
-        --background-color: #0A0A0A;
-        --secondary-background-color: #141414;
-        --bg-card: #141414;
-        --bg-elevated: #1E1E1E;
-        --text-primary: #E0E0E0;
-        --text-secondary: #B0B0B0;
-        --text-muted: #666666;
-        --border-color: #252525;
-        --border-light: #353535;
-        --success-green: #00FF41;
-        --danger-red: #FF3333;
-        --warning-amber: #FFB000;
-        --info-cyan: #00D4FF;
-        --neutral: #666666;
-        
-        --font-display: 'IBM Plex Mono', monospace;
-        --font-body: 'IBM Plex Sans', sans-serif;
-        
-        --space-xs: 0.25rem;
-        --space-sm: 0.5rem;
-        --space-md: 1rem;
-        --space-lg: 1.5rem;
-        --space-xl: 2rem;
-    }
-    
-    * { font-family: var(--font-body), -apple-system, BlinkMacSystemFont, sans-serif; }
-    .main, [data-testid="stSidebar"] { background-color: var(--background-color); color: var(--text-primary); }
-    .stApp > header { background-color: transparent; }
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
-    .block-container { padding-top: 3.5rem; max-width: 90%; padding-left: 2rem; padding-right: 2rem; }
-    
-    /* Sidebar toggle button - always visible */
-    [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        background-color: var(--secondary-background-color) !important;
-        border: 2px solid var(--primary-color) !important;
-        border-radius: 8px !important;
-        padding: 10px !important;
-        margin: 12px !important;
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.4) !important;
-        z-index: 999999 !important;
-        position: fixed !important;
-        top: 14px !important;
-        left: 14px !important;
-        width: 40px !important;
-        height: 40px !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
-    
-    [data-testid="collapsedControl"]:hover {
-        background-color: rgba(var(--primary-rgb), 0.2) !important;
-        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.6) !important;
-        transform: scale(1.05);
-    }
-    
-    [data-testid="collapsedControl"] svg {
-        stroke: var(--primary-color) !important;
-        width: 20px !important;
-        height: 20px !important;
-    }
-    
-    [data-testid="stSidebar"] button[kind="header"] {
-        background-color: transparent !important;
-        border: none !important;
-    }
-    
-    [data-testid="stSidebar"] button[kind="header"] svg {
-        stroke: var(--primary-color) !important;
-    }
-    
-    button[kind="header"] {
-        z-index: 999999 !important;
-    }
-    
-    .premium-header {
-        background: var(--secondary-background-color);
-        padding: 1.25rem 2rem;
-        border-radius: 16px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.1);
-        border: 1px solid var(--border-color);
-        position: relative;
-        overflow: hidden;
-        margin-top: 1rem;
-    }
-    
-    .premium-header::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 20% 50%, rgba(var(--primary-rgb),0.08) 0%, transparent 50%);
-        pointer-events: none;
-    }
-    
-    .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
-    .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
-    
-    .metric-card {
-        background-color: var(--bg-card);
-        padding: 1.25rem;
-        border-radius: 4px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
-        margin-bottom: 0.5rem;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        overflow: hidden;
-        cursor: pointer;
-    }
-    
-    .metric-card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.3); border-color: var(--border-light); }
-    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-    .metric-card h2 { color: var(--text-primary); font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1; }
-    .metric-card .sub-metric { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
-    .metric-card.success h2 { color: var(--success-green); }
-    .metric-card.danger h2 { color: var(--danger-red); }
-    .metric-card.warning h2 { color: var(--warning-amber); }
-    .metric-card.info h2 { color: var(--info-cyan); }
-    .metric-card.neutral h2 { color: var(--neutral); }
-    .metric-card.primary h2 { color: var(--primary-color); }
-    
-    .signal-card {
-        background-color: var(--bg-card);
-        padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
-        margin-bottom: 1rem;
-        position: relative;
-        overflow: hidden;
-        cursor: pointer;
-    }
-    
-    .signal-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
-    .signal-card.bullish::before { background: var(--success-green); }
-    .signal-card.bearish::before { background: var(--danger-red); }
-    .signal-card.neutral::before { background: var(--neutral); }
-    
-    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-    .status-badge.bullish { background: rgba(16, 185, 129, 0.15); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.3); }
-    .status-badge.bearish { background: rgba(239, 68, 68, 0.15); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.3); }
-    .status-badge.oversold { background: rgba(6, 182, 212, 0.15); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
-    .status-badge.overbought { background: rgba(245, 158, 11, 0.15); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
-    .status-badge.neutral { background: rgba(136, 136, 136, 0.15); color: var(--neutral); border: 1px solid rgba(136, 136, 136, 0.3); }
-    
-    .stButton>button { border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color); font-weight: 700; border-radius: 12px; padding: 0.75rem 2rem; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-transform: uppercase; letter-spacing: 0.5px; }
-    .stButton>button:hover { box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.6); background: var(--primary-color); color: var(--bg-card); transform: translateY(-2px); }
-    .stButton>button:active { transform: translateY(0); }
-    
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
-    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
-    .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); background: transparent !important; }
-    
-    .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
-    .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); }
-    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
-    
-    .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
-    
-    [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
-    
-    .stTextInput > div > div > input { background: var(--bg-elevated) !important; border: 1px solid var(--border-color) !important; border-radius: 8px !important; color: var(--text-primary) !important; }
-    .stTextInput > div > div > input:focus { border-color: var(--primary-color) !important; box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2) !important; }
-    
-    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
-    .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
-    .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
-    
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--background-color); }
-    ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+inject_css()
 
-    /* ── Retro Broker Terminal Effects ─────────────────────────────────── */
-    .scanlines {
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        pointer-events: none;
-        z-index: 999998;
-        background: repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 2px,
-            rgba(0, 0, 0, 0.15) 2px,
-            rgba(0, 0, 0, 0.15) 4px
-        );
-        opacity: 0.03;
-    }
-    
-    .crt-glow {
-        text-shadow: 0 0 5px var(--primary-color), 0 0 10px var(--primary-color);
-    }
-    
-    .terminal-corner {
-        position: relative;
-    }
-    .terminal-corner::before {
-        content: '';
-        position: absolute;
-        top: -1px; left: -1px;
-        width: 8px; height: 8px;
-        border-top: 2px solid var(--primary-color);
-        border-left: 2px solid var(--primary-color);
-    }
-    .terminal-corner::after {
-        content: '';
-        position: absolute;
-        bottom: -1px; right: -1px;
-        width: 8px; height: 8px;
-        border-bottom: 2px solid var(--primary-color);
-        border-right: 2px solid var(--primary-color);
-    }
+# ── Boot banner (printed once per Streamlit process) ─────────────────────────
+if not st.session_state.get("_arthagati_banner_printed"):
+    console.header(f"ARTHAGATI {VERSION}", version="")
+    console.item("Product", f"{PRODUCT_NAME} · अर्थगति")
+    console.item("Maintainer", COMPANY)
+    console.item("Engine", "OU · Kalman · Decay-Spearman · MSF Spread")
+    console.line("─", 70)
+    st.session_state["_arthagati_banner_printed"] = True
 
-    /* ── Responsive Container ─────────────────────────────────── */
-    .block-container {
-        max-width: min(95%, 1400px) !important;
-        margin: 0 auto !important;
-    }
-    
-    @media (max-width: 768px) {
-        .block-container {
-            max-width: 100% !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-        }
-        .premium-header {
-            padding: 1rem !important;
-        }
-        .metric-card {
-            padding: 1rem !important;
-        }
-    }
-
-    /* ── Card Animations ───────────────────────────────────── */
-    @keyframes cardReveal {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .metric-card {
-        animation: cardReveal 0.4s ease-out forwards;
-        opacity: 0;
-    }
-    .metric-card:nth-child(1) { animation-delay: 0.1s; }
-    .metric-card:nth-child(2) { animation-delay: 0.2s; }
-    .metric-card:nth-child(3) { animation-delay: 0.3s; }
-    .metric-card:nth-child(4) { animation-delay: 0.4s; }
-
-    .magnetic-hover {
-        transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
-    }
-    .magnetic-hover:hover {
-        transform: translateY(-2px) scale(1.01);
-        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
-    }
-
-    /* ── Themed loading state ─────────────────────────────────────── */
-    @keyframes pulse-glow {
-        0%, 100% { opacity: 0.6; }
-        50%       { opacity: 1.0; }
-    }
-    .loading-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border-color);
-        border-left: 1px solid var(--border-color);
-        border-radius: 12px;
-        padding: 1.25rem 1.5rem;
-        margin: 0.75rem 0;
-        position: relative;
-        overflow: hidden;
-    }
-    .loading-card::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 0% 50%, rgba(var(--primary-rgb), 0.06) 0%, transparent 60%);
-        pointer-events: none;
-    }
-    .loading-label {
-        font-size: 0.85rem;
-        font-weight: 700;
-        color: var(--text-primary);
-        letter-spacing: 0.3px;
-        position: relative;
-    }
-    .loading-sub {
-        font-size: 0.72rem;
-        color: var(--text-muted);
-        margin-top: 0.2rem;
-        font-weight: 400;
-        position: relative;
-        letter-spacing: 0.2px;
-    }
-    .loading-dot {
-        display: inline-block;
-        width: 5px; height: 5px;
-        border-radius: 50%;
-        background: var(--primary-color);
-        animation: pulse-glow 1.2s ease-in-out infinite;
-        margin-right: 0.6rem;
-        vertical-align: middle;
-        position: relative;
-        top: -1px;
-    }
-
-</style>
-"""
-
-st.markdown(_DESIGN_CSS, unsafe_allow_html=True)
-st.markdown('<div class="scanlines"></div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _progress_bar(slot, pct: int, label: str, sub: str = "") -> None:
-    """
-    Render a themed progress card into an st.empty() slot.
+# Legacy alias — engine code below calls _progress_bar(); route to the new
+# Obsidian Quant progress-card renderer from ui.theme.
+_progress_bar = progress_bar
 
-    Call with increasing pct values as each computation step completes.
-    Call slot.empty() when all steps are done.
-
-        slot = st.empty()
-        _progress_bar(slot, 10, "Fetching data", "Google Sheets")
-        df = load_data()
-        _progress_bar(slot, 70, "Running engine", "OU · Kalman")
-        mood_df = calculate_historical_mood(df)
-        _progress_bar(slot, 100, "Complete")
-        time.sleep(0.25)
-        slot.empty()
-    """
-    bar_color = C_GREEN if pct == 100 else C_PRIMARY
-    slot.markdown(f"""
-    <div class="loading-card">
-        <div class="loading-label">
-            <span class="loading-dot"></span>{label}
-        </div>
-        {"" if not sub else f'<div class="loading-sub">{sub}</div>'}
-        <div style="margin-top: 0.65rem; height: 3px; background: var(--border-color); border-radius: 2px; overflow: hidden;">
-            <div style="width: {pct}%; height: 100%;
-                        background: linear-gradient(90deg, {bar_color}, {C_AMBER});
-                        border-radius: 2px; transition: width 0.3s ease;">
-            </div>
-        </div>
-        <div style="text-align: right; font-size: 0.65rem; color: #555; margin-top: 0.25rem; font-family: monospace;">
-            {pct}%
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
 def sigmoid(x, scale=1.0):
     """Sigmoid normalization to [-1, 1] range — overflow-safe."""
@@ -1148,24 +845,22 @@ def _fetch_sheet_csv(max_retries: int = 3) -> str:
             last_exception = e
             if attempt < max_retries - 1:
                 wait_time = 2 ** attempt * 2
-                logging.warning(
-                    f"Google Sheets request timed out (attempt {attempt + 1}/{max_retries}). "
-                    f"Retrying in {wait_time}s..."
+                console.warning(
+                    f"Sheets request timed out (attempt {attempt + 1}/{max_retries}) — retrying in {wait_time}s"
                 )
                 time.sleep(wait_time)
             else:
-                logging.error(f"Google Sheets request failed after {max_retries} attempts: {e}")
+                console.error(f"Sheets request failed after {max_retries} attempts: {e}")
         except requests.exceptions.RequestException as e:
             last_exception = e
             if attempt < max_retries - 1:
                 wait_time = 2 ** attempt * 2
-                logging.warning(
-                    f"Google Sheets request failed (attempt {attempt + 1}/{max_retries}). "
-                    f"Retrying in {wait_time}s..."
+                console.warning(
+                    f"Sheets request failed (attempt {attempt + 1}/{max_retries}) — retrying in {wait_time}s"
                 )
                 time.sleep(wait_time)
             else:
-                logging.error(f"Google Sheets request failed after {max_retries} attempts: {e}")
+                console.error(f"Sheets request failed after {max_retries} attempts: {e}")
 
     raise RuntimeError(f"Failed to load sheet data after {max_retries} attempts: {last_exception}")
 
@@ -1198,10 +893,10 @@ def load_data() -> pd.DataFrame | None:
         # The predictor dropdown will only show columns that genuinely exist in the data.
         missing = [c for c in EXPECTED_COLUMNS if c not in df.columns]
         if missing:
-            logging.warning(
-                "Schema drift — %d expected column(s) absent from sheet: %s. "
-                "Predictor set will be built from columns that are actually present.",
-                len(missing), missing,
+            console.issue(
+                "SCHEMA",
+                "load_data",
+                f"{len(missing)} expected column(s) absent: {', '.join(missing)}",
             )
 
         df['DATE'] = pd.to_datetime(df['DATE'], format='%m/%d/%Y', errors='coerce')
@@ -1227,7 +922,7 @@ def load_data() -> pd.DataFrame | None:
         if 'NIFTY50_PE' in df.columns and df['NIFTY50_PE'].gt(0).any():
             if 'NIFTY50_EY' not in df.columns or df['NIFTY50_EY'].nunique() <= 1:
                 df['NIFTY50_EY'] = (1.0 / df['NIFTY50_PE'].replace(0, np.nan) * 100).fillna(0)
-                logging.info("NIFTY50_EY absent or constant — derived from PE (EY = 1/PE × 100).")
+                console.detail("NIFTY50_EY absent or constant — derived from PE (EY = 1/PE × 100)")
 
         # Derive yield-curve term spreads (10Y − 2Y).
         # Positive = normal curve (expansion). Negative = inverted (recession signal).
@@ -1242,14 +937,14 @@ def load_data() -> pd.DataFrame | None:
 
         elapsed = time.time() - start_time
         date_range = f"{df['DATE'].iloc[0].strftime('%Y-%m-%d')} → {df['DATE'].iloc[-1].strftime('%Y-%m-%d')}"
-        logging.info(
-            "Data loaded — %d rows × %d columns | %s | %.2fs",
-            len(df), len(df.columns), date_range, elapsed,
+        console.detail(
+            f"Parsed {len(df):,} rows × {len(df.columns)} cols  ·  "
+            f"{date_range}  ·  {elapsed:.2f}s"
         )
         return df
 
     except Exception as exc:
-        logging.error("Data load failed — pipeline halted. Cause: %s", exc)
+        console.failure("Data load", str(exc))
         st.error(f"Failed to load sheet data: {exc}")
         return None
 
@@ -1322,9 +1017,9 @@ def calculate_historical_mood(df, dependent_vars=None):
     start_time = time.time()
 
     if 'DATE' not in df.columns or 'NIFTY50_PE' not in df.columns or 'NIFTY50_EY' not in df.columns:
-        logging.error(
-            "Mood engine aborted — required anchor columns missing. "
-            "Sheet must contain DATE, NIFTY50_PE, and NIFTY50_EY."
+        console.failure(
+            "Mood engine",
+            "required anchor columns missing — sheet must contain DATE, NIFTY50_PE, NIFTY50_EY",
         )
         return pd.DataFrame(columns=['DATE', 'Mood_Score', 'Mood', 'Smoothed_Mood_Score', 'Mood_Volatility'])
 
@@ -1602,15 +1297,11 @@ def calculate_historical_mood(df, dependent_vars=None):
         'Regime': regime_labels,
     })
 
-    logging.info(
-        "Mood engine complete — %d rows in %.2fs | "
-        "OU: θ=%.3f  μ=%.2f  t½=%.0fd | "
-        "Diagnostics: Hurst=%.2f  Entropy=%.2f  Regime=%s | "
-        "Walk-forward checkpoints: %d",
-        n, time.time() - start_time,
-        theta, mu, ou_half_life,
-        hurst_vals[-1], entropy_vals[-1], regime_labels[-1],
-        len(checkpoints),
+    console.detail(
+        f"Mood engine complete — {n:,} rows in {time.time() - start_time:.2f}s  ·  "
+        f"OU: θ={theta:.3f} μ={mu:.2f} t½={ou_half_life:.0f}d  ·  "
+        f"Hurst={hurst_vals[-1]:.2f} Entropy={entropy_vals[-1]:.2f} Regime={regime_labels[-1]}  ·  "
+        f"Walk-forward checkpoints: {len(checkpoints)}"
     )
     return result_df
 
@@ -1647,7 +1338,7 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     breadth_series = pd.Series(breadth, index=df.index)
     
     if n == 0:
-        logging.error("MSF Spread aborted — received an empty DataFrame; no rows to process.")
+        console.failure("MSF Spread", "received an empty DataFrame — no rows to process")
         return result
     
     # ── Component 1: Momentum (NIFTY ROC z-score) ──────────────────────
@@ -1735,9 +1426,9 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
     result['flow']       = flow_norm      * MSF_SCALE
     
     weight_str = '  '.join(f"{k}={v:.0%}" for k, v in weights.items())
-    logging.info(
-        "MSF Spread complete — %.2fs | Inverse-variance weights: %s",
-        time.time() - start_time, weight_str,
+    console.detail(
+        f"MSF Spread complete — {time.time() - start_time:.2f}s  ·  "
+        f"Inverse-variance weights: {weight_str}"
     )
     return result
 
@@ -1880,336 +1571,124 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
     
     return results
 
-# ══════════════════════════════════════════════════════════════════════════════
-# LANDING PAGE
-# ══════════════════════════════════════════════════════════════════════════════
-
-def render_landing_page() -> None:
-    """Informational landing page — shown on first load; Run Analysis is in the sidebar."""
-
-    # ── Main header ──────────────────────────────────────────────────
-    st.markdown("""
-    <div class="premium-header">
-        <h1>ARTHAGATI <span style="color: var(--primary-color);">:</span> Market Sentiment Analysis</h1>
-        <div class="tagline">Ornstein-Uhlenbeck · Kalman · Decay-Spearman · Adaptive Percentiles | Quantitative Market Physics</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Feature cards — the 3 analysis views ────────────────────────
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("""
-        <div class='metric-card primary' style='min-height: 280px;'>
-            <h3 style='color: var(--primary-color); margin-bottom: 1rem;'><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="m3 3 18 18"/><path d="m18 9-5 5-4-4-3 3"/></svg>Historical Mood</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Full sentiment timeline with OU forward projection, Kalman confidence bands,
-                and regime transition markers on a TradingView-style chart.
-            </p>
-            <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Features:</strong><br>
-                • Mood Score −100 → +100<br>
-                • MSF Spread confirmation<br>
-                • 90-day OU mean-reversion path<br>
-                • Hurst · Entropy · Regime diagnostics
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class='metric-card success' style='min-height: 280px;'>
-            <h3 style='color: var(--success-green); margin-bottom: 1rem;'><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Similar Periods</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Historical analog matching against the full dataset with forward-return
-                outcomes, aggregate win-rates, and a backtest scatter.
-            </p>
-            <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Features:</strong><br>
-                • Mahalanobis state matching (55%)<br>
-                • Trajectory shape similarity (35%)<br>
-                • Recency decay (10%)<br>
-                • 30 / 60 / 90-day forward returns
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown("""
-        <div class='metric-card info' style='min-height: 280px;'>
-            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--info-cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>Correlation Analysis</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Full transparency into which variables drive the mood score and which
-                are noise, ranked by the engine's own quality formula.
-            </p>
-            <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Features:</strong><br>
-                • PE &amp; EY correlation bars<br>
-                • Shannon entropy quality score<br>
-                • Keep / Useful / Weak ranking<br>
-                • Dynamic from live sheet columns
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Analysis Methodology ─────────────────────────────────────────
-    st.markdown("""<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg><span style="color:var(--primary-color);font-weight:600;">Analysis Methodology</span>""", unsafe_allow_html=True)
-
-    col_m1, col_m2, col_m3 = st.columns(3)
-
-    with col_m1:
-        st.markdown("""
-        <div class='signal-card bullish' style='padding: 1.5rem;'>
-            <h4 style='color: var(--success-green); margin-bottom: 1rem;'>Mood Engine — 5 Layers</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
-                Physics-informed scoring pipeline:
-            </p>
-            <ul style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
-                <li><strong>Decay-Spearman</strong> correlations (504d HL)</li>
-                <li><strong>Entropy weighting</strong> — noisy vars suppressed</li>
-                <li><strong>Adaptive percentiles</strong> — decay-weighted CDF</li>
-                <li><strong>OU normalisation</strong> → [−100, +100]</li>
-                <li><strong>Kalman smoothing</strong> + ±1.96σ band</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col_m2:
-        st.markdown("""
-        <div class='signal-card bearish' style='padding: 1.5rem;'>
-            <h4 style='color: var(--danger-red); margin-bottom: 1rem;'>MSF Spread — Confirmation</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
-                Four-component oscillator −10 → +10:
-            </p>
-            <ul style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
-                <li><strong>Momentum</strong> — NIFTY ROC z-score (14d)</li>
-                <li><strong>Structure</strong> — mood trend divergence</li>
-                <li><strong>Flow</strong> — breadth participation</li>
-                <li><strong>Regime</strong> — adaptive directional count</li>
-                <li><strong>Weights</strong> — inverse-variance (Markowitz)</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col_m3:
-        st.markdown("""
-        <div class='signal-card neutral' style='padding: 1.5rem;'>
-            <h4 style='color: var(--neutral); margin-bottom: 1rem;'>Regime Detection</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;'>
-                Hurst × Entropy quadrant classification:
-            </p>
-            <ul style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.8; margin-top: 0.5rem;'>
-                <li><strong>Trending</strong> — momentum strategies favoured</li>
-                <li><strong>Volatile Trend</strong> — directional with swings</li>
-                <li><strong>Mean-Reverting</strong> — contrarian strategies</li>
-                <li><strong>Choppy</strong> — reduce size, avoid</li>
-                <li><strong>Output</strong> — scales MSF weights + OU horizon</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Mood Score Interpretation ────────────────────────────────────
-    st.markdown("""<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg><span style="color:var(--primary-color);font-weight:600;">Mood Score Interpretation</span>""", unsafe_allow_html=True)
-
-    col_s1, col_s2, col_s3 = st.columns(3)
-
-    with col_s1:
-        st.markdown("""
-        <div style='background: rgba(16,185,129,0.1); border: 1px solid var(--success-green);
-                    border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--success-green); margin-bottom: 0.75rem;'><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="10"/></svg>Bullish Zone</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &gt; +20</p>
-            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
-                Positive sentiment. Trend-following strategies favoured.
-                At extremes (&gt;+60, Euphoric) mean-reversion risk rises sharply.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col_s2:
-        st.markdown("""
-        <div style='background: rgba(136,136,136,0.1); border: 1px solid var(--neutral);
-                    border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--neutral); margin-bottom: 0.75rem;'><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--neutral)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="10"/></svg>Neutral Zone</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score −20 to +20</p>
-            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
-                No strong directional bias. Await macro confirmation or use
-                MSF Spread and Similar Periods for additional context.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col_s3:
-        st.markdown("""
-        <div style='background: rgba(239,68,68,0.1); border: 1px solid var(--danger-red);
-                    border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--danger-red); margin-bottom: 0.75rem;'><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="10" stroke="var(--danger-red)"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Bearish Zone</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score &lt; −20</p>
-            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
-                Negative sentiment. Defensive positioning warranted.
-                At extremes (&lt;−60, Capitulation) contrarian signals may emerge.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── System Coverage ──────────────────────────────────────────────
-    st.markdown("""<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="M2 12a10 10 0 0 1 20 0"/><path d="M12 2v20"/><path d="m4.93 4.93 14.14 14.14"/><path d="m19.07 4.93-14.14 14.14"/></svg><span style="color:var(--primary-color);font-weight:600;">System Coverage</span>""", unsafe_allow_html=True)
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        st.markdown('<div class="metric-card neutral"><h4>Score Anchors</h4><h2>2</h2><div class="sub-metric">PE · Earnings Yield</div></div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown(f'<div class="metric-card neutral"><h4>Predictors</h4><h2>{len(DEPENDENT_VARS)}</h2><div class="sub-metric">Macro + Breadth vars</div></div>', unsafe_allow_html=True)
-    with c3:
-        st.markdown('<div class="metric-card neutral"><h4>Math Primitives</h4><h2>12</h2><div class="sub-metric">Pure NumPy functions</div></div>', unsafe_allow_html=True)
-    with c4:
-        st.markdown('<div class="metric-card neutral"><h4>OU Projection</h4><h2>90d</h2><div class="sub-metric">Forward reversion path</div></div>', unsafe_allow_html=True)
-    with c5:
-        st.markdown('<div class="metric-card neutral"><h4>Analog Returns</h4><h2>3</h2><div class="sub-metric">30 · 60 · 90 day</div></div>', unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Getting Started ──────────────────────────────────────────────
-    st.markdown("""
-    <div class='info-box'>
-        <h4><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>Getting Started</h4>
-        <p style='color: var(--text-muted); line-height: 1.7;'>
-            Click <strong>▶ Run Analysis</strong> in the sidebar to fetch live data from Google Sheets
-            and run the full 5-layer sentiment pipeline. Once loaded, use the sidebar to switch
-            between <em>Historical Mood</em>, <em>Similar Periods</em>, and <em>Correlation Analysis</em>
-            views — or tune the active predictor set in <em>Model Configuration</em> and click
-            <strong>Apply</strong> to recompute with your custom variable selection.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN APPLICATION
+# APPLICATION ENTRYPOINT
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _render_sidebar_masthead() -> None:
+    """Top-of-sidebar product brand block."""
+    sidebar_masthead(
+        product="ARTHAGATI",
+        sanskrit="अर्थगति",
+        subtitle="Market Sentiment",
+    )
+    section_divider()
+
+
+def _render_sidebar_passport() -> None:
+    """Bottom-of-sidebar terminal spec card."""
+    section_divider()
+    sidebar_passport(
+        version=VERSION,
+        engine="OU · Kalman · Spearman",
+        data_label=COMPANY,
+    )
+
 
 def main():
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SESSION STATE INIT — explicit defaults on every cold start
-    # ═══════════════════════════════════════════════════════════════════════════
-    st.session_state.setdefault('analysis_started', False)
-    st.session_state.setdefault('active_predictors', None)
+    # ── Session state ──────────────────────────────────────────────────────
+    st.session_state.setdefault("analysis_started", False)
+    st.session_state.setdefault("active_predictors", None)
+    analysis_started = st.session_state["analysis_started"]
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SIDEBAR — content differs between landing and analysis states
-    # ═══════════════════════════════════════════════════════════════════════════
-    analysis_started = st.session_state['analysis_started']
-
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
-            <div style="font-size: 1.75rem; font-weight: 800; color: var(--primary-color);">ARTHAGATI</div>
-            <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">अर्थगति | Market Sentiment</div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-
-        if not analysis_started:
-            # ── Landing sidebar: Run Analysis is the only action ──────
-            st.markdown('<div class="sidebar-title">▶ Start</div>', unsafe_allow_html=True)
-            if st.button("▶  Run Analysis", use_container_width=True, type="primary"):
-                st.session_state['analysis_started'] = True
-                st.rerun()
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-            st.markdown(f"""
-            <div class='info-box'>
-                <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
-                    <strong>Version:</strong> {VERSION}<br>
-                    <strong>Engine:</strong> OU · Kalman · Spearman<br>
-                    <strong>Data:</strong> {COMPANY}
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-    # ── Landing page in main area ─────────────────────────────────────
+    # ── Landing state: masthead + Run Analysis button only ────────────────
     if not analysis_started:
-        render_landing_page()
+        with st.sidebar:
+            _render_sidebar_masthead()
+            sidebar_title("Start", icon="play-circle")
+            if st.button("Run Analysis", use_container_width=True, type="primary"):
+                st.session_state["analysis_started"] = True
+                st.rerun()
+            _render_sidebar_passport()
+
+        # ─ Main pane landing
+        n_predictors = len(DEPENDENT_VARS)
+        render_landing_page(version=VERSION, n_predictors=n_predictors)
         return
 
-    # ── Past this point: analysis is running ─────────────────────────
+    # ── Analysis state: load data and populate predictor options first ─────
+    run_id = generate_run_id()
+    console.main_header(
+        f"Analysis Run · {run_id}",
+        details={
+            "Started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Mode":    "Streamlit interactive",
+            "Sheet":   f"…{SHEET_ID[-8:]}" if SHEET_ID else "(env not set)",
+        },
+    )
+    console.start_phase("Data Ingestion", num=1, total=4)
+    console.step(1, "Fetching market data from Google Sheets (GViz API)")
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # LOAD DATA FIRST — needed to populate dynamic predictor options
-    # ═══════════════════════════════════════════════════════════════════════════
     _prog = st.empty()
-    _progress_bar(_prog, 5, "Fetching market data", "Google Sheets · gviz API · CSV decode")
+    _progress_bar(_prog, 5, "Fetching Market Data", "Google Sheets · GViz API · CSV Decode")
     raw_df = load_data()
 
     if raw_df is None:
         _prog.empty()
+        console.error("Data fetch returned None — aborting run.")
+        console.end_phase("Data Ingestion")
         st.stop()
+    console.success(f"Loaded {len(raw_df):,} rows × {len(raw_df.columns)} columns")
+    console.item("Date range", f"{raw_df['DATE'].min().date()} → {raw_df['DATE'].max().date()}")
+    console.end_phase("Data Ingestion")
 
     available_predictors = [
         col for col in raw_df.columns
         if col not in NON_PREDICTOR_COLS and pd.api.types.is_numeric_dtype(raw_df[col])
     ]
-
-    # Initialize or validate session-state predictors against actual columns
-    current_preds = st.session_state.get('active_predictors')
+    current_preds = st.session_state.get("active_predictors")
     if not current_preds:
-        st.session_state['active_predictors'] = tuple(available_predictors)
+        st.session_state["active_predictors"] = tuple(available_predictors)
     else:
         valid = tuple(p for p in current_preds if p in available_predictors)
-        st.session_state['active_predictors'] = valid if valid else tuple(available_predictors)
+        st.session_state["active_predictors"] = valid if valid else tuple(available_predictors)
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SIDEBAR — analysis controls
-    # ═══════════════════════════════════════════════════════════════════════════
+    # ── Sidebar — view mode + controls + model config ─────────────────────
     with st.sidebar:
+        _render_sidebar_masthead()
+
+        sidebar_title("View Mode", icon="grid")
         view_mode = st.radio(
             "View Mode",
             ["Historical Mood", "Similar Periods", "Correlation Analysis"],
-            label_visibility="collapsed"
+            label_visibility="collapsed",
         )
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        section_divider()
 
-        st.markdown('<div class="sidebar-title"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Controls</div>', unsafe_allow_html=True)
+        sidebar_title("Controls", icon="settings")
         if st.button("Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
-        
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
-        # ── Model Configuration ──
-        st.markdown('<div class="sidebar-title"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><path d="M12 2a8 8 0 0 0-8 8c0 1.892.783 3.63 2.046 4.912"/><path d="M12 18a8 8 0 0 0 8-8c0-1.892-.783-3.63-2.046-4.912"/><path d="M12 22a8 8 0 0 0 8-8c0-1.892-.783-3.63-2.046-4.912"/><path d="M12 2a8 8 0 0 0-8 8c0 1.892.783 3.63 2.046 4.912"/></svg>Model Configuration</div>', unsafe_allow_html=True)
+        section_divider()
 
+        sidebar_title("Model Configuration", icon="cpu")
         with st.expander("Predictor Columns", expanded=False):
             st.caption("Select predictors, then click Apply to recompute.")
-
-            # Staging multiselect — options are all numeric columns from the sheet
             staging_predictors = st.multiselect(
                 "Predictor Columns",
                 options=available_predictors,
-                default=list(st.session_state['active_predictors']),
+                default=list(st.session_state["active_predictors"]),
                 label_visibility="collapsed",
-                help="These columns are used as dependent variables for PE & EY correlation-weighted mood scoring."
+                help="These columns are used as dependent variables for PE & EY correlation-weighted mood scoring.",
             )
-
             if not staging_predictors:
                 st.warning("Select at least one predictor.")
-                staging_predictors = list(st.session_state['active_predictors'])
+                staging_predictors = list(st.session_state["active_predictors"])
 
-            # Show diff between staging and active
             staging_set = set(staging_predictors)
-            active_set = set(st.session_state['active_predictors'])
+            active_set = set(st.session_state["active_predictors"])
             has_changes = staging_set != active_set
-
             if has_changes:
                 added = staging_set - active_set
                 removed = active_set - staging_set
@@ -2220,82 +1699,105 @@ def main():
                     changes.append(f"−{len(removed)} removed")
                 st.caption(f"Pending: {', '.join(changes)}")
 
-            # Apply button — only this triggers recomputation
             apply_clicked = st.button(
-                "✅ Apply Configuration" if has_changes else "No changes",
+                "Apply Configuration" if has_changes else "No changes",
                 use_container_width=True,
                 disabled=not has_changes,
-                type="primary" if has_changes else "secondary"
+                type="primary" if has_changes else "secondary",
             )
-
             if apply_clicked and has_changes:
-                st.session_state['active_predictors'] = tuple(staging_predictors)
+                st.session_state["active_predictors"] = tuple(staging_predictors)
                 st.cache_data.clear()
                 st.rerun()
 
-            active_count = len(st.session_state['active_predictors'])
+            active_count = len(st.session_state["active_predictors"])
             total_count = len(available_predictors)
             if active_count != total_count:
                 st.info(f"Active: {active_count}/{total_count} predictors")
-        
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown(f"""
-        <div class='info-box'>
-            <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
-                <strong>Version:</strong> {VERSION}<br>
-                <strong>Engine:</strong> OU · Kalman · Spearman<br>
-                <strong>Data:</strong> {COMPANY}
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # ── Data Staleness Check ────────────────────────────────────────────
-    latest_date = raw_df['DATE'].max()
-    ist_tz = pytz.timezone('Asia/Kolkata')
+
+        _render_sidebar_passport()
+
+    # Masthead is intentionally landing-page-only — once Run Analysis is pressed
+    # the results UI (metric strips + view) is the primary visual.
+
+    # ── Stale-data warning ────────────────────────────────────────────────
+    latest_date = raw_df["DATE"].max()
+    ist_tz = pytz.timezone("Asia/Kolkata")
     today_ist = datetime.now(ist_tz).date()
     data_age_days = (pd.Timestamp(today_ist) - latest_date).days
-    
-    # >3 days gap (accounts for weekends: Fri data on Mon = 3 days, fine)
     if data_age_days > 3:
-        st.markdown(f"""
-        <div style="background: rgba(239,68,68,0.1); border: 1px solid var(--danger-red); border-radius: 10px; 
-                    padding: 0.75rem 1.25rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 12px;">
-            <span style="font-size: 1.4rem;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--warning-amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21.33h8a2 2 0 0 0 1.92-1.45L12 15"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span>
-            <div>
-                <span style="color: var(--danger-red); font-weight: 700;">Stale Data</span>
-                <span style="color: #888; font-size: 0.85rem;"> — Last data point is <b>{latest_date.strftime('%d %b %Y')}</b> ({data_age_days} days ago). 
-                Scores reflect the last available data, not current market state. Update your Google Sheet.</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    _progress_bar(_prog, 40, "Computing correlations", "Decay-weighted Spearman · PE & EY anchors")
-    selected_preds = st.session_state.get('active_predictors', tuple(available_predictors))
+        console.warning(
+            f"Stale data — last point is {latest_date.date()} ({data_age_days}d old)"
+        )
+        render_warning_box(
+            title="Stale Data",
+            content=(
+                f"Last data point is {latest_date.strftime('%d %b %Y')} "
+                f"({data_age_days} days ago). Scores reflect the last available data, "
+                "not current market state. Update your Google Sheet."
+            ),
+        )
 
-    _progress_bar(_prog, 65, "Running sentiment engine", "OU normalization · Kalman smoothing · 5-layer pipeline")
+    # ── Run engine ────────────────────────────────────────────────────────
+    selected_preds = st.session_state.get("active_predictors", tuple(available_predictors))
+
+    console.start_phase("Correlation Engine", num=2, total=4)
+    console.step(2, "Computing decay-weighted Spearman vs PE & EY anchors")
+    console.item("Active predictors", f"{len(selected_preds)}/{len(available_predictors)}")
+    _progress_bar(_prog, 40, "Computing Correlations", "Decay-Weighted Spearman · PE & EY Anchors")
+    console.success("Correlations computed")
+    console.end_phase("Correlation Engine")
+
+    console.start_phase("Sentiment Engine", num=3, total=4)
+    console.step(3, "OU normalisation · Kalman smoothing · 5-layer pipeline")
+    _progress_bar(_prog, 65, "Running Sentiment Engine", "OU Normalisation · Kalman Smoothing · 5-Layer Pipeline")
     mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
-
     if mood_df.empty:
         _prog.empty()
+        console.error("calculate_historical_mood returned empty DataFrame")
+        console.end_phase("Sentiment Engine")
         st.error("Failed to calculate mood scores.")
         st.stop()
+    latest_mood = float(mood_df["Mood_Score"].iloc[-1])
+    console.success(f"Mood score computed: {latest_mood:+.2f}")
+    console.checkpoint("Mood frame integrity", "OK" if not mood_df.empty else "FAIL")
+    console.end_phase("Sentiment Engine")
 
-    _progress_bar(_prog, 88, "Computing MSF spread", "Momentum · Structure · Regime · Flow · inverse-variance weights")
+    console.start_phase("MSF Spread", num=4, total=4)
+    console.step(4, "Momentum · Structure · Regime · Flow (inverse-variance weights)")
+    _progress_bar(_prog, 88, "Computing MSF Spread", "Momentum · Structure · Regime · Flow · Inverse-Variance Weights")
     msf_df = calculate_msf_spread(mood_df)
-    mood_df['MSF_Spread'] = msf_df['msf_spread'].values if not msf_df.empty else 0
+    mood_df["MSF_Spread"] = msf_df["msf_spread"].values if not msf_df.empty else 0
+    latest_msf = float(mood_df["MSF_Spread"].iloc[-1]) if not mood_df.empty else 0.0
+    console.success(f"MSF Spread computed: {latest_msf:+.2f}")
+    console.end_phase("MSF Spread")
 
-    _progress_bar(_prog, 100, "Ready", "All systems nominal")
+    _progress_bar(_prog, 100, "Ready", "All Systems Nominal")
     time.sleep(0.25)
     _prog.empty()
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # METRIC CARDS
-    # ═══════════════════════════════════════════════════════════════════════════
-    latest = mood_df.iloc[-1]
-    mood_score = latest['Mood_Score']
-    msf_spread = latest['MSF_Spread']
-    
-    # Mood card styling
+
+    # ── Pipeline summary ──────────────────────────────────────────────────
+    _last = mood_df.iloc[-1]
+    console.summary(
+        f"Run {run_id} · Pipeline Summary",
+        {
+            "View Mode":      view_mode,
+            "Predictors":     f"{len(selected_preds)} active",
+            "Rows":           f"{len(mood_df):,}",
+            "Mood Score":     f"{_last['Mood_Score']:+.2f} ({_last.get('Mood', '—')})",
+            "MSF Spread":     f"{_last['MSF_Spread']:+.2f}",
+            "Regime":         str(_last.get("Regime", "Unknown")),
+            "OU Half-Life":   f"{_last.get('OU_Half_Life', 0):.0f}d",
+            "Hurst":          f"{_last.get('Hurst', 0.5):.2f}",
+            "Market Entropy": f"{_last.get('Market_Entropy', 0.5):.2f}",
+        },
+    )
+
+    # ── Top metric strip ──────────────────────────────────────────────────
+    latest      = mood_df.iloc[-1]
+    mood_score  = latest["Mood_Score"]
+    msf_spread  = latest["MSF_Spread"]
+
     if mood_score > 60:
         mood_class = "success"
     elif mood_score > 20:
@@ -2306,964 +1808,135 @@ def main():
         mood_class = "info"
     else:
         mood_class = "neutral"
-    
-    # MSF card styling (thresholds at ±4)
+
     if msf_spread > 4:
-        msf_class = "danger"
-        msf_label = "Overbought"
+        msf_class, msf_label = "danger", "Overbought"
     elif msf_spread > 2:
-        msf_class = "warning"
-        msf_label = "Bullish"
+        msf_class, msf_label = "warning", "Bullish"
     elif msf_spread < -4:
-        msf_class = "success"
-        msf_label = "Oversold"
+        msf_class, msf_label = "success", "Oversold"
     elif msf_spread < -2:
-        msf_class = "info"
-        msf_label = "Bearish"
+        msf_class, msf_label = "info", "Bearish"
     else:
-        msf_class = "neutral"
-        msf_label = "Neutral"
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
+        msf_class, msf_label = "neutral", "Neutral"
+
+    section_gap()
+    col1, col2, col3, col4 = st.columns(4, gap="small")
     with col1:
-        st.markdown(f"""
-        <div class="metric-card primary">
-            <h4>Mood Score</h4>
-            <h2>{mood_score:.2f}</h2>
-            <div class="sub-metric">{latest['Mood']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        render_metric_card(
+            label="Mood Score",
+            value=f"{mood_score:.2f}",
+            subtext=str(latest.get("Mood", "—")),
+            color_class=mood_class,
+            icon="activity",
+        )
     with col2:
-        st.markdown(f"""
-        <div class="metric-card {msf_class}">
-            <h4>MSF Spread</h4>
-            <h2 style="color: {C_CYAN};">{msf_spread:+.2f}</h2>
-            <div class="sub-metric">{msf_label}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        render_metric_card(
+            label="MSF Spread",
+            value=f"{msf_spread:+.2f}",
+            subtext=msf_label,
+            color_class=msf_class,
+            icon="chart",
+        )
     with col3:
-        nifty_val = latest['NIFTY']
-        st.markdown(f"""
-        <div class="metric-card primary">
-            <h4>NIFTY 50</h4>
-            <h2>{nifty_val:,.0f}</h2>
-            <div class="sub-metric">Index Level</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        render_metric_card(
+            label="NIFTY 50",
+            value=f"{latest['NIFTY']:,.0f}",
+            subtext="Index level",
+            color_class="warning",
+            icon="trending-up",
+        )
     with col4:
-        st.markdown(f"""
-        <div class="metric-card neutral">
-            <h4>Analysis Date</h4>
-            <h2>{latest['DATE'].strftime('%d %b')}</h2>
-            <div class="sub-metric">{latest['DATE'].strftime('%Y')}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # ── Diagnostics Row ─────────────────────────────────────────────────
-    d1, d2, d3, d4 = st.columns(4)
-    
-    current_regime = latest.get('Regime', 'Unknown')
-    reg_color, reg_class = REGIME_STYLES.get(current_regime, (C_MUTED, 'neutral'))
-    
+        render_metric_card(
+            label="Analysis Date",
+            value=latest["DATE"].strftime("%d %b"),
+            subtext=latest["DATE"].strftime("%Y"),
+            color_class="neutral",
+            icon="globe",
+        )
+
+    section_gap()
+
+    # ── Diagnostics strip ─────────────────────────────────────────────────
+    current_regime = latest.get("Regime", "Unknown")
+    _reg_color, reg_class = REGIME_STYLES.get(current_regime, (C_MUTED, "neutral"))
+
+    d1, d2, d3, d4 = st.columns(4, gap="small")
     with d1:
-        st.markdown(f"""
-        <div class="metric-card {reg_class}">
-            <h4>Market Regime</h4>
-            <h2 style="font-size: 1.25rem;">{current_regime}</h2>
-            <div class="sub-metric">Hurst + Entropy</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        render_metric_card(
+            label="Market Regime",
+            value=str(current_regime),
+            subtext="Hurst + Entropy",
+            color_class=reg_class,
+            icon="compass",
+        )
     with d2:
-        ou_hl = latest.get('OU_Half_Life', 0)
-        st.markdown(f"""
-        <div class="metric-card primary">
-            <h4>OU Half-Life</h4>
-            <h2>{ou_hl:.0f}d</h2>
-            <div class="sub-metric">Expected reversion time</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        ou_hl = latest.get("OU_Half_Life", 0)
+        render_metric_card(
+            label="OU Half-Life",
+            value=f"{ou_hl:.0f}d",
+            subtext="Expected reversion time",
+            color_class="warning",
+            icon="cpu",
+        )
     with d3:
-        h_val = latest.get('Hurst', 0.5)
-        h_label = 'Trending' if h_val > 0.55 else 'Random' if h_val > 0.45 else 'Reverting'
-        h_class = 'success' if h_val > 0.55 else 'neutral' if h_val > 0.45 else 'info'
-        st.markdown(f"""
-        <div class="metric-card {h_class}">
-            <h4>Hurst Exponent</h4>
-            <h2>{h_val:.2f}</h2>
-            <div class="sub-metric">{h_label}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        h_val = latest.get("Hurst", 0.5)
+        h_label = "Trending" if h_val > 0.55 else "Random" if h_val > 0.45 else "Reverting"
+        h_class = "success" if h_val > 0.55 else "neutral" if h_val > 0.45 else "info"
+        render_metric_card(
+            label="Hurst Exponent",
+            value=f"{h_val:.2f}",
+            subtext=h_label,
+            color_class=h_class,
+            icon="trending-up",
+        )
     with d4:
-        s_val = latest.get('Market_Entropy', 0.5)
-        s_label = 'Disordered' if s_val > 0.6 else 'Ordered' if s_val < 0.4 else 'Mixed'
-        s_class = 'danger' if s_val > 0.6 else 'success' if s_val < 0.4 else 'neutral'
-        st.markdown(f"""
-        <div class="metric-card {s_class}">
-            <h4>Market Entropy</h4>
-            <h2>{s_val:.2f}</h2>
-            <div class="sub-metric">{s_label}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Separator between cards and chart section
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # VIEW MODES
-    # ═══════════════════════════════════════════════════════════════════════════
-    
+        s_val = latest.get("Market_Entropy", 0.5)
+        s_label = "Disordered" if s_val > 0.6 else "Ordered" if s_val < 0.4 else "Mixed"
+        s_class = "danger" if s_val > 0.6 else "success" if s_val < 0.4 else "neutral"
+        render_metric_card(
+            label="Market Entropy",
+            value=f"{s_val:.2f}",
+            subtext=s_label,
+            color_class=s_class,
+            icon="zap",
+        )
+
+    section_gap()
+
+    # ── View dispatch ─────────────────────────────────────────────────────
+    console.section(f"Rendering view: {view_mode}", phase="UI")
     if view_mode == "Historical Mood":
-        render_historical_mood(mood_df, msf_df)
+        render_historical_mood(
+            mood_df, msf_df,
+            timeframes=TIMEFRAMES,
+            regime_styles=REGIME_STYLES,
+            mood_scale=MOOD_SCALE,
+            ou_proj_days=OU_PROJ_DAYS,
+        )
     elif view_mode == "Similar Periods":
-        render_similar_periods(mood_df)
+        render_similar_periods(
+            mood_df,
+            find_similar_periods=find_similar_periods,
+            backtest_horizon=BACKTEST_HORIZON,
+        )
     else:
-        render_correlation_analysis(raw_df)
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # FOOTER
-    # ═══════════════════════════════════════════════════════════════════════════
+        render_correlation_analysis(
+            raw_df,
+            active_preds=st.session_state.get("active_predictors", tuple(available_predictors)),
+            non_predictor_cols=NON_PREDICTOR_COLS,
+            calculate_anchor_correlations=calculate_anchor_correlations,
+            shannon_entropy=shannon_entropy,
+        )
+    console.success(f"View rendered: {view_mode}")
+    console.line("═", 70)
+
+    # ── Footer ────────────────────────────────────────────────────────────
     utc_now = datetime.now(pytz.UTC)
-    ist_now = utc_now.astimezone(pytz.timezone('Asia/Kolkata'))
+    ist_now = utc_now.astimezone(pytz.timezone("Asia/Kolkata"))
     current_time_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
-    
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.caption(f"© 2026 {PRODUCT_NAME} | {COMPANY} | {VERSION} | {current_time_ist}")
+    render_footer(PRODUCT_NAME, COMPANY, VERSION, current_time_ist)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# HISTORICAL MOOD VIEW (TradingView Style)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def render_historical_mood(mood_df, msf_df):
-    """Render TradingView-style historical mood chart with timeframe selector."""
-    
-    st.markdown("""
-        <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="m3 3 18 18"/><path d="m18 9-5 5-4-4-3 3"/></svg>Market Mood Terminal</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">TradingView-Style Analysis • Mood Score + MSF Spread Indicator</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Initialize session state for timeframe
-    if 'tf_selected' not in st.session_state:
-        st.session_state.tf_selected = '1Y'
-    
-    # Timeframe selector row (Google Finance style)
-    tf_cols = st.columns(len(TIMEFRAMES))
-    for i, tf in enumerate(TIMEFRAMES.keys()):
-        with tf_cols[i]:
-            btn_type = "primary" if st.session_state.tf_selected == tf else "secondary"
-            if st.button(tf, key=f"tf_{tf}", use_container_width=True, type=btn_type):
-                st.session_state.tf_selected = tf
-                st.rerun()
-    
-    # Calculate days for selected timeframe
-    selected_tf = st.session_state.tf_selected
-    if selected_tf == 'YTD':
-        today = datetime.now()
-        days_back = (today - datetime(today.year, 1, 1)).days + 1
-    else:
-        days_back = TIMEFRAMES[selected_tf]
-    
-    # Filter data based on timeframe
-    if days_back and days_back < len(mood_df):
-        df = mood_df.tail(days_back).copy()
-        msf_filtered = msf_df.tail(days_back).copy()
-    else:
-        df = mood_df.copy()
-        msf_filtered = msf_df.copy()
-    
-    if df.empty:
-        st.warning("No data available for selected timeframe.")
-        return
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # TRADINGVIEW-STYLE CHART (2 panes: Mood Score + MSF Spread)
-    # ═══════════════════════════════════════════════════════════════════════════
-    
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.08,  # Increased spacing for separator
-        row_heights=[0.65, 0.35]
-    )
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # ROW 1: MOOD SCORE (Main Chart) - YELLOW
-    # ─────────────────────────────────────────────────────────────────────────
-    
-    # Kalman Confidence Band (±KALMAN_CI_Z σ, ~95% interval)
-    if 'Confidence_Upper' in df.columns and 'Confidence_Lower' in df.columns:
-        fig.add_trace(
-            go.Scatter(
-                x=df['DATE'], y=df['Confidence_Upper'],
-                mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip',
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=df['DATE'], y=df['Confidence_Lower'],
-                mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip',
-                fill='tonexty', fillcolor='rgba(255,195,0,0.08)',
-                name='95% Confidence',
-            ),
-            row=1, col=1
-        )
-
-    # Mood Score line
-    fig.add_trace(
-        go.Scattergl(
-            x=df['DATE'], y=df['Mood_Score'],
-            mode='lines', name='Mood Score',
-            line=dict(color=C_PRIMARY, width=2),
-            hovertemplate='<b>%{x|%d %b %Y}</b><br>Mood: %{y:.2f}<extra></extra>',
-        ),
-        row=1, col=1
-    )
-
-    # Zero reference
-    fig.add_hline(y=0, line_color='#757575', line_width=1, line_dash='dash', row=1, col=1)
-
-    # Current-value annotation
-    last_point = df.iloc[-1]
-    fig.add_annotation(
-        x=last_point['DATE'], y=last_point['Mood_Score'],
-        text=f"<b>{last_point['Mood_Score']:.1f}</b>",
-        showarrow=True, arrowhead=2, arrowcolor=C_PRIMARY,
-        ax=40, ay=0,
-        bgcolor=C_BG_CARD, bordercolor=C_PRIMARY, borderwidth=1,
-        font=dict(color=C_PRIMARY, size=11),
-        row=1, col=1
-    )
-    
-    # ── OU Forward Projection (dotted line) ─────────────────────────────
-    # E[x(t+n)] = μ + (x_current − μ) · exp(−θ·n)
-    ou_theta = float(last_point.get('OU_Theta', 0.05))
-    ou_mu    = float(last_point.get('OU_Mu',    0.0))
-    ou_sigma = float(last_point.get('OU_Sigma', 1.0))
-    ou_stationary_std_proj = ou_sigma / np.sqrt(2.0 * max(ou_theta, 1e-4))
-
-    last_date = last_point['DATE']
-    proj_dates = pd.date_range(start=last_date, periods=OU_PROJ_DAYS + 1, freq='D')[1:]
-    proj_n     = np.arange(1, OU_PROJ_DAYS + 1, dtype=np.float64)
-
-    # Convert current mood → OU-space, project, convert back.
-    # mood_score = (rough_scaled − μ) / ou_stationary_std × MOOD_SCALE
-    # → OU-space: x = mood / MOOD_SCALE × ou_stationary_std + μ
-    x_current_ou = last_point['Mood_Score'] / MOOD_SCALE * max(ou_stationary_std_proj, 1e-6) + ou_mu
-    proj_ou   = ou_mu + (x_current_ou - ou_mu) * np.exp(-ou_theta * proj_n)
-    proj_mood = np.clip((proj_ou - ou_mu) / max(ou_stationary_std_proj, 1e-6) * MOOD_SCALE, -100, 100)
-
-    fig.add_trace(
-        go.Scatter(
-            x=proj_dates, y=proj_mood,
-            mode='lines', name='OU Projection',
-            line=dict(color=C_PRIMARY, width=1.5, dash='dot'),
-            opacity=0.5,
-            hovertemplate='<b>%{x|%d %b %Y}</b><br>Projected: %{y:.1f}<extra></extra>',
-        ),
-        row=1, col=1
-    )
-    
-    # OU equilibrium line
-    ou_eq_mood = 0.0  # μ maps to 0 in normalized space
-    fig.add_annotation(
-        x=proj_dates[-1], y=ou_eq_mood,
-        text=f"EQ ({last_point.get('OU_Half_Life', 0):.0f}d t½)",
-        showarrow=False,
-        font=dict(color='#888', size=9),
-        xanchor='left', xshift=5,
-        row=1, col=1
-    )
-    
-    # ── Dynamic Y-Bounds for Mood Pane ──────────────────────────────────
-    # Compute actual data extent (mood scores, confidence bands, OU projection)
-    # so the chart scales tightly to visible data instead of fixed ±100.
-    _y_candidates = [df['Mood_Score'].values]
-    if 'Confidence_Upper' in df.columns:
-        _y_candidates.append(df['Confidence_Upper'].values)
-    if 'Confidence_Lower' in df.columns:
-        _y_candidates.append(df['Confidence_Lower'].values)
-    _y_candidates.append(proj_mood)
-    _y_all = np.concatenate([c[np.isfinite(c)] for c in _y_candidates])
-    _y_min = float(_y_all.min()) if len(_y_all) > 0 else -100
-    _y_max = float(_y_all.max()) if len(_y_all) > 0 else 100
-    _y_pad = max((_y_max - _y_min) * 0.08, 2.0)  # 8% padding, minimum 2 pts
-    mood_y_lo = _y_min - _y_pad
-    mood_y_hi = _y_max + _y_pad
-
-    # ── Regime Transition Markers (WebGL — avoids SVG DOM bloat) ────────
-    # Group transitions by colour, build interleaved x/y arrays with None
-    # separators, render as single Scattergl traces per colour.
-    if 'Regime' in df.columns:
-        regimes = df['Regime'].values
-        dates   = df['DATE'].values
-        transition_groups = {}  # color → (x_list, y_list)
-        for i in range(1, len(regimes)):
-            if regimes[i] != regimes[i - 1] and regimes[i] != 'Unknown':
-                color = REGIME_STYLES.get(regimes[i], (C_MUTED, 'neutral'))[0]
-                if color not in transition_groups:
-                    transition_groups[color] = ([], [])
-                xg, yg = transition_groups[color]
-                xg.extend([dates[i], dates[i], None])
-                yg.extend([mood_y_lo, mood_y_hi, None])
-
-        for color, (xg, yg) in transition_groups.items():
-            fig.add_trace(
-                go.Scattergl(
-                    x=xg, y=yg,
-                    mode='lines',
-                    line=dict(color=color, width=1, dash='dot'),
-                    opacity=0.5,
-                    showlegend=False,
-                    hoverinfo='skip',
-                ),
-                row=1, col=1
-            )
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # ROW 2: MSF SPREAD INDICATOR (Oscillator Pane) - CYAN
-    # ─────────────────────────────────────────────────────────────────────────
-    
-    # MSF Spread line
-    msf_values = msf_filtered['msf_spread'].values
-
-    fig.add_trace(
-        go.Scattergl(
-            x=df['DATE'], y=msf_values,
-            mode='lines', name='MSF Spread',
-            line=dict(color=C_CYAN, width=2),
-            hovertemplate='<b>%{x|%d %b %Y}</b><br>MSF: %{y:.2f}<extra></extra>',
-        ),
-        row=2, col=1
-    )
-
-    fig.add_hline(y=0, line_color='#757575', line_width=1, row=2, col=1)
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # DIVERGENCE SIGNALS (Triangles)
-    # ─────────────────────────────────────────────────────────────────────────
-    
-    # Detect divergences between Mood Score and MSF Spread
-    # Condition A (was bullish): Mood making lower lows, MSF making higher lows -> RED (top)
-    # Condition B (was bearish): Mood making higher highs, MSF making lower highs -> GREEN (bottom)
-    
-    lookback = 10  # Lookback period for local extrema
-    mood_series = df['Mood_Score']
-    msf_series = pd.Series(msf_values, index=df.index)
-    
-    # Local extrema over 'lookback' window (vectorised)
-    roll_mood_min = mood_series.rolling(lookback + 1, min_periods=1).min()
-    roll_mood_max = mood_series.rolling(lookback + 1, min_periods=1).max()
-    roll_msf_min = msf_series.rolling(lookback + 1, min_periods=1).min()
-    roll_msf_max = msf_series.rolling(lookback + 1, min_periods=1).max()
-    
-    # Previous windows' extrema using shift
-    prev_mood_min, prev_msf_min = roll_mood_min.shift(lookback), roll_msf_min.shift(lookback)
-    prev_mood_max, prev_msf_max = roll_mood_max.shift(lookback), roll_msf_max.shift(lookback)
-    
-    # Vectorised boolean masks for conditions
-    bearish_mask = (mood_series == roll_mood_min) & (mood_series < prev_mood_min) & (roll_msf_min > prev_msf_min)
-    bullish_mask = (mood_series == roll_mood_max) & (mood_series > prev_mood_max) & (roll_msf_max < prev_msf_max)
-    
-    # Enforce index boundaries (equivalent to i > lookback*2 and i < len(df) - 1)
-    valid_indices = np.zeros(len(df), dtype=bool)
-    valid_indices[lookback * 2 : len(df) - 1] = True
-    
-    red_signals = np.where(bearish_mask & valid_indices)[0]
-    green_signals = np.where(bullish_mask & valid_indices)[0]
-    
-    # Red triangles at y=5 (bearish divergence, top)
-    if len(red_signals) > 0:
-        fig.add_trace(
-            go.Scatter(
-                x=[df['DATE'].iloc[i] for i in red_signals], y=[5] * len(red_signals),
-                mode='markers', name='Bearish Signal',
-                marker=dict(symbol='triangle-down', size=8, color=C_RED, line=dict(color=C_RED, width=1)),
-                hoverinfo='skip', showlegend=False,
-            ),
-            row=2, col=1
-        )
-
-    # Green triangles at y=-5 (bullish divergence, bottom)
-    if len(green_signals) > 0:
-        fig.add_trace(
-            go.Scatter(
-                x=[df['DATE'].iloc[i] for i in green_signals], y=[-5] * len(green_signals),
-                mode='markers', name='Bullish Signal',
-                marker=dict(symbol='triangle-up', size=8, color=C_GREEN, line=dict(color=C_GREEN, width=1)),
-                hoverinfo='skip', showlegend=False,
-            ),
-            row=2, col=1
-        )
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # LAYOUT
-    # ─────────────────────────────────────────────────────────────────────────
-    
-    fig.update_layout(
-        **PLOTLY_BASE,
-        height=750,
-        hovermode='x unified',
-        showlegend=True,
-        legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1, font=dict(size=11)),
-        margin=dict(l=60, r=20, t=80, b=40),
-        xaxis2=dict(showgrid=True, gridcolor=C_BG_GRID, type='date'),
-        yaxis=dict(
-            title=dict(text='Mood Score', font=dict(size=11, color=C_MUTED)),
-            showgrid=True, gridcolor=C_BG_GRID, zeroline=False,
-            range=[mood_y_hi, mood_y_lo],  # reversed: high at bottom, low at top
-        ),
-        yaxis2=dict(
-            title=dict(text='MSF Spread', font=dict(size=11, color=C_MUTED)),
-            showgrid=True, gridcolor=C_BG_GRID, zeroline=False,
-        ),
-    )
-    
-    # Add separator line between charts (horizontal line at the boundary)
-    fig.add_shape(
-        type="line",
-        xref="paper",
-        yref="paper",
-        x0=0,
-        y0=0.38,  # Position between the two charts
-        x1=1,
-        y1=0.38,
-        line=dict(color="#555555", width=2)
-    )
-    
-    # Remove x-axis grid on row 1 for cleaner look
-    fig.update_xaxes(showgrid=False, row=1, col=1)
-    fig.update_xaxes(showgrid=True, gridcolor=C_BG_GRID, row=2, col=1)
-    
-    st.plotly_chart(fig, config={
-        'displayModeBar': True,
-        'scrollZoom': True,
-        'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'eraseshape']
-    })
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # PERIOD SUMMARY
-    # ═══════════════════════════════════════════════════════════════════════════
-    
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    period_high = df['Mood_Score'].max()
-    period_low = df['Mood_Score'].min()
-    period_avg = df['Mood_Score'].mean()
-    msf_avg = msf_filtered['msf_spread'].mean()
-    
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card success">
-            <h4>Period High</h4>
-            <h2>{period_high:.1f}</h2>
-            <div class="sub-metric">Most Bullish</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="metric-card danger">
-            <h4>Period Low</h4>
-            <h2>{period_low:.1f}</h2>
-            <div class="sub-metric">Most Bearish</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        avg_color = 'success' if period_avg > 0 else 'danger' if period_avg < 0 else 'neutral'
-        st.markdown(f"""
-        <div class="metric-card {avg_color}">
-            <h4>Average Mood</h4>
-            <h2>{period_avg:.1f}</h2>
-            <div class="sub-metric">{selected_tf} Period</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        msf_color = 'success' if msf_avg < 0 else 'danger' if msf_avg > 0 else 'neutral'
-        st.markdown(f"""
-        <div class="metric-card {msf_color}">
-            <h4>Avg MSF Spread</h4>
-            <h2>{msf_avg:+.2f}</h2>
-            <div class="sub-metric">{selected_tf} Period</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # MSF COMPONENT DECOMPOSITION
-    # ═══════════════════════════════════════════════════════════════════════════
-    
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.markdown("""
-        <div style="margin-bottom: 0.75rem;">
-            <h4 style="color: var(--info-cyan); margin: 0;">MSF Component Breakdown</h4>
-            <p style="color: #888; font-size: 0.8rem; margin: 0;">Current contribution of each component to the MSF Spread reading · Weights are inverse-variance (auto-calibrated)</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Get latest MSF component values
-    msf_latest_idx = min(len(msf_filtered) - 1, len(df) - 1)
-    if msf_latest_idx >= 0 and not msf_filtered.empty:
-        comp_names = ['momentum', 'structure', 'regime', 'flow']
-        comp_labels = ['Momentum', 'Structure', 'Regime', 'Flow']
-        comp_colors = ['var(--warning-amber)', '#a78bfa', 'var(--success-green)', 'var(--info-cyan)']
-        comp_icons = ['<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>', '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="16" width="20" height="8" rx="2"/><rect x="4" y="8" width="20" height="8" rx="2"/></svg>', '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>', '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 6c0 1.1.9 2 2 2s2-.9 2-2"/><path d="M2 12c0 1.1.9 2 2 2s2-.9 2-2"/><path d="M2 18c0 1.1.9 2 2 2s2-.9 2-2"/><path d="M22 20c-2.5 0-4.5-2.1-4.5-5"/><path d="M12 14c-2.5 0-4.5-2.1-4.5-5"/><path d="M12 8c-2.5 0-4.5-2.1-4.5-5"/></svg>']
-        
-        c_cols = st.columns(4)
-        for j, (name, label, color, icon) in enumerate(zip(comp_names, comp_labels, comp_colors, comp_icons)):
-            val = msf_filtered[name].iloc[msf_latest_idx] if name in msf_filtered.columns else 0
-            # Compute period average for context
-            period_val = msf_filtered[name].mean() if name in msf_filtered.columns else 0
-            
-            bar_pct = (val + 10) / 20 * 100  # Map [-10, +10] → [0%, 100%]
-            bar_pct = max(0, min(100, bar_pct))
-            
-            with c_cols[j]:
-                st.markdown(f"""
-                <div style="background: var(--bg-card); border-radius: 10px; padding: 0.75rem; border: 1px solid var(--border-color);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-                        <span style="font-size: 0.75rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{icon} {label}</span>
-                        <span style="font-size: 1.1rem; font-weight: 700; color: {color};">{val:+.1f}</span>
-                    </div>
-                    <div style="height: 6px; background: var(--border-color); border-radius: 3px; position: relative;">
-                        <div style="position: absolute; left: 50%; top: 0; width: 1px; height: 6px; background: #555;"></div>
-                        <div style="width: {bar_pct:.0f}%; height: 100%; background: {color}; border-radius: 3px; opacity: 0.8;"></div>
-                    </div>
-                    <div style="font-size: 0.65rem; color: #555; margin-top: 0.3rem;">Period avg: {period_val:+.1f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SIMILAR PERIODS VIEW
-# ══════════════════════════════════════════════════════════════════════════════
-
-def render_similar_periods(mood_df):
-    """Render similar historical periods with forward returns and backtest validation."""
-    
-    st.markdown("""
-        <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Similar Historical Periods</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">Mahalanobis + trajectory matching · Forward NIFTY returns from each analog</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    similar_periods = find_similar_periods(mood_df)
-    
-    if not similar_periods:
-        st.warning("Not enough historical data to find similar periods.")
-        return
-    
-    # ── Forward Return Summary ──────────────────────────────────────────
-    # Aggregate: "In N similar periods, what was the median NIFTY return?"
-    fwd_30 = [p['fwd_30d'] for p in similar_periods if p['fwd_30d'] is not None]
-    fwd_60 = [p['fwd_60d'] for p in similar_periods if p['fwd_60d'] is not None]
-    fwd_90 = [p['fwd_90d'] for p in similar_periods if p['fwd_90d'] is not None]
-    
-    if fwd_30 or fwd_60 or fwd_90:
-        sc1, sc2, sc3 = st.columns(3)
-        
-        def _fwd_card(col, horizon, values):
-            if not values:
-                return
-            median_ret = np.median(values)
-            positive_pct = sum(1 for v in values if v > 0) / len(values) * 100
-            ret_color = 'var(--success-green)' if median_ret > 0 else 'var(--danger-red)'
-            card_class = 'success' if median_ret > 0 else 'danger'
-            with col:
-                st.markdown(f"""
-                <div class="metric-card {card_class}">
-                    <h4>+{horizon}D Median Return</h4>
-                    <h2>{median_ret:+.1f}%</h2>
-                    <div class="sub-metric">{positive_pct:.0f}% positive ({len(values)} analogs)</div>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        _fwd_card(sc1, 30, fwd_30)
-        _fwd_card(sc2, 60, fwd_60)
-        _fwd_card(sc3, 90, fwd_90)
-        
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
-    # ── Period Cards with Forward Returns ───────────────────────────────
-    cols = st.columns(2)
-    for i, period in enumerate(similar_periods[:10]):
-        col = cols[i % 2]
-        with col:
-            similarity_pct = period['similarity'] * 100
-            mood_val = period['mood_score']
-            mood_class = 'bullish' if mood_val > 20 else 'bearish' if mood_val < -20 else 'neutral'
-            
-            # Forward return badges
-            fwd_badges = ''
-            for horizon, key in [(30, 'fwd_30d'), (60, 'fwd_60d'), (90, 'fwd_90d')]:
-                val = period.get(key)
-                if val is not None:
-                    fwd_color = 'var(--success-green)' if val > 0 else 'var(--danger-red)'
-                    fwd_badges += f'<span style="font-size:0.7rem; color:{fwd_color}; margin-left:8px;">+{horizon}d: <b>{val:+.1f}%</b></span>'
-                else:
-                    fwd_badges += f'<span style="font-size:0.7rem; color:#555; margin-left:8px;">+{horizon}d: —</span>'
-            
-            st.markdown(f"""
-            <div class="signal-card {mood_class}">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                    <span style="font-weight: 700; color: var(--text-primary);">{period['date']}</span>
-                    <span class="status-badge {mood_class}">{period['mood']}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.85rem;">
-                    <span>Similarity: <b style="color: var(--primary-color);">{similarity_pct:.1f}%</b></span>
-                    <span>Mood: <b>{mood_val:.1f}</b></span>
-                    <span>NIFTY: <b>{period['nifty']:,.0f}</b></span>
-                </div>
-                <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid var(--border-color);">
-                    <span style="font-size: 0.7rem; color: #666;">NIFTY After:</span>{fwd_badges}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # BACKTEST SANITY CHECK
-    # ═══════════════════════════════════════════════════════════════════════════
-    
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.markdown("""
-        <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>Backtest: Mood Score vs Forward NIFTY Return</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">
-                Does today's mood score predict tomorrow's market? Each dot = one historical day.
-                If there's a relationship, the scatter should show a pattern.
-            </p>
-            <p style="color: var(--danger-red); font-size: 0.75rem; margin-top: 0.5rem; font-weight: 600; padding: 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21.33h8a2 2 0 0 0 1.92-1.45L12 15"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Note: This view represents a Hindsight Regime Fit. Historical points are evaluated using parameters learned from today's active correlation regime.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Compute mood_score at T vs NIFTY return at T+30 for all historical points
-    n = len(mood_df)
-    horizon = BACKTEST_HORIZON
-    if n > horizon + 10:
-        bt_mood = mood_df['Mood_Score'].values[:n - horizon]
-        bt_nifty = mood_df['NIFTY'].values
-        bt_fwd_return = (bt_nifty[horizon:] / bt_nifty[:n - horizon] - 1) * 100
-        bt_dates = mood_df['DATE'].values[:n - horizon]
-        
-        # Remove NaN/Inf
-        valid = np.isfinite(bt_mood) & np.isfinite(bt_fwd_return)
-        bt_mood_clean = bt_mood[valid]
-        bt_fwd_clean = bt_fwd_return[valid]
-        
-        if len(bt_mood_clean) > 20:
-            from scipy.stats import spearmanr as _spearmanr
-
-            # 70/30 train/test split (chronological — no shuffling)
-            split_idx = int(len(bt_mood_clean) * 0.7)
-            train_m, train_r = bt_mood_clean[:split_idx], bt_fwd_clean[:split_idx]
-            test_m, test_r = bt_mood_clean[split_idx:], bt_fwd_clean[split_idx:]
-
-            # In-sample correlations (train)
-            bt_pearson = np.corrcoef(train_m, train_r)[0, 1] if len(train_m) > 2 else 0
-            bt_spearman, _ = _spearmanr(train_m, train_r)
-            if not np.isfinite(bt_spearman):
-                bt_spearman = 0.0
-
-            # Out-of-sample correlations (test)
-            oos_pearson = np.corrcoef(test_m, test_r)[0, 1] if len(test_m) > 2 else 0
-            oos_spearman, _ = _spearmanr(test_m, test_r) if len(test_m) > 2 else (0.0, 1.0)
-            if not np.isfinite(oos_spearman):
-                oos_spearman = 0.0
-
-            colors = np.where(bt_mood_clean > 0, C_GREEN, C_RED)
-
-            fig_bt = go.Figure()
-
-            # Train points (circles)
-            fig_bt.add_trace(go.Scattergl(
-                x=train_m, y=train_r,
-                mode='markers',
-                marker=dict(size=4, color=np.where(train_m > 0, C_GREEN, C_RED), opacity=0.4),
-                hovertemplate='Mood: %{x:.1f}<br>+30d Return: %{y:.1f}%<extra></extra>',
-                name=f'Train (70%, n={len(train_m)})',
-            ))
-            # Test points (diamonds, brighter)
-            fig_bt.add_trace(go.Scattergl(
-                x=test_m, y=test_r,
-                mode='markers',
-                marker=dict(size=5, color=np.where(test_m > 0, C_GREEN, C_RED), opacity=0.8, symbol='diamond'),
-                hovertemplate='Mood: %{x:.1f}<br>+30d Return: %{y:.1f}%<extra></extra>',
-                name=f'Test (30%, n={len(test_m)})',
-            ))
-
-            if len(train_m) > 10:
-                x_range = np.linspace(bt_mood_clean.min(), bt_mood_clean.max(), 50)
-
-                # Linear fit on TRAIN data only
-                z1 = np.polyfit(train_m, train_r, 1)
-                fig_bt.add_trace(go.Scatter(
-                    x=x_range, y=z1[0] * x_range + z1[1],
-                    mode='lines', line=dict(color=C_PRIMARY, width=2, dash='dash'),
-                    name=f'Linear (train ρ={bt_pearson:.2f}, test ρ={oos_pearson:.2f})', showlegend=True,
-                ))
-
-                # Quadratic fit on TRAIN data only
-                z2 = np.polyfit(train_m, train_r, 2)
-                fig_bt.add_trace(go.Scatter(
-                    x=x_range, y=z2[0] * x_range ** 2 + z2[1] * x_range + z2[2],
-                    mode='lines', line=dict(color=C_CYAN, width=2, dash='dot'),
-                    name=f'Quadratic (train ρ_s={bt_spearman:.2f}, test ρ_s={oos_spearman:.2f})', showlegend=True,
-                ))
-
-            # Zero lines
-            fig_bt.add_hline(y=0, line_color='#555', line_width=1, line_dash='dot')
-            fig_bt.add_vline(x=0, line_color='#555', line_width=1, line_dash='dot')
-
-            fig_bt.update_layout(
-                **PLOTLY_BASE,
-                height=400,
-                xaxis=dict(title='Mood Score at T', showgrid=True, gridcolor=C_BG_GRID),
-                yaxis=dict(title='NIFTY Return T+30d (%)', showgrid=True, gridcolor=C_BG_GRID),
-                margin=dict(l=60, r=20, t=30, b=50),
-                legend=dict(
-                    x=0.02, y=0.98,
-                    bgcolor='rgba(26,26,26,0.8)',
-                    bordercolor=C_BG_GRID, borderwidth=1,
-                    font=dict(size=10),
-                ),
-            )
-
-            st.plotly_chart(fig_bt, config={'displayModeBar': False})
-
-            # Interpretation — report both in-sample and out-of-sample
-            oos_stronger = oos_spearman if abs(oos_spearman) > abs(oos_pearson) else oos_pearson
-
-            if abs(oos_stronger) > 0.3:
-                strength = 'strong' if abs(oos_stronger) > 0.5 else 'moderate'
-                direction = 'positive' if oos_stronger > 0 else 'negative'
-                st.markdown(f"""
-                <div class="info-box">
-                    <b>Out-of-sample (30%): Pearson {oos_pearson:.2f} · Spearman {oos_spearman:.2f}</b> — {strength} {direction} relationship holds on unseen data.<br>
-                    <span style="color:#666;">In-sample (70%): Pearson {bt_pearson:.2f} · Spearman {bt_spearman:.2f}</span><br>
-                    {'Higher mood scores have historically been followed by positive NIFTY returns.' if oos_stronger > 0 else 'Higher mood scores have historically been followed by negative NIFTY returns (contrarian signal).'}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="info-box">
-                    <b>Out-of-sample (30%): Pearson {oos_pearson:.2f} · Spearman {oos_spearman:.2f}</b> — weak out-of-sample relationship at 30-day horizon.<br>
-                    <span style="color:#666;">In-sample (70%): Pearson {bt_pearson:.2f} · Spearman {bt_spearman:.2f}</span><br>
-                    The mood score's predictive power may be non-linear (check the quadratic curve) or work better at different horizons.
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.caption("Insufficient data points for backtest.")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CORRELATION ANALYSIS VIEW
-# ══════════════════════════════════════════════════════════════════════════════
-
-def render_correlation_analysis(raw_df):
-    """Render correlation analysis with data diagnostics and predictor recommendations."""
-    
-    all_avail = tuple(
-        c for c in raw_df.columns
-        if c not in NON_PREDICTOR_COLS and pd.api.types.is_numeric_dtype(raw_df[c])
-    )
-    active_preds = st.session_state.get('active_predictors', all_avail)
-    
-    st.markdown("""
-        <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>Correlation & Predictor Analysis</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">Decay-weighted Spearman correlations with PE and EY anchors · Predictor quality assessment</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # ── Data Quality Check ──────────────────────────────────────────────
-    # Detect anchors with insufficient variance (root cause of "empty" correlations)
-    anchors = {'NIFTY50_PE': 'PE Ratio', 'NIFTY50_EY': 'Earnings Yield'}
-    anchor_health = {}
-    for col, label in anchors.items():
-        if col in raw_df.columns:
-            nunique = raw_df[col].nunique()
-            has_variance = nunique > 3 and raw_df[col].std() > 1e-6
-            anchor_health[col] = {'label': label, 'ok': has_variance, 'nunique': nunique}
-        else:
-            anchor_health[col] = {'label': label, 'ok': False, 'nunique': 0}
-    
-    # Show diagnostic if any anchor is unhealthy
-    bad_anchors = [v['label'] for v in anchor_health.values() if not v['ok']]
-    if bad_anchors:
-        st.markdown(f"""
-        <div class="info-box" style="border-left: 4px solid var(--danger-red);">
-            <h4 style="color: var(--danger-red);"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21.33h8a2 2 0 0 0 1.92-1.45L12 15"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Data Quality Issue</h4>
-            <p><b>{', '.join(bad_anchors)}</b> has insufficient variance in the source data.
-            If Earnings Yield is empty in the sheet, it is auto-derived from PE (1/PE × 100).
-            Check that your Google Sheet has valid data for these columns.</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # ── Correlation Bars ────────────────────────────────────────────────
-    col1, col2 = st.columns(2)
-    
-    def _render_corr_bars(parent_col, anchor_col, title):
-        with parent_col:
-            st.markdown(f"#### {title}")
-            if not anchor_health.get(anchor_col, {}).get('ok', False):
-                st.caption(f"{anchor_col} has insufficient data variance — correlations may be unreliable.")
-            
-            corrs = calculate_anchor_correlations(raw_df, anchor_col, active_preds)
-            if corrs.empty:
-                st.caption("No correlations computed. Check data source.")
-                return corrs
-            
-            corrs_display = corrs.sort_values('correlation', key=abs, ascending=False)
-            for _, row in corrs_display.iterrows():
-                corr_val = row['correlation']
-                color = 'var(--success-green)' if corr_val > 0 else 'var(--danger-red)'
-                bar_width = abs(corr_val) * 100
-                strength_dot = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--success-green)"><circle cx="12" cy="12" r="10"/></svg>' if abs(corr_val) >= 0.5 else '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--warning-amber)"><circle cx="12" cy="12" r="10"/></svg>' if abs(corr_val) >= 0.3 else '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--text-muted)"><circle cx="12" cy="12" r="10"/></svg>'
-                st.markdown(f"""
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; background: var(--bg-card); border-radius: 8px;">
-                    <span style="width: 14px; font-size: 0.6rem;">{strength_dot}</span>
-                    <span style="width: 130px; font-size: 0.8rem; color: var(--text-primary);">{row['variable']}</span>
-                    <div style="flex: 1; height: 8px; background: var(--border-color); border-radius: 4px; margin: 0 10px;">
-                        <div style="width: {bar_width}%; height: 100%; background: {color}; border-radius: 4px;"></div>
-                    </div>
-                    <span style="width: 60px; text-align: right; font-size: 0.8rem; color: {color}; font-weight: 600;">{corr_val:+.2f}</span>
-                </div>
-                """, unsafe_allow_html=True)
-            return corrs
-    
-    pe_corrs = _render_corr_bars(col1, 'NIFTY50_PE', 'PE Ratio Correlations')
-    ey_corrs = _render_corr_bars(col2, 'NIFTY50_EY', 'Earnings Yield Correlations')
-    
-    # ── Predictor Recommendations ───────────────────────────────────────
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.markdown("""
-        <div style="margin-bottom: 1rem;">
-            <h3 style="color: var(--primary-color); margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Predictor Quality Assessment</h3>
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">
-                Each predictor scored by: correlation strength × information quality (1 − entropy).
-                High-entropy (noisy) variables are penalized. This is how the mood engine weights them internally.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Build quality scores for all predictors
-    all_vars = [col for col in raw_df.columns if col not in NON_PREDICTOR_COLS and pd.api.types.is_numeric_dtype(raw_df[col])]
-    
-    quality_rows = []
-    for var in all_vars:
-        # PE correlation
-        pe_corr = 0.0
-        if not pe_corrs.empty:
-            pe_match = pe_corrs.loc[pe_corrs['variable'] == var]
-            if len(pe_match) > 0:
-                pe_corr = abs(pe_match.iloc[0]['correlation'])
-        
-        # EY correlation
-        ey_corr = 0.0
-        if not ey_corrs.empty:
-            ey_match = ey_corrs.loc[ey_corrs['variable'] == var]
-            if len(ey_match) > 0:
-                ey_corr = abs(ey_match.iloc[0]['correlation'])
-        
-        avg_corr = (pe_corr + ey_corr) / 2
-        
-        # Entropy of variable's returns
-        var_returns = raw_df[var].pct_change().dropna().values
-        entropy = shannon_entropy(var_returns) if len(var_returns) > 10 else 0.5
-        
-        # Quality score: same formula the engine uses for weighting
-        info_quality = 1.0 - entropy
-        quality_score = avg_corr * max(info_quality, 0.1)
-        
-        # Data coverage
-        non_zero_pct = (raw_df[var] != 0).mean() * 100
-        
-        is_active = var in active_preds
-        
-        quality_rows.append({
-            'variable': var,
-            'pe_corr': pe_corr,
-            'ey_corr': ey_corr,
-            'avg_corr': avg_corr,
-            'entropy': entropy,
-            'quality': quality_score,
-            'coverage': non_zero_pct,
-            'active': is_active
-        })
-    
-    # Sort by quality score descending
-    quality_rows.sort(key=lambda x: x['quality'], reverse=True)
-    
-    if quality_rows:
-        max_quality = max(r['quality'] for r in quality_rows) or 1.0
-        
-        # Render as ranked cards
-        for rank, row in enumerate(quality_rows, 1):
-            bar_pct = (row['quality'] / max_quality) * 100
-            
-            # Recommendation logic
-            if row['quality'] >= max_quality * 0.5 and row['coverage'] > 50:
-                rec = '✅ KEEP'
-                rec_color = 'var(--success-green)'
-            elif row['quality'] >= max_quality * 0.2 and row['coverage'] > 30:
-                rec = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--warning-amber)" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="10"/></svg>USEFUL'
-                rec_color = 'var(--warning-amber)'
-            elif row['coverage'] < 10:
-                rec = '❌ NO DATA'
-                rec_color = 'var(--danger-red)'
-            else:
-                rec = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--text-muted)" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="10"/></svg>WEAK'
-                rec_color = 'var(--text-muted)'
-            
-            active_badge = '● Active' if row['active'] else '○ Inactive'
-            active_color = 'var(--primary-color)' if row['active'] else '#555555'
-            
-            st.markdown(f"""
-            <div style="display: flex; align-items: center; margin-bottom: 0.4rem; padding: 0.6rem 0.75rem; background: var(--bg-card); border-radius: 8px; border: 1px solid {'var(--border-color)' if row['active'] else 'var(--bg-card)'};">
-                <span style="width: 24px; font-size: 0.75rem; color: #555; font-weight: 700;">{rank}</span>
-                <span style="width: 140px; font-size: 0.8rem; color: var(--text-primary); font-weight: 600;">{row['variable']}</span>
-                <div style="flex: 1; height: 6px; background: var(--border-color); border-radius: 3px; margin: 0 12px;">
-                    <div style="width: {bar_pct:.0f}%; height: 100%; background: linear-gradient(90deg, var(--primary-color), var(--warning-amber)); border-radius: 3px;"></div>
-                </div>
-                <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">|ρ| {row['avg_corr']:.2f}</span>
-                <span style="width: 50px; font-size: 0.7rem; color: #888; text-align: center;">H {row['entropy']:.2f}</span>
-                <span style="width: 55px; font-size: 0.7rem; color: {rec_color}; font-weight: 700; text-align: center;">{rec}</span>
-                <span style="width: 65px; font-size: 0.65rem; color: {active_color}; text-align: right;">{active_badge}</span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # Summary recommendation
-        keep_count = sum(1 for r in quality_rows if r['quality'] >= max_quality * 0.5 and r['coverage'] > 50)
-        useful_count = sum(1 for r in quality_rows if max_quality * 0.2 <= r['quality'] < max_quality * 0.5 and r['coverage'] > 30)
-        weak_count = len(quality_rows) - keep_count - useful_count
-        
-        st.markdown(f"""
-        <div class="info-box" style="margin-top: 1rem;">
-            <h4>Recommendation Summary</h4>
-            <p>
-                <b style="color: var(--success-green);">✅ {keep_count} strong</b> predictors (high correlation × low entropy) ·
-                <b style="color: var(--warning-amber);"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--warning-amber)" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="10"/></svg>{useful_count} useful</b> (moderate signal) ·
-                <b style="color: #888;"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="var(--text-muted)" style="display:inline-block;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="10"/></svg>{weak_count} weak</b> (low signal or noisy)<br>
-                <span style="font-size: 0.8rem; color: #666;">
-                    |ρ| = average |correlation| with PE & EY anchors · H = Shannon entropy of returns (lower = more structured) ·
-                    Quality = |ρ| × (1−H) — same formula the mood engine uses internally for weighting.
-                </span>
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RUN APPLICATION

@@ -1,6 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # ARTHAGATI — Python Dependencies
-# @thebullishvalue · v2.6.0
+# @thebullishvalue · v2.7.0  (Obsidian Quant UI port)
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # Install:  pip install -r requirements.txt
@@ -23,3 +23,6 @@ requests        >= 2.31.0
 
 # Timezone utilities
 pytz            >= 2024.1
+
+# Cross-platform ANSI colour support for the structured terminal logger
+colorama        >= 0.4.6
