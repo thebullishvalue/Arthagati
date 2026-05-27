@@ -72,32 +72,37 @@ def _fmt(v) -> str:
 
 
 def _render_weights_table(weights: dict, defaults: dict) -> None:
+    """Render the calibrated ensemble weights table.
+
+    Each row is one engine-output feature; the weight is the linear
+    coefficient applied to that feature when composing the calibrated
+    conviction. Positive = bullish-contributing, negative = bearish.
+    Magnitude indicates importance in the linear combination.
+    """
     body: list[str] = []
-    for k, df in defaults.items():
-        cur = weights.get(k, df)
-        delta = float(cur) - float(df)
-        delta_pct = (delta / df * 100.0) if df not in (0, None) else 0.0
-        changed = abs(delta) > 1e-9
-        cls = "pos" if delta > 0 else "neg" if delta < 0 else "neutral"
-        delta_str = f"{delta_pct:+.0f}%" if changed else "—"
-        cur_html = (
-            f'<span style="color:var(--amber-bright); font-weight:700;">{_fmt(cur)}</span>'
-            if changed else
-            f'<span style="color:var(--ink-secondary);">{_fmt(cur)}</span>'
-        )
+    for k in defaults:
+        cur = float(weights.get(k, defaults[k]))
+        # Direction badge from sign
+        if cur > 0.05:
+            dir_str, dir_cls = "Bullish", "pos"
+        elif cur < -0.05:
+            dir_str, dir_cls = "Bearish", "neg"
+        else:
+            dir_str, dir_cls = "—", "neutral"
+        mag = abs(cur)
         body.append(
             f"<tr>"
             f"<td class=\"key\">{html_mod.escape(k)}</td>"
-            f"<td class=\"value\">{_fmt(df)}</td>"
-            f"<td class=\"value\">{cur_html}</td>"
-            f"<td class=\"value delta {cls}\">{delta_str}</td>"
+            f"<td class=\"value\">{cur:+.3f}</td>"
+            f"<td class=\"value\">{mag:.3f}</td>"
+            f"<td class=\"value delta {dir_cls}\">{dir_str}</td>"
             f"</tr>"
         )
 
     html = f"""\
 <div class="weights-table-wrap">
   <table class="weights-table">
-    <thead><tr><th>Hyperparameter</th><th>Default</th><th>Calibrated</th><th>Δ</th></tr></thead>
+    <thead><tr><th>Feature</th><th>Weight</th><th>|Weight|</th><th>Contribution</th></tr></thead>
     <tbody>{"".join(body)}</tbody>
   </table>
 </div>
@@ -272,8 +277,8 @@ def render(
         vertical_divider()
     with weights_col:
         render_section_header(
-            title="Active Weights",
-            description="Default vs calibrated hyperparameters · Δ vs factory",
+            title="Ensemble Weights",
+            description="Linear coefficients on engine-output features · post-engine layer",
             icon="grid",
             accent="amber",
         )
