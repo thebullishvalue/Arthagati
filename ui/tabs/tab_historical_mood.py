@@ -35,7 +35,7 @@ from ui.theme import (
 )
 
 
-def render(mood_df, msf_df, *, timeframes, regime_styles, mood_scale, ou_proj_days) -> None:
+def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     """TradingView-style mood + MSF spread chart + period summary + MSF breakdown."""
 
     render_section_header(
@@ -158,24 +158,9 @@ def render(mood_df, msf_df, *, timeframes, regime_styles, mood_scale, ou_proj_da
     _y_pad = max((_y_max - _y_min) * 0.08, 2.0)
     mood_y_lo, mood_y_hi = _y_min - _y_pad, _y_max + _y_pad
 
-    # Regime transition markers
-    if "Regime" in df.columns:
-        regimes = df["Regime"].values
-        dates   = df["DATE"].values
-        groups: dict[str, tuple[list, list]] = {}
-        for i in range(1, len(regimes)):
-            if regimes[i] != regimes[i - 1] and regimes[i] != "Unknown":
-                color = regime_styles.get(regimes[i], (C_MUTED, "neutral"))[0]
-                groups.setdefault(color, ([], []))
-                xg, yg = groups[color]
-                xg.extend([dates[i], dates[i], None])
-                yg.extend([mood_y_lo, mood_y_hi, None])
-        for color, (xg, yg) in groups.items():
-            fig.add_trace(go.Scattergl(
-                x=xg, y=yg, mode="lines",
-                line=dict(color=color, width=1, dash="dot"),
-                opacity=0.5, showlegend=False, hoverinfo="skip",
-            ), row=1, col=1)
+    # Regime transition markers were removed for visual clarity — the regime
+    # state is still surfaced in the top metric strip card and used elsewhere
+    # by the engine; we just don't draw vertical dotted lines on the chart.
 
     # ── Row 2: MSF Spread ─────────────────────────────────────────────────
     msf_values = msf_filtered["msf_spread"].values
