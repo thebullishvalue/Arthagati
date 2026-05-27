@@ -171,31 +171,34 @@ def render(
             ),
         )
 
-    # ── PE Ratio Correlations (full width, 2-col card grid) ──────────────
+    # ── PE & EY Correlations — side-by-side sections, each with a 2-col
+    #    nested card grid (cards = ~half-of-half width).
     section_divider()
-    render_section_header(
-        title="PE Ratio Correlations",
-        description="Variables ranked by |ρ| with NIFTY50_PE",
-        icon="chart",
-        accent="cyan",
-    )
-    if not anchor_health.get("NIFTY50_PE", {}).get("ok", False):
-        st.caption("NIFTY50_PE has insufficient data variance — correlations may be unreliable.")
-    pe_corrs = calculate_anchor_correlations(raw_df, "NIFTY50_PE", active_preds)
-    _render_corr_grid(pe_corrs)
+    pe_col, ey_col = st.columns(2, gap="small")
 
-    # ── Earnings Yield Correlations (full width, 2-col card grid) ────────
-    section_gap()
-    render_section_header(
-        title="Earnings Yield Correlations",
-        description="Variables ranked by |ρ| with NIFTY50_EY",
-        icon="bar-chart",
-        accent="emerald",
-    )
-    if not anchor_health.get("NIFTY50_EY", {}).get("ok", False):
-        st.caption("NIFTY50_EY has insufficient data variance — correlations may be unreliable.")
-    ey_corrs = calculate_anchor_correlations(raw_df, "NIFTY50_EY", active_preds)
-    _render_corr_grid(ey_corrs)
+    with pe_col:
+        render_section_header(
+            title="PE Ratio Correlations",
+            description="Variables ranked by |ρ| with NIFTY50_PE",
+            icon="chart",
+            accent="cyan",
+        )
+        if not anchor_health.get("NIFTY50_PE", {}).get("ok", False):
+            st.caption("NIFTY50_PE has insufficient data variance — correlations may be unreliable.")
+        pe_corrs = calculate_anchor_correlations(raw_df, "NIFTY50_PE", active_preds)
+        _render_corr_grid(pe_corrs)
+
+    with ey_col:
+        render_section_header(
+            title="Earnings Yield Correlations",
+            description="Variables ranked by |ρ| with NIFTY50_EY",
+            icon="bar-chart",
+            accent="emerald",
+        )
+        if not anchor_health.get("NIFTY50_EY", {}).get("ok", False):
+            st.caption("NIFTY50_EY has insufficient data variance — correlations may be unreliable.")
+        ey_corrs = calculate_anchor_correlations(raw_df, "NIFTY50_EY", active_preds)
+        _render_corr_grid(ey_corrs)
 
     # ── Predictor Quality Assessment (full width, 2-col card grid) ───────
     section_divider()
