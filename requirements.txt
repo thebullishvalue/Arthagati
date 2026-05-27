@@ -26,3 +26,6 @@ pytz            >= 2024.1
 
 # Cross-platform ANSI colour support for the structured terminal logger
 colorama        >= 0.4.6
+
+# Intelligence Mode — Bayesian (TPE) hyperparameter search
+optuna          >= 3.4.0

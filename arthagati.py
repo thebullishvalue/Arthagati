@@ -89,6 +89,7 @@ from ui.tabs.tab_landing import render_landing_page
 from ui.tabs.tab_historical_mood import render as render_historical_mood
 from ui.tabs.tab_similar_periods import render as render_similar_periods
 from ui.tabs.tab_correlation import render as render_correlation_analysis
+from ui.tabs.tab_intelligence import render as render_intelligence_center
 
 # Legacy aliases kept inside arthagati.py for engine code paths
 C_PRIMARY = C_AMBER
@@ -198,6 +199,65 @@ REGIME_STYLES: dict[str, tuple[str, str]] = {
 }
 
 # PLOTLY_BASE imported from ui.theme (transparent paper/plot + JetBrains Mono).
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HYPERPARAMETER OVERRIDES  (Intelligence Mode hook-point)
+# ══════════════════════════════════════════════════════════════════════════════
+# The engine reads constants like CORR_HALF_LIFE, MSF_WINDOW, etc. directly
+# from module globals. Intelligence Mode temporarily overrides those globals
+# inside the `hyperparam_overrides(...)` context manager, runs the pipeline,
+# then restores them. This keeps the engine code untouched while letting the
+# optimizer explore alternate hyperparameter configurations.
+
+from contextlib import contextmanager as _contextmanager
+
+# Names of hyperparameters the Intelligence Mode is allowed to tune.
+# (Whitelist — prevents an Optuna search from accidentally overwriting state
+# that isn't meant to be a hyperparameter.)
+TUNABLE_HYPERPARAMS: tuple[str, ...] = (
+    "CORR_HALF_LIFE",
+    "PCT_HALF_LIFE",
+    "KALMAN_HALF_LIFE",
+    "MSF_WINDOW",
+    "MSF_ROC_LEN",
+    "MSF_ZSCORE_CLIP",
+    "CORR_MIN_WARMUP",
+    "CORR_REBALANCE_PERIOD",
+)
+
+
+def get_default_hyperparams() -> dict:
+    """Return the factory-default values for every tunable hyperparameter."""
+    return {k: globals()[k] for k in TUNABLE_HYPERPARAMS}
+
+
+@_contextmanager
+def hyperparam_overrides(params: dict | None):
+    """Temporarily swap engine-level hyperparameter constants.
+
+    Usage::
+
+        with hyperparam_overrides({"CORR_HALF_LIFE": 380, "MSF_WINDOW": 24}):
+            mood_df = _calculate_historical_mood_impl(raw_df, predictors)
+
+    Restores the original module globals on context exit, even if the body
+    raises. ``None`` / ``{}`` is a no-op.
+    """
+    if not params:
+        yield
+        return
+    saved: dict = {}
+    g = globals()
+    for k, v in params.items():
+        if k not in TUNABLE_HYPERPARAMS:
+            continue
+        if k in g:
+            saved[k] = g[k]
+            g[k] = v
+    try:
+        yield
+    finally:
+        g.update(saved)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DESIGN SYSTEM — injected from ui/theme.css (Obsidian Quant)
@@ -996,8 +1056,7 @@ def calculate_anchor_correlations(df, anchor, dependent_vars=None):
     
     return pd.DataFrame(correlations)
 
-@st.cache_data(max_entries=5, show_spinner=False)
-def calculate_historical_mood(df, dependent_vars=None):
+def _calculate_historical_mood_impl(df, dependent_vars=None):
     """
     v2.3 Mood Score Engine — 5-layer architecture with walk-forward weights.
 
@@ -1305,12 +1364,24 @@ def calculate_historical_mood(df, dependent_vars=None):
     )
     return result_df
 
+
+@st.cache_data(max_entries=5, show_spinner=False)
+def calculate_historical_mood(df, dependent_vars=None):
+    """Cached public entry — uses the active module-level hyperparameters.
+
+    Intelligence Mode bypasses this cached path and calls
+    ``_calculate_historical_mood_impl`` directly inside a
+    ``hyperparam_overrides(...)`` block, since caching on a swapped-globals
+    function would silently return stale results for tuned configs.
+    """
+    return _calculate_historical_mood_impl(df, dependent_vars)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MSF-ENHANCED SPREAD INDICATOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(max_entries=5, show_spinner=False)
-def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_col='AD_RATIO'):
+def _calculate_msf_spread_impl(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_col='AD_RATIO'):
     """
     v2.0 MSF-Enhanced Spread Indicator.
     
@@ -1431,6 +1502,13 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
         f"Inverse-variance weights: {weight_str}"
     )
     return result
+
+
+@st.cache_data(max_entries=5, show_spinner=False)
+def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_col='AD_RATIO'):
+    """Cached public entry — delegates to ``_calculate_msf_spread_impl``."""
+    return _calculate_msf_spread_impl(df, mood_col, nifty_col, breadth_col)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SIMILAR PERIODS FINDER
@@ -1596,10 +1674,246 @@ def _render_sidebar_passport() -> None:
     )
 
 
+def _render_intelligence_passport() -> None:
+    """Intelligence Mode passport — toggle, settings, and live calibration status.
+
+    Toggling Intelligence Mode (either direction) clears the one-shot
+    calibration flag so the next Run-Analysis rerun re-evaluates the
+    decision (calibrate vs. use defaults).
+    """
+    import intelligence as _intel
+    import html as _html
+
+    section_divider()
+    sidebar_title("Model Passport", icon="cpu")
+
+    profile = _intel.load_active_profile()
+    prev_on = bool(st.session_state.get("intelligence_mode", True))
+    intel_on = st.toggle(
+        "Intelligence Mode",
+        value=prev_on,
+        help=(
+            "When ON, Arthagati auto-calibrates mood-engine hyperparameters "
+            "on every Run Analysis (walk-forward Bayesian search) and uses "
+            "the resulting profile for the rest of the session. When OFF, "
+            "the engine runs on factory defaults — no calibration."
+        ),
+        key="passport_intel_toggle",
+    )
+    if intel_on != prev_on:
+        st.session_state.pop("_intel_calibration_done", None)
+    st.session_state["intelligence_mode"] = intel_on
+
+    # ── Calibration settings (collapsed by default) ────────────────────
+    st.session_state.setdefault("intel_n_trials", _intel.DEFAULT_TRIALS)
+    st.session_state.setdefault("intel_n_folds",  _intel.DEFAULT_FOLDS)
+    st.session_state.setdefault("intel_embargo",  _intel.DEFAULT_EMBARGO_DAYS)
+    if intel_on:
+        with st.expander("Calibration Settings", expanded=False):
+            st.session_state["intel_n_trials"] = st.number_input(
+                "Trials", min_value=10, max_value=200,
+                value=int(st.session_state["intel_n_trials"]), step=5,
+                help="Optuna TPE trials. More = better search but slower.",
+            )
+            st.session_state["intel_n_folds"] = st.number_input(
+                "Walk-forward folds", min_value=3, max_value=10,
+                value=int(st.session_state["intel_n_folds"]), step=1,
+                help="Expanding-window CV folds.",
+            )
+            st.session_state["intel_embargo"] = st.number_input(
+                "Embargo days", min_value=0, max_value=30,
+                value=int(st.session_state["intel_embargo"]), step=1,
+                help="Gap between train end and val start each fold.",
+            )
+
+            # Changing any setting also invalidates the cal-done flag so the
+            # next Run Analysis rerun calibrates with the new config.
+            _sig = (st.session_state["intel_n_trials"],
+                    st.session_state["intel_n_folds"],
+                    st.session_state["intel_embargo"])
+            if st.session_state.get("_intel_settings_sig") != _sig:
+                st.session_state["_intel_settings_sig"] = _sig
+                st.session_state.pop("_intel_calibration_done", None)
+
+    # ── Status card ────────────────────────────────────────────────────
+    if intel_on and profile is not None:
+        kind  = "calibrated"
+        head  = f"Calibrated · {profile.quality_check}"
+        train = f"{profile.train_ir:+.3f}"
+        val   = f"{profile.val_ir:+.3f}"
+        stab  = f"{profile.stability * 100:.0f}%"
+        train_cls = "success" if profile.train_ir > 0 else "danger"
+        val_cls   = ("success" if profile.val_ir > 0.05
+                     else "warning" if profile.val_ir > 0 else "danger")
+        stab_cls  = "success" if 0.30 <= profile.stability <= 1.30 else "warning"
+        updated   = profile.timestamp.replace("T", " ").rstrip("Z")[:16]
+    elif intel_on:
+        kind = "default"
+        head = "Auto-Calibrating on Run"
+        train = val = stab = updated = "—"
+        train_cls = val_cls = stab_cls = ""
+    else:
+        kind = "default"
+        head = "Default · IM Off"
+        train = val = stab = updated = "—"
+        train_cls = val_cls = stab_cls = ""
+
+    st.markdown(
+        f"""\
+<div class="intel-passport {kind}">
+  <div class="head">{_html.escape(head)}</div>
+  <div class="row"><span class="lbl">Train IR</span><span class="val {train_cls}">{train}</span></div>
+  <div class="row"><span class="lbl">Val IR</span><span class="val {val_cls}">{val}</span></div>
+  <div class="row"><span class="lbl">Stability</span><span class="val {stab_cls}">{stab}</span></div>
+  <div class="row"><span class="lbl">Updated</span><span class="val">{_html.escape(updated)}</span></div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _resolve_active_hyperparams() -> dict:
+    """Return the hyperparam dict the engine should use this run.
+
+    Empty dict ⇒ no overrides ⇒ factory defaults. Honors the Intelligence
+    Mode toggle: if OFF, returns {} even when a calibrated profile is on disk.
+    """
+    import intelligence as _intel
+    if not st.session_state.get("intelligence_mode"):
+        return {}
+    profile = _intel.load_active_profile()
+    if profile is None or not profile.weights:
+        return {}
+    return {k: v for k, v in profile.weights.items() if k in TUNABLE_HYPERPARAMS}
+
+
+def _auto_calibrate_if_needed(
+    raw_df: pd.DataFrame,
+    active_predictors,
+    prog_slot,
+    pct_start: int,
+    pct_end: int,
+) -> dict:
+    """Run Intelligence-Mode auto-calibration if appropriate.
+
+    Decision matrix:
+      • IM OFF                  → return {}, no work
+      • IM ON, already done     → return current active hyperparams (no re-run)
+      • IM ON, not yet done     → run Optuna search, persist profile,
+                                  set the one-shot ``_intel_calibration_done``
+                                  session flag, return new hyperparams
+
+    Progress callback maps ``trial_num / n_trials`` linearly onto the
+    ``pct_start → pct_end`` slice of the global progress bar so the rest
+    of the pipeline phases keep marching forward.
+    """
+    import intelligence as _intel
+
+    if not st.session_state.get("intelligence_mode"):
+        return {}
+
+    # Already calibrated in this session — just use the saved profile.
+    if st.session_state.get("_intel_calibration_done"):
+        return _resolve_active_hyperparams()
+
+    n_trials = int(st.session_state.get("intel_n_trials", _intel.DEFAULT_TRIALS))
+    n_folds  = int(st.session_state.get("intel_n_folds",  _intel.DEFAULT_FOLDS))
+    embargo  = int(st.session_state.get("intel_embargo",  _intel.DEFAULT_EMBARGO_DAYS))
+
+    console.start_phase("Intelligence Calibration", num=3, total=5)
+    console.step(3, f"Auto-calibrating · {n_trials} trials · {n_folds} folds · embargo {embargo}d")
+    console.item("Predictors",           f"{len(active_predictors)}")
+    console.item("Horizons",             " · ".join(f"+{h}D" for h in _intel.DEFAULT_HORIZONS))
+    console.item("Train + Val rows",     f"{len(raw_df):,}")
+
+    _progress_bar(
+        prog_slot, pct_start,
+        "Intelligence Mode · Initialising",
+        f"Walk-Forward Tuner · {n_folds} Folds · {n_trials} Trials",
+    )
+
+    try:
+        tuner = _intel.IntelligenceTuner(
+            raw_df, active_predictors,
+            n_folds=n_folds, embargo_days=embargo,
+        )
+    except ValueError as exc:
+        # Dataset too thin for CV — fall back to defaults, don't block the run.
+        console.warning(f"Calibration skipped: {exc}")
+        console.end_phase("Intelligence Calibration")
+        st.session_state["_intel_calibration_done"] = True  # don't retry this session
+        return {}
+
+    def _cb(done: int, total: int, score: float) -> None:
+        pct = int(pct_start + (done / max(total, 1)) * (pct_end - pct_start - 2))
+        _progress_bar(
+            prog_slot, pct,
+            f"Intelligence Mode · Trial {done}/{total}",
+            f"Optuna TPE · Best Score {score:+.4f}",
+        )
+
+    try:
+        profile = tuner.optimize(n_trials=n_trials, progress_callback=_cb)
+    except Exception as exc:
+        console.failure("Calibration", f"{type(exc).__name__}: {exc}")
+        console.end_phase("Intelligence Calibration")
+        st.session_state["_intel_calibration_done"] = True
+        return _resolve_active_hyperparams()  # may still be the prior profile
+
+    # Always show the result in the dashboard, even if the gate fails.
+    st.session_state["intel_last_profile"] = profile
+
+    if profile.quality_check == "No Edge":
+        console.warning(
+            f"Quality gate FAILED — val IR={profile.val_ir:+.4f} ≤ 0. "
+            f"Profile NOT activated, engine reverts to defaults."
+        )
+        _progress_bar(
+            prog_slot, pct_end,
+            "Intelligence Mode · No Edge",
+            f"Val IR {profile.val_ir:+.4f} ≤ 0 — using defaults",
+        )
+        console.end_phase("Intelligence Calibration")
+        st.session_state["_intel_calibration_done"] = True
+        return {}
+
+    # Persist + log a structured summary.
+    try:
+        _intel.save_active_profile(profile)
+        _intel.archive_profile(profile)
+    except Exception as exc:
+        console.error(f"Failed to persist profile: {exc}")
+
+    console.success(
+        f"Calibration {profile.quality_check} · "
+        f"train IR {profile.train_ir:+.4f} · val IR {profile.val_ir:+.4f} · "
+        f"stability {profile.stability * 100:.0f}%"
+    )
+    if profile.importance:
+        _top3 = sorted(profile.importance.items(), key=lambda kv: -kv[1])[:3]
+        console.item("Top drivers", " · ".join(f"{k} {v:.0f}%" for k, v in _top3))
+    console.summary(
+        "Calibrated Hyperparameters",
+        {k: profile.weights.get(k, "—") for k in TUNABLE_HYPERPARAMS},
+    )
+    _progress_bar(
+        prog_slot, pct_end,
+        f"Intelligence Mode · {profile.quality_check}",
+        f"Profile saved · train IR {profile.train_ir:+.3f} · val IR {profile.val_ir:+.3f}",
+    )
+    console.end_phase("Intelligence Calibration")
+    st.session_state["_intel_calibration_done"] = True
+
+    return {k: v for k, v in profile.weights.items() if k in TUNABLE_HYPERPARAMS}
+
+
 def main():
     # ── Session state ──────────────────────────────────────────────────────
     st.session_state.setdefault("analysis_started", False)
     st.session_state.setdefault("active_predictors", None)
+    # Intelligence Mode defaults ON — calibration runs once per Run-Analysis
+    # cycle, results persist in session + on disk.
+    st.session_state.setdefault("intelligence_mode", True)
     analysis_started = st.session_state["analysis_started"]
 
     # ── Landing state: masthead + Run Analysis button only ────────────────
@@ -1627,7 +1941,7 @@ def main():
             "Sheet":   f"…{SHEET_ID[-8:]}" if SHEET_ID else "(env not set)",
         },
     )
-    console.start_phase("Data Ingestion", num=1, total=4)
+    console.start_phase("Data Ingestion", num=1, total=5)
     console.step(1, "Fetching market data from Google Sheets (GViz API)")
 
     _prog = st.empty()
@@ -1661,7 +1975,7 @@ def main():
         sidebar_title("View Mode", icon="grid")
         view_mode = st.radio(
             "View Mode",
-            ["Historical Mood", "Similar Periods", "Correlation Analysis"],
+            ["Historical Mood", "Similar Periods", "Correlation Analysis", "Intelligence Center"],
             label_visibility="collapsed",
         )
         section_divider()
@@ -1669,6 +1983,8 @@ def main():
         sidebar_title("Controls", icon="settings")
         if st.button("Refresh Data", use_container_width=True):
             st.cache_data.clear()
+            # Fresh data ⇒ any cached calibration is stale; force re-run.
+            st.session_state.pop("_intel_calibration_done", None)
             st.rerun()
         section_divider()
 
@@ -1708,6 +2024,9 @@ def main():
             if apply_clicked and has_changes:
                 st.session_state["active_predictors"] = tuple(staging_predictors)
                 st.cache_data.clear()
+                # Different predictor set ⇒ the calibrated profile no longer
+                # applies; force a fresh calibration on the next rerun.
+                st.session_state.pop("_intel_calibration_done", None)
                 st.rerun()
 
             active_count = len(st.session_state["active_predictors"])
@@ -1715,6 +2034,7 @@ def main():
             if active_count != total_count:
                 st.info(f"Active: {active_count}/{total_count} predictors")
 
+        _render_intelligence_passport()
         _render_sidebar_passport()
 
     # Masthead is intentionally landing-page-only — once Run Analysis is pressed
@@ -1741,17 +2061,49 @@ def main():
     # ── Run engine ────────────────────────────────────────────────────────
     selected_preds = st.session_state.get("active_predictors", tuple(available_predictors))
 
-    console.start_phase("Correlation Engine", num=2, total=4)
+    # ── Phase 2 · Correlations ────────────────────────────────────────────
+    console.start_phase("Correlation Engine", num=2, total=5)
     console.step(2, "Computing decay-weighted Spearman vs PE & EY anchors")
     console.item("Active predictors", f"{len(selected_preds)}/{len(available_predictors)}")
-    _progress_bar(_prog, 40, "Computing Correlations", "Decay-Weighted Spearman · PE & EY Anchors")
+    _progress_bar(_prog, 30, "Computing Correlations", "Decay-Weighted Spearman · PE & EY Anchors")
     console.success("Correlations computed")
     console.end_phase("Correlation Engine")
 
-    console.start_phase("Sentiment Engine", num=3, total=4)
-    console.step(3, "OU normalisation · Kalman smoothing · 5-layer pipeline")
-    _progress_bar(_prog, 65, "Running Sentiment Engine", "OU Normalisation · Kalman Smoothing · 5-Layer Pipeline")
-    mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
+    # ── Phase 3 · Intelligence Calibration (auto, gated) ──────────────────
+    # Either runs the optimizer (Intelligence Mode ON + not yet calibrated
+    # this session) or short-circuits and returns the current active profile.
+    # Returns {} when IM is off or the quality gate failed.
+    active_hp = _auto_calibrate_if_needed(
+        raw_df, selected_preds, _prog,
+        pct_start=33, pct_end=75,
+    )
+    if active_hp:
+        console.section(
+            "Engine running with calibrated hyperparameters",
+            phase="INTEL",
+        )
+        for _k, _v in sorted(active_hp.items()):
+            console.item(_k, _v)
+    else:
+        console.detail("Engine running on factory defaults (IM off or no edge)")
+
+    # ── Phase 4 · Sentiment engine (calibrated weights applied if any) ─────
+    console.start_phase("Sentiment Engine", num=4, total=5)
+    console.step(4, "OU normalisation · Kalman smoothing · 5-layer pipeline")
+    _progress_bar(
+        _prog, 80,
+        "Running Sentiment Engine",
+        "OU Normalisation · Kalman Smoothing · 5-Layer Pipeline"
+        + (" · Calibrated Weights" if active_hp else " · Factory Defaults"),
+    )
+    # When hyperparams are overridden we deliberately bypass the
+    # @st.cache_data wrapper — caching on swapped globals would return
+    # stale rows for tuned configs.
+    if active_hp:
+        with hyperparam_overrides(active_hp):
+            mood_df = _calculate_historical_mood_impl(raw_df, selected_preds)
+    else:
+        mood_df = calculate_historical_mood(raw_df, dependent_vars=selected_preds)
     if mood_df.empty:
         _prog.empty()
         console.error("calculate_historical_mood returned empty DataFrame")
@@ -1763,10 +2115,15 @@ def main():
     console.checkpoint("Mood frame integrity", "OK" if not mood_df.empty else "FAIL")
     console.end_phase("Sentiment Engine")
 
-    console.start_phase("MSF Spread", num=4, total=4)
-    console.step(4, "Momentum · Structure · Regime · Flow (inverse-variance weights)")
-    _progress_bar(_prog, 88, "Computing MSF Spread", "Momentum · Structure · Regime · Flow · Inverse-Variance Weights")
-    msf_df = calculate_msf_spread(mood_df)
+    # ── Phase 5 · MSF Spread ──────────────────────────────────────────────
+    console.start_phase("MSF Spread", num=5, total=5)
+    console.step(5, "Momentum · Structure · Regime · Flow (inverse-variance weights)")
+    _progress_bar(_prog, 93, "Computing MSF Spread", "Momentum · Structure · Regime · Flow · Inverse-Variance Weights")
+    if active_hp:
+        with hyperparam_overrides(active_hp):
+            msf_df = _calculate_msf_spread_impl(mood_df)
+    else:
+        msf_df = calculate_msf_spread(mood_df)
     mood_df["MSF_Spread"] = msf_df["msf_spread"].values if not msf_df.empty else 0
     latest_msf = float(mood_df["MSF_Spread"].iloc[-1]) if not mood_df.empty else 0.0
     console.success(f"MSF Spread computed: {latest_msf:+.2f}")
@@ -1919,13 +2276,19 @@ def main():
             find_similar_periods=find_similar_periods,
             backtest_horizon=BACKTEST_HORIZON,
         )
-    else:
+    elif view_mode == "Correlation Analysis":
         render_correlation_analysis(
             raw_df,
             active_preds=st.session_state.get("active_predictors", tuple(available_predictors)),
             non_predictor_cols=NON_PREDICTOR_COLS,
             calculate_anchor_correlations=calculate_anchor_correlations,
             shannon_entropy=shannon_entropy,
+        )
+    else:  # Intelligence Center
+        render_intelligence_center(
+            raw_df,
+            st.session_state.get("active_predictors", tuple(available_predictors)),
+            defaults=get_default_hyperparams(),
         )
     console.success(f"View rendered: {view_mode}")
     console.line("═", 70)
