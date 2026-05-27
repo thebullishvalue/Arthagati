@@ -5453,59 +5453,6 @@ div[data-multi-file-uploader] > div {
     padding: var(--sp-3) 0;
 }
 
-/* Passport card — sidebar-scoped Intelligence-Mode summary */
-.intel-passport {
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: var(--sp-4) var(--sp-4);
-    margin-top: var(--sp-2);
-    backdrop-filter: blur(8px);
-}
-
-.intel-passport .row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    font-family: var(--data);
-    font-size: 0.62rem;
-    line-height: 1.7;
-}
-
-.intel-passport .row .lbl {
-    color: var(--ink-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-size: 0.55rem;
-}
-
-.intel-passport .row .val {
-    color: var(--ink-secondary);
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-}
-
-.intel-passport .row .val.success { color: var(--emerald-bright); }
-.intel-passport .row .val.warning { color: var(--amber-bright); }
-.intel-passport .row .val.danger  { color: var(--rose-bright); }
-
-.intel-passport .head {
-    font-family: var(--display);
-    font-size: 0.78rem;
-    font-weight: 700;
-    color: var(--ink-primary);
-    padding-bottom: var(--sp-2);
-    margin-bottom: var(--sp-2);
-    border-bottom: 1px solid var(--border-subtle);
-    letter-spacing: 0.03em;
-}
-
-.intel-passport.calibrated .head {
-    color: var(--emerald-bright);
-    text-shadow: 0 0 14px var(--emerald-glow);
-}
-
-.intel-passport.default .head {
-    color: var(--ink-secondary);
-}
+/* Sidebar Model Passport now reuses the .metric-card system directly —
+   colour class (success / warning / neutral) drives the visual state.
+   See _render_intelligence_passport() in arthagati.py. */
