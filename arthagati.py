@@ -1950,22 +1950,26 @@ def _compute_engine_output(
     import intelligence as _intel
 
     fp = _intel.dataset_fingerprint(raw_df, selected_preds)
+    total_phases = int(st.session_state.get("_phase_total", 4))
     cached_fp = st.session_state.get("_engine_fp")
     if cached_fp == fp:
         cached_mood = st.session_state.get("_engine_mood_df")
         cached_msf  = st.session_state.get("_engine_msf_df")
         if cached_mood is not None and cached_msf is not None:
-            console.detail(
-                f"Engine cache HIT — reusing {len(cached_mood):,} rows. No recompute."
+            console.section("Engine Cache HIT — fast-path", phase="CACHE")
+            console.item("Reused rows",    f"{len(cached_mood):,}")
+            console.item("Recompute",      "skipped — view/timeframe switches are O(1) from here")
+            _progress_bar(
+                prog_slot, 90,
+                "Engine Output Cached",
+                "Re-using mood + MSF frames from this session",
             )
-            _progress_bar(prog_slot, 100, "Ready", "Engine Output Cached")
-            time.sleep(0.15)
-            prog_slot.empty()
             return cached_mood, cached_msf
 
     # ── Compute mood ────────────────────────────────────────────────────
-    console.start_phase("Sentiment Engine", num=3, total=4)
+    console.start_phase("Sentiment Engine", num=3, total=total_phases)
     console.step(3, "OU normalisation · Kalman smoothing · 5-layer pipeline")
+    console.item("Mode", "Factory defaults (post-engine ensemble tunes the output layer)")
     _progress_bar(
         prog_slot, 50,
         "Running Sentiment Engine",
@@ -1984,7 +1988,7 @@ def _compute_engine_output(
     console.end_phase("Sentiment Engine")
 
     # ── Compute MSF Spread ──────────────────────────────────────────────
-    console.start_phase("MSF Spread", num=4, total=4)
+    console.start_phase("MSF Spread", num=4, total=total_phases)
     console.step(4, "Momentum · Structure · Regime · Flow (inverse-variance weights)")
     _progress_bar(prog_slot, 85, "Computing MSF Spread", "Momentum · Structure · Regime · Flow")
     msf_df = calculate_msf_spread(mood_df)
@@ -1992,6 +1996,7 @@ def _compute_engine_output(
     latest_msf = float(mood_df["MSF_Spread"].iloc[-1]) if not mood_df.empty else 0.0
     console.success(f"MSF Spread computed: {latest_msf:+.2f}")
     console.end_phase("MSF Spread")
+    console.detail("Engine output cached for session — subsequent UI interactions are instant")
 
     # ── Persist into session cache ──────────────────────────────────────
     st.session_state["_engine_fp"]      = fp
@@ -2035,40 +2040,61 @@ def _auto_calibrate_if_needed(
     if not st.session_state.get("intelligence_mode"):
         return None
 
+    total_phases = int(st.session_state.get("_phase_total", 5))
+
     # Same-session: don't re-calibrate even if user clicks another button.
     if st.session_state.get("_intel_calibration_done"):
-        return _active_ensemble_weights()
+        weights = _active_ensemble_weights()
+        if weights:
+            console.section("Intelligence: Calibration Cached (same session)", phase="CACHE")
+            console.item("Status", "Reusing ensemble weights from this session")
+            console.item("Cost",   "0 ms — no Optuna trials run")
+        else:
+            console.section("Intelligence: Overlay Disabled (same session)", phase="CACHE")
+            console.item("Status", "Earlier calibration this session failed the quality gate")
+            console.item("Action", "Calibrated Conviction inactive · raw Mood Score is the source of truth")
+        return weights
 
     # Cross-session: profile may be fresh on disk
     existing = _intel.load_active_profile()
-    raw_df = st.session_state.get("_engine_mood_df")  # mood_df includes DATE
     fresh, reason = _intel.is_profile_fresh(existing, mood_df, active_predictors)
     if fresh and existing is not None:
-        console.section("Intelligence: Using Cached Profile", phase="INTEL")
-        console.item("Status",   reason)
-        console.item("Profile",  f"{existing.quality_check} · val IR {existing.val_ir:+.4f}")
-        console.item("Fit on",   existing.data_end)
-        console.success("Skipped calibration — cached profile is fresh")
+        console.section("Intelligence: Profile Fresh on Disk", phase="CACHE")
+        console.item("Status",     reason)
+        console.item("Profile",    f"{existing.quality_check} · val IR {existing.val_ir:+.4f}")
+        console.item("Fit on",     existing.data_end)
+        console.item("Predictors", existing.n_predictors)
+        console.success("Skipped calibration — disk profile reused")
+        _progress_bar(
+            prog_slot, 99,
+            "Intelligence Mode · Profile Reused",
+            f"Cached val IR {existing.val_ir:+.3f}",
+        )
         st.session_state["_intel_calibration_done"] = True
         st.session_state["intel_last_profile"] = existing
         return dict(existing.weights)
 
-    # Run the (cheap) calibration.
+    # Run the (cheap) post-engine ensemble calibration.
     n_trials = int(st.session_state.get("intel_n_trials", _intel.DEFAULT_TRIALS))
     n_folds  = int(st.session_state.get("intel_n_folds",  _intel.DEFAULT_FOLDS))
     embargo  = int(st.session_state.get("intel_embargo",  _intel.DEFAULT_EMBARGO_DAYS))
 
-    console.start_phase("Intelligence Calibration", num=5, total=5)
-    console.step(5, f"Post-engine ensemble · {n_trials} trials · {n_folds} folds")
-    console.item("Reason",      reason)
-    console.item("Features",    f"{len(_intel.FEATURE_NAMES)} signals from engine output")
-    console.item("Predictors",  f"{len(active_predictors)}")
-    console.item("Horizons",    " · ".join(f"+{h}D" for h in _intel.DEFAULT_HORIZONS))
+    console.start_phase("Intelligence Calibration", num=5, total=total_phases)
+    console.step(
+        5,
+        "Post-engine ensemble · tuning weights on the engine output layer (Nishkarsh pattern)",
+    )
+    console.item("Architecture",   f"F @ w  →  Calibrated Conviction (no engine re-run)")
+    console.item("Features",       f"{len(_intel.FEATURE_NAMES)} signals from engine output")
+    console.item("Search",         f"Optuna TPE · {n_trials} trials · MedianPruner")
+    console.item("CV",             f"{n_folds}-fold walk-forward · {embargo}d embargo")
+    console.item("Horizons",       " · ".join(f"+{h}D" for h in _intel.DEFAULT_HORIZONS))
+    console.item("Reason for run", reason)
 
     _progress_bar(
         prog_slot, 92,
-        "Intelligence Mode · Initialising",
-        f"Tuning {len(_intel.FEATURE_NAMES)} ensemble weights · {n_trials} Trials",
+        "Calibrating Ensemble",
+        f"Tuning {len(_intel.FEATURE_NAMES)} feature weights on engine output · {n_trials} trials",
     )
 
     try:
@@ -2089,8 +2115,8 @@ def _auto_calibrate_if_needed(
         pct = int(92 + (done / max(total, 1)) * 7)
         _progress_bar(
             prog_slot, pct,
-            f"Intelligence Mode · Trial {done}/{total}",
-            f"Optuna TPE · Best Score {score:+.4f}",
+            f"Calibrating Ensemble · Trial {done}/{total}",
+            f"Optuna TPE · Spearman IR across folds × horizons · Best {score:+.4f}",
         )
 
     try:
@@ -2102,19 +2128,19 @@ def _auto_calibrate_if_needed(
         return None
 
     elapsed = _t.time() - _t0
-    console.item("Elapsed", f"{elapsed:.2f}s")
+    console.item("Wall time", f"{elapsed:.2f}s · ({elapsed / n_trials * 1000:.0f}ms per trial)")
 
     st.session_state["intel_last_profile"] = profile
 
     if profile.quality_check == "No Edge":
         console.warning(
             f"Quality gate FAILED — val IR={profile.val_ir:+.4f} ≤ 0. "
-            f"Calibrated overlay NOT activated."
+            f"Calibrated Conviction NOT activated (profile would mislead)."
         )
         _progress_bar(
             prog_slot, 100,
             "Intelligence Mode · No Edge",
-            f"Val IR {profile.val_ir:+.4f} ≤ 0",
+            f"Val IR {profile.val_ir:+.4f} ≤ 0 — overlay disabled",
         )
         console.end_phase("Intelligence Calibration")
         st.session_state["_intel_calibration_done"] = True
@@ -2135,13 +2161,13 @@ def _auto_calibrate_if_needed(
         _top3 = sorted(profile.importance.items(), key=lambda kv: -kv[1])[:3]
         console.item("Top drivers", " · ".join(f"{k} {v:.0f}%" for k, v in _top3))
     console.summary(
-        "Calibrated Ensemble Weights",
+        "Calibrated Ensemble Weights (post-engine layer)",
         {k: f"{profile.weights.get(k, 0.0):+.3f}" for k in _intel.FEATURE_NAMES},
     )
     _progress_bar(
         prog_slot, 100,
-        f"Intelligence Mode · {profile.quality_check}",
-        f"Profile saved · val IR {profile.val_ir:+.3f}",
+        f"Calibrated · {profile.quality_check}",
+        f"Conviction layer active · val IR {profile.val_ir:+.3f}",
     )
     console.end_phase("Intelligence Calibration")
     st.session_state["_intel_calibration_done"] = True
@@ -2183,7 +2209,10 @@ def main():
             "Sheet":   f"…{SHEET_ID[-8:]}" if SHEET_ID else "(env not set)",
         },
     )
-    console.start_phase("Data Ingestion", num=1, total=4)
+    # Phase 1/N · Data Ingestion (N = 4 normally, 5 when Intelligence Mode is ON)
+    _total = 5 if st.session_state.get("intelligence_mode") else 4
+    st.session_state["_phase_total"] = _total
+    console.start_phase("Data Ingestion", num=1, total=_total)
     console.step(1, "Fetching market data from Google Sheets (GViz API)")
 
     _prog = st.empty()
@@ -2309,7 +2338,7 @@ def main():
     selected_preds = st.session_state.get("active_predictors", tuple(available_predictors))
 
     # ── Phase 2 · Correlations (cheap, just here for the progress beat) ───
-    console.start_phase("Correlation Engine", num=2, total=4)
+    console.start_phase("Correlation Engine", num=2, total=_total)
     console.step(2, "Computing decay-weighted Spearman vs PE & EY anchors")
     console.item("Active predictors", f"{len(selected_preds)}/{len(available_predictors)}")
     _progress_bar(_prog, 30, "Computing Correlations", "Decay-Weighted Spearman · PE & EY Anchors")
@@ -2345,20 +2374,29 @@ def main():
 
     # ── Pipeline summary ──────────────────────────────────────────────────
     _last = mood_df.iloc[-1]
-    console.summary(
-        f"Run {run_id} · Pipeline Summary",
-        {
-            "View Mode":      view_mode,
-            "Predictors":     f"{len(selected_preds)} active",
-            "Rows":           f"{len(mood_df):,}",
-            "Mood Score":     f"{_last['Mood_Score']:+.2f} ({_last.get('Mood', '—')})",
-            "MSF Spread":     f"{_last['MSF_Spread']:+.2f}",
-            "Regime":         str(_last.get("Regime", "Unknown")),
-            "OU Half-Life":   f"{_last.get('OU_Half_Life', 0):.0f}d",
-            "Hurst":          f"{_last.get('Hurst', 0.5):.2f}",
-            "Market Entropy": f"{_last.get('Market_Entropy', 0.5):.2f}",
-        },
-    )
+    _cal_last = st.session_state.get("_calibrated_conviction_last")
+    _im_on    = bool(st.session_state.get("intelligence_mode"))
+    _summary: dict = {
+        "View Mode":      view_mode,
+        "Intelligence":   "ON" if _im_on else "OFF",
+        "Predictors":     f"{len(selected_preds)} active",
+        "Rows":           f"{len(mood_df):,}",
+        "Mood Score":     f"{_last['Mood_Score']:+.2f} ({_last.get('Mood', '—')})",
+        "MSF Spread":     f"{_last['MSF_Spread']:+.2f}",
+    }
+    if _cal_last is not None:
+        _summary["Calibrated Conviction"] = (
+            f"{_cal_last:+.2f}  ·  post-engine ensemble"
+        )
+    elif _im_on:
+        _summary["Calibrated Conviction"] = "— (quality gate failed or dataset too small)"
+    _summary.update({
+        "Regime":         str(_last.get("Regime", "Unknown")),
+        "OU Half-Life":   f"{_last.get('OU_Half_Life', 0):.0f}d",
+        "Hurst":          f"{_last.get('Hurst', 0.5):.2f}",
+        "Market Entropy": f"{_last.get('Market_Entropy', 0.5):.2f}",
+    })
+    console.summary(f"Run {run_id} · Pipeline Summary", _summary)
 
     # ── Top metric strip ──────────────────────────────────────────────────
     latest      = mood_df.iloc[-1]
