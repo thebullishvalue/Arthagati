@@ -160,17 +160,26 @@ def render(
     end_d   = raw_df["DATE"].max().strftime("%d %b %Y")
 
     if profile is None:
-        profile_label = "Calibrating…" if intel_on else "Default"
-        profile_color = "warning"      if intel_on else "neutral"
+        profile_label = "Not Calibrated" if intel_on else "Default"
+        profile_color = "warning"        if intel_on else "neutral"
     else:
         profile_label = "Calibrated" if intel_on else "Available · Inactive"
         profile_color = "success"    if intel_on else "warning"
+        # Show profile age — informs the freshness story.
+        age_d = intel.profile_age_days(profile)
+        if age_d < 1.0:
+            age_str = "today"
+        elif age_d < 2.0:
+            age_str = "yesterday"
+        else:
+            age_str = f"{age_d:.0f}d ago"
+        profile_sub = f"Fit {age_str} · stays cached for {intel.PROFILE_FRESHNESS_DAYS}d"
 
     # ── Dataset strip ───────────────────────────────────────────────────
     section_gap()
     c1, c2, c3, c4, c5 = st.columns(5, gap="small")
     with c1:
-        render_metric_card("Observations", f"{n_rows:,}", "Daily rows",      "info",     icon="database")
+        render_metric_card("Observations", f"{n_rows:,}", "Daily rows", "info", icon="database")
     with c2:
         render_metric_card("Date Span",    f"{n_dates}",  f"{start_d} → {end_d}", "info", icon="globe")
     with c3:
@@ -178,7 +187,11 @@ def render(
     with c4:
         render_metric_card("Horizons",     "30 · 60 · 90", "Forward NIFTY return (days)", "warning", icon="target")
     with c5:
-        render_metric_card("Profile State", profile_label, "Active engine config", profile_color, icon="shield")
+        render_metric_card(
+            "Profile State", profile_label,
+            profile_sub if profile is not None else "Active engine config",
+            profile_color, icon="shield",
+        )
 
     section_divider()
 
@@ -186,11 +199,13 @@ def render(
     if profile is None:
         if intel_on:
             render_interpretation_card(
-                title="Calibration In Progress",
+                title="No Calibrated Profile",
                 body=(
-                    "Intelligence Mode is <strong>ON</strong> but no calibrated profile has been "
-                    "saved yet. The next time you click <strong>Run Analysis</strong> the engine "
-                    "will perform a full walk-forward Bayesian search and persist the result here."
+                    "Intelligence Mode is <strong>ON</strong> but no profile has been saved — "
+                    "either the dataset was too small for walk-forward CV, the quality gate "
+                    "rejected the search result, or the run encountered an error. "
+                    "Check the terminal log for details and try "
+                    "<strong>Refresh Data</strong> to re-run."
                 ),
                 color="warning",
             )
@@ -327,9 +342,11 @@ def render(
                 use_container_width=True,
                 type="secondary",
             ):
+                from arthagati import _invalidate_engine_cache
                 intel.delete_active_profile()
                 st.session_state.pop("intel_last_profile", None)
                 st.session_state.pop("_intel_calibration_done", None)
+                _invalidate_engine_cache()
                 st.success("Active profile cleared. Engine reverted to factory defaults.")
                 time.sleep(0.4)
                 st.rerun()
@@ -345,12 +362,14 @@ def _quality_subtext(profile: intel.CalibrationProfile) -> str:
 
 def _handle_profile_upload(uploaded) -> None:
     from core.logger_config import console
+    from arthagati import _invalidate_engine_cache
     try:
         raw = json.loads(uploaded.read().decode("utf-8"))
         profile = intel.CalibrationProfile.from_dict(raw)
         intel.save_active_profile(profile)
         st.session_state["intel_last_profile"] = profile
         st.session_state.pop("_intel_calibration_done", None)
+        _invalidate_engine_cache()
         console.success(f"Profile imported from {uploaded.name}")
         st.success(f"Profile from {uploaded.name} is now active.")
         time.sleep(0.4)
