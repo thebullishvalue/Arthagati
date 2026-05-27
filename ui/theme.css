@@ -5304,3 +5304,208 @@ div[data-multi-file-uploader] > div {
         margin-top: var(--sp-2);
     }
 }
+
+/* ================================================================
+   Intelligence Center — weights table, importance bars, meta card
+   ================================================================ */
+
+/* Weights table (Default · Calibrated · Δ) */
+.weights-table-wrap {
+    margin-top: var(--sp-3);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    backdrop-filter: blur(8px);
+}
+
+.weights-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--data);
+    font-size: 0.76rem;
+}
+
+.weights-table thead th {
+    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%);
+    color: var(--ink-tertiary);
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 2px solid rgba(212, 168, 83, 0.30);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.weights-table thead th:nth-child(n+2) {
+    text-align: right;
+}
+
+.weights-table tbody tr {
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background 200ms ease;
+}
+
+.weights-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.weights-table tbody tr:hover {
+    background: rgba(212, 168, 83, 0.04);
+}
+
+.weights-table tbody td {
+    padding: var(--sp-3) var(--sp-4);
+    font-family: var(--data);
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-primary);
+    vertical-align: middle;
+}
+
+.weights-table tbody td.key {
+    font-weight: 700;
+    color: var(--ink-primary);
+    letter-spacing: 0.02em;
+}
+
+.weights-table tbody td.value {
+    text-align: right;
+    color: var(--ink-secondary);
+}
+
+.weights-table tbody td.delta {
+    text-align: right;
+    font-weight: 700;
+}
+
+.weights-table tbody td.delta.pos { color: var(--emerald-bright); }
+.weights-table tbody td.delta.neg { color: var(--rose-bright); }
+.weights-table tbody td.delta.neutral { color: var(--ink-tertiary); }
+
+/* Importance bar rows */
+.importance-row {
+    display: grid;
+    grid-template-columns: 220px 1fr 60px;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    margin-bottom: var(--sp-2);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    transition: border-color 200ms ease;
+}
+
+.importance-row:hover {
+    border-color: rgba(212, 168, 83, 0.20);
+}
+
+.importance-key {
+    font-family: var(--data);
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--ink-primary);
+    letter-spacing: 0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.importance-track {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.importance-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--violet) 0%, var(--amber) 100%);
+    border-radius: 3px;
+    box-shadow: 0 0 8px rgba(139, 92, 246, 0.25);
+    transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.importance-val {
+    font-family: var(--data);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--ink-secondary);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+/* Provenance meta card */
+.intel-meta-card {
+    margin-top: var(--sp-3);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    backdrop-filter: blur(8px);
+    padding: var(--sp-2) var(--sp-4);
+}
+
+.intel-meta-card .lookback-row {
+    padding: var(--sp-3) 0;
+}
+
+/* Passport card — sidebar-scoped Intelligence-Mode summary */
+.intel-passport {
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--sp-4) var(--sp-4);
+    margin-top: var(--sp-2);
+    backdrop-filter: blur(8px);
+}
+
+.intel-passport .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--data);
+    font-size: 0.62rem;
+    line-height: 1.7;
+}
+
+.intel-passport .row .lbl {
+    color: var(--ink-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.55rem;
+}
+
+.intel-passport .row .val {
+    color: var(--ink-secondary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.intel-passport .row .val.success { color: var(--emerald-bright); }
+.intel-passport .row .val.warning { color: var(--amber-bright); }
+.intel-passport .row .val.danger  { color: var(--rose-bright); }
+
+.intel-passport .head {
+    font-family: var(--display);
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--ink-primary);
+    padding-bottom: var(--sp-2);
+    margin-bottom: var(--sp-2);
+    border-bottom: 1px solid var(--border-subtle);
+    letter-spacing: 0.03em;
+}
+
+.intel-passport.calibrated .head {
+    color: var(--emerald-bright);
+    text-shadow: 0 0 14px var(--emerald-glow);
+}
+
+.intel-passport.default .head {
+    color: var(--ink-secondary);
+}
