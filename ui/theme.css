@@ -1894,22 +1894,67 @@ footer {
    Vertical divider — slot inside a thin spacer column between two
    side-by-side sections. Mirrors the horizontal section-divider
    gradient but rotated, with a centred amber accent dot.
+
+   Height propagation: Streamlit wraps each column in 5–6 nested div
+   layers. To make the divider stretch from the top of the row to the
+   bottom of the tallest sibling column, we must force flex-grow through
+   every wrapper using the same `:has()` pattern that drives metric-card
+   equal-heights elsewhere in this file.
    ================================================================ */
+
+/* 1. The horizontal block is a flex row, stretching all sibling columns
+      to match the tallest. */
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) {
+    display: flex !important;
+    align-items: stretch !important;
+}
+
+/* 2. The divider's column (and its peers in the same row) become flex
+      columns that fill the row height. */
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * {
+    display: flex !important;
+    flex-direction: column !important;
+    align-self: stretch !important;
+}
+
+/* 3. Every wrapper div between the column and the divider propagates the
+      flex chain so flex:1 1 auto bubbles all the way down. */
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div,
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div > div,
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div > div > div,
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div > div > div > div,
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) > * > div > div > div > div > div {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+}
+
+/* 4. Cover Streamlit's testid-named wrappers (DOM variants across versions). */
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="stColumn"],
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="stVerticalBlock"],
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="element-container"],
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="stElementContainer"],
+[data-testid="stHorizontalBlock"]:has(.column-vdivider) [data-testid="stMarkdownContainer"] {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+}
+
+/* 5. The divider itself — fills its column edge-to-edge. */
 .column-vdivider {
+    flex: 1 1 auto !important;
+    align-self: stretch !important;
     width: 1px;
     min-height: 320px;
-    height: 100%;
-    margin: var(--sp-6) auto;
+    margin: 0 auto;
     background: linear-gradient(180deg,
         transparent 0%,
-        var(--border) 10%,
+        var(--border) 6%,
         var(--amber-dim) 50%,
-        var(--border) 90%,
+        var(--border) 94%,
         transparent 100%);
     opacity: 0.55;
     position: relative;
-    align-self: stretch;
-    flex: 1 1 auto;
 }
 
 .column-vdivider::before {
@@ -1923,16 +1968,6 @@ footer {
     background: var(--amber);
     box-shadow: 0 0 12px var(--amber-glow), 0 0 4px var(--amber);
     transform: translate(-50%, -50%);
-}
-
-/* When the divider lives inside a Streamlit column, give the column itself
-   a flex column so the divider stretches to row height. */
-[data-testid="stColumn"]:has(> div > div > .column-vdivider),
-[data-testid="stColumn"]:has(> div > div > div > .column-vdivider) {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: stretch;
 }
 
 /* Hide the divider on narrow screens — sections stack vertically anyway */
