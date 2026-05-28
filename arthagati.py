@@ -1381,9 +1381,13 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
             np.where(mood_scores > -60, 'Bearish', 'Very Bearish'))))
 
     # ── Diagnostics (output-only — do NOT modify scores) ───────────────
-    nifty_returns = df['NIFTY'].pct_change().fillna(0).values
-    hurst_vals = rolling_hurst(df['NIFTY'].values, window=90, step=5)
-    entropy_vals = rolling_entropy(nifty_returns, window=60, n_bins=15)
+    # Mood-domain regime panel: Hurst, entropy, and OU half-life all describe
+    # the same series (mood score) over a unified 90d window, so the three
+    # readings stay internally consistent. Computing Hurst on price *levels*
+    # produces H≈1.0 trivially (integrated random walk) — that's why this
+    # operates on mood_scores, which are OU-normalized and stationary.
+    hurst_vals = rolling_hurst(mood_scores, window=90, step=5)
+    entropy_vals = rolling_entropy(mood_scores, window=90, n_bins=15)
 
     # ── Regime Detection ────────────────────────────────────────────────
     regime_labels, regime_transitions = detect_regime_transitions(hurst_vals, entropy_vals)
@@ -2616,9 +2620,9 @@ def main():
     cols = st.columns(5 if show_cal else 4, gap="small")
     with cols[0]:
         render_metric_card(
-            label="Market Regime",
+            label="Mood Regime",
             value=str(current_regime),
-            subtext="Hurst + Entropy",
+            subtext="Hurst + Entropy · 90d",
             color_class=reg_class,
             icon="compass",
         )
