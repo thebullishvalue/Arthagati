@@ -49,7 +49,7 @@ PROFILE_SCHEMA_VERSION = 2  # v1 was structural-hyperparam tuning; v2 is ensembl
 PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
 ACTIVE_PROFILE_PATH = PROFILE_DIR / "active.json"
 
-DEFAULT_HORIZONS: tuple[int, ...] = (30, 60, 90)
+DEFAULT_HORIZONS: tuple[int, ...] = (5, 20, 60, 90)
 DEFAULT_FOLDS: int = 5
 DEFAULT_TRIALS: int = 40
 DEFAULT_EMBARGO_DAYS: int = 5

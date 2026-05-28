@@ -178,7 +178,7 @@ SIMILAR_W_MAHA  = 0.55   # Mahalanobis distance weight
 SIMILAR_W_TRAJ  = 0.35   # trajectory cosine-similarity weight
 SIMILAR_W_RECV  = 0.10   # recency decay weight
 TRAJ_WINDOW     = 20     # trajectory comparison window (trading days)
-BACKTEST_HORIZON = 30    # default forward-return horizon (trading days)
+BACKTEST_HORIZON = 20    # default forward-return horizon for the backtest scatter (trading days)
 
 # Chart display
 OU_PROJ_DAYS    = 90     # OU mean-reversion projection horizon (calendar days)
@@ -1645,15 +1645,15 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
         idx_pos = df.index.get_loc(row.name)
         nifty_at = row['NIFTY'] if 'NIFTY' in row and row['NIFTY'] > 0 else None
         
-        # Forward returns: what happened to NIFTY 30/60/90 days after this analog?
+        # Forward returns at the new granular horizons: 5d / 20d / 60d / 90d
         fwd_returns = {}
-        for horizon in [30, 60, 90]:
+        for horizon in [5, 20, 60, 90]:
             fwd_idx = idx_pos + horizon
             if fwd_idx < len(nifty_vals) and nifty_at and nifty_at > 0:
                 fwd_returns[horizon] = (nifty_vals[fwd_idx] / nifty_at - 1) * 100
             else:
                 fwd_returns[horizon] = None
-        
+
         results.append({
             'date': row['DATE'].strftime('%Y-%m-%d'),
             'similarity': row['similarity'],
@@ -1661,7 +1661,8 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
             'mood': row['Mood'],
             'mood_volatility': row['Mood_Volatility'],
             'nifty': nifty_at or 0,
-            'fwd_30d': fwd_returns.get(30),
+            'fwd_5d':  fwd_returns.get(5),
+            'fwd_20d': fwd_returns.get(20),
             'fwd_60d': fwd_returns.get(60),
             'fwd_90d': fwd_returns.get(90),
         })
@@ -1693,32 +1694,23 @@ def _render_sidebar_passport() -> None:
     )
 
 
-def _render_intelligence_passport(
-    raw_df: pd.DataFrame | None = None,
-    active_predictors: tuple | None = None,
-) -> None:
-    """Sidebar Model Passport — exact Nishkarsh fidelity.
+def _render_intelligence_toggle() -> None:
+    """Render ONLY the Intelligence Mode toggle (+ settings expander).
 
-    Surfaces:
-      • Intelligence Mode toggle
-      • Profile state card (Calibrated · Quality OK / Calibrated · ⚠ /
-        Default · Off / Default) using the metric-card success/warning/
-        neutral colour system
-      • Trained-on label · Train IR · Val IR · Updated timestamp
-      • Predictor-count mismatch warning (the Arthagati analogue of
-        Nishkarsh's universe-mismatch warning)
-      • Import / Export / Reset controls
+    Must run BEFORE the analysis pipeline because ``intelligence_mode``
+    drives whether calibration fires. The status card + import / export
+    / reset controls are rendered AFTER the pipeline by
+    ``_render_intelligence_passport_body()`` — that way the user sees
+    the freshly-calibrated profile state on the very click that produced
+    it, not on the next click.
 
     Caller must be inside a ``with st.sidebar:`` context.
     """
-    import json as _json
     import intelligence as _intel
-    import html as _html
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="sidebar-title">Model Passport</div>', unsafe_allow_html=True)
 
-    # ── Intelligence Mode toggle ──────────────────────────────────────
     prev_on = bool(st.session_state.get("intelligence_mode", True))
     intelligence_mode = st.toggle(
         "Intelligence Mode",
@@ -1736,6 +1728,51 @@ def _render_intelligence_passport(
         _invalidate_engine_cache()
     st.session_state["intelligence_mode"] = intelligence_mode
 
+    # Settings expander (advanced)
+    st.session_state.setdefault("intel_n_trials", _intel.DEFAULT_TRIALS)
+    st.session_state.setdefault("intel_n_folds",  _intel.DEFAULT_FOLDS)
+    st.session_state.setdefault("intel_embargo",  _intel.DEFAULT_EMBARGO_DAYS)
+    if intelligence_mode:
+        with st.expander("⚙ Calibration Settings", expanded=False):
+            st.session_state["intel_n_trials"] = st.number_input(
+                "Trials", min_value=10, max_value=200,
+                value=int(st.session_state["intel_n_trials"]), step=5,
+                help="Optuna TPE trials. More = better search but slower.",
+            )
+            st.session_state["intel_n_folds"] = st.number_input(
+                "Walk-forward folds", min_value=3, max_value=10,
+                value=int(st.session_state["intel_n_folds"]), step=1,
+                help="Expanding-window CV folds.",
+            )
+            st.session_state["intel_embargo"] = st.number_input(
+                "Embargo days", min_value=0, max_value=30,
+                value=int(st.session_state["intel_embargo"]), step=1,
+                help="Gap between train end and val start each fold.",
+            )
+            _sig = (st.session_state["intel_n_trials"],
+                    st.session_state["intel_n_folds"],
+                    st.session_state["intel_embargo"])
+            if st.session_state.get("_intel_settings_sig") != _sig:
+                st.session_state["_intel_settings_sig"] = _sig
+                st.session_state.pop("_intel_calibration_done", None)
+
+
+def _render_intelligence_passport_body(
+    raw_df: pd.DataFrame | None = None,
+    active_predictors: tuple | None = None,
+) -> None:
+    """Render the status card + mismatch warning + import/export/reset
+    controls. Should be called AFTER the analysis pipeline completes so
+    the rendered state reflects the just-saved profile.
+
+    Caller must already be inside a ``with st.sidebar:`` context (or a
+    sidebar-scoped placeholder container).
+    """
+    import json as _json
+    import intelligence as _intel
+    import html as _html
+
+    intelligence_mode = bool(st.session_state.get("intelligence_mode", True))
     saved_profile = _intel.load_active_profile()
 
     # ── Determine display state + colour class (Nishkarsh semantics) ──
@@ -1883,34 +1920,6 @@ def _render_intelligence_passport(
             _invalidate_engine_cache()
             st.toast("Profile reset.")
             st.rerun()
-
-    # ── Calibration settings (collapsed, advanced) ────────────────────
-    st.session_state.setdefault("intel_n_trials", _intel.DEFAULT_TRIALS)
-    st.session_state.setdefault("intel_n_folds",  _intel.DEFAULT_FOLDS)
-    st.session_state.setdefault("intel_embargo",  _intel.DEFAULT_EMBARGO_DAYS)
-    if intelligence_mode:
-        with st.expander("⚙ Calibration Settings", expanded=False):
-            st.session_state["intel_n_trials"] = st.number_input(
-                "Trials", min_value=10, max_value=200,
-                value=int(st.session_state["intel_n_trials"]), step=5,
-                help="Optuna TPE trials. More = better search but slower.",
-            )
-            st.session_state["intel_n_folds"] = st.number_input(
-                "Walk-forward folds", min_value=3, max_value=10,
-                value=int(st.session_state["intel_n_folds"]), step=1,
-                help="Expanding-window CV folds.",
-            )
-            st.session_state["intel_embargo"] = st.number_input(
-                "Embargo days", min_value=0, max_value=30,
-                value=int(st.session_state["intel_embargo"]), step=1,
-                help="Gap between train end and val start each fold.",
-            )
-            _sig = (st.session_state["intel_n_trials"],
-                    st.session_state["intel_n_folds"],
-                    st.session_state["intel_embargo"])
-            if st.session_state.get("_intel_settings_sig") != _sig:
-                st.session_state["_intel_settings_sig"] = _sig
-                st.session_state.pop("_intel_calibration_done", None)
 
 
 def _active_ensemble_weights() -> dict | None:
@@ -2306,10 +2315,13 @@ def main():
             if active_count != total_count:
                 st.info(f"Active: {active_count}/{total_count} predictors")
 
-        _render_intelligence_passport(
-            raw_df=raw_df,
-            active_predictors=st.session_state.get("active_predictors", tuple(available_predictors)),
-        )
+        # Intelligence passport — split into two phases:
+        #   1. Toggle + settings rendered NOW (drives whether calibration runs)
+        #   2. Status card + import/export/reset rendered AFTER analysis
+        #      via the placeholder, so the user sees the freshly-saved
+        #      profile state on the very click that produced it.
+        _render_intelligence_toggle()
+        _passport_body_slot = st.empty()
         _render_sidebar_passport()
 
     # Masthead is intentionally landing-page-only — once Run Analysis is pressed
@@ -2370,6 +2382,21 @@ def main():
     _progress_bar(_prog, 100, "Ready", "All Systems Nominal")
     time.sleep(0.15)
     _prog.empty()
+
+    # ── Fill the sidebar passport body now that calibration is done ────
+    # The toggle was rendered before analysis (drives the pipeline); the
+    # status card + controls go here so the user sees the freshly-saved
+    # profile on this very click — no need to switch views or click again.
+    try:
+        with _passport_body_slot.container():
+            _render_intelligence_passport_body(
+                raw_df=raw_df,
+                active_predictors=st.session_state.get(
+                    "active_predictors", tuple(available_predictors),
+                ),
+            )
+    except NameError:
+        pass  # Landing-page branch — no passport slot allocated
 
     # ── Pipeline summary ──────────────────────────────────────────────────
     _last = mood_df.iloc[-1]
