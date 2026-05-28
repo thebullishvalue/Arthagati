@@ -2756,7 +2756,10 @@ footer {
    ================================================================ */
 .chart-container {
     position: relative;
-    overflow: hidden;
+    /* No overflow:hidden — the inner .stPlotlyChart auto-sizes to its
+       SVG; clipping here was cutting the bottom of multi-pane charts
+       (mood + MSF + WaveTrend). The ::before texture overlay below
+       uses inset:0, so it stays contained without needing clipping. */
 }
 
 .chart-container::before {
