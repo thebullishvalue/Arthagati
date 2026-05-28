@@ -309,8 +309,8 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             np.isfinite(wt1_arr) & np.isfinite(wt2_arr)
             & np.isfinite(prev_wt1) & np.isfinite(prev_wt2)
         )
-        red_cross = wt_valid & (wt1_arr > wt2_arr) & (prev_wt1 <= prev_wt2)
-        green_cross   = wt_valid & (wt2_arr > wt1_arr) & (prev_wt2 <= prev_wt1)
+        red_cross = wt_valid & (wt1_arr > wt2_arr) & (prev_wt1 <= prev_wt2) & (wt1_arr < 0)
+        green_cross   = wt_valid & (wt2_arr > wt1_arr) & (prev_wt2 <= prev_wt1) & (wt1_arr > 0)
         # Suppress markers in the very first lookback to avoid noise
         warmup = 32
         if len(green_cross) > warmup:
