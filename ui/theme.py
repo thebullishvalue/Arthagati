@@ -1,5 +1,5 @@
 """
-Arthagati v2.7.0 — Shared CSS, chart theming, and colour constants.
+Arthagati v2.8.0 — Shared CSS, chart theming, and colour constants.
 अर्थगति (Arthagati) — "Market sentiment / movement of meaning"
 
 UI thesis: "Obsidian Quant" Institutional Research Terminal.
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import streamlit as st
 
-VERSION = "v2.7.0"
+VERSION = "v2.8.0"
 PRODUCT_NAME = "Arthagati"
 COMPANY = "@thebullishvalue"
 
