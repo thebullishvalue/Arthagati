@@ -202,6 +202,18 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         hovertemplate="<b>%{x|%d %b %Y}</b><br>MSF: %{y:.2f}<extra></extra>",
     ), row=2, col=1)
     fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, row=2, col=1)
+    # MSF Spread OB/OS reference bands — ±4 primary (solid), ±3 secondary (dotted)
+    from arthagati import (
+        MSF_OB_LEVEL_1, MSF_OB_LEVEL_2, MSF_OS_LEVEL_1, MSF_OS_LEVEL_2,
+    )
+    fig.add_hline(y=MSF_OB_LEVEL_1, line_color="rgba(232,85,90,0.55)",
+                  line_width=1, line_dash="solid", row=2, col=1)
+    fig.add_hline(y=MSF_OS_LEVEL_1, line_color="rgba(45,212,168,0.55)",
+                  line_width=1, line_dash="solid", row=2, col=1)
+    fig.add_hline(y=MSF_OB_LEVEL_2, line_color="rgba(232,85,90,0.32)",
+                  line_width=1, line_dash="dot", row=2, col=1)
+    fig.add_hline(y=MSF_OS_LEVEL_2, line_color="rgba(45,212,168,0.32)",
+                  line_width=1, line_dash="dot", row=2, col=1)
 
     # Divergence triangles
     lookback = 10
@@ -272,22 +284,83 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         ), row=wt_row, col=1)
 
         # Reference levels: 0 baseline + OB/OS bands
-        # Pull constants by import to keep them in one place
         from arthagati import (
             WT_OB_LEVEL_1, WT_OB_LEVEL_2, WT_OS_LEVEL_1, WT_OS_LEVEL_2,
         )
         fig.add_hline(y=0, line_color="rgba(148,163,184,0.40)",
                       line_width=1, line_dash="dash", row=wt_row, col=1)
-        # Primary OB/OS — solid bright
         fig.add_hline(y=WT_OB_LEVEL_1, line_color="rgba(232,85,90,0.55)",
                       line_width=1, line_dash="solid", row=wt_row, col=1)
         fig.add_hline(y=WT_OS_LEVEL_1, line_color="rgba(45,212,168,0.55)",
                       line_width=1, line_dash="solid", row=wt_row, col=1)
-        # Secondary OB/OS — dotted dim
         fig.add_hline(y=WT_OB_LEVEL_2, line_color="rgba(232,85,90,0.32)",
                       line_width=1, line_dash="dot", row=wt_row, col=1)
         fig.add_hline(y=WT_OS_LEVEL_2, line_color="rgba(45,212,168,0.32)",
                       line_width=1, line_dash="dot", row=wt_row, col=1)
+
+        # ── WT crossover markers ────────────────────────────────────────
+        # Green triangle: WT1 crosses above WT2 (bullish momentum)
+        # Red triangle:   WT2 crosses above WT1 (bearish momentum)
+        # With the y-axis flipped (negative up, positive down), bullish
+        # markers sit at the BOTTOM of the pane visually, which means a
+        # POSITIVE y-coordinate. Bearish markers go at the top → negative.
+        wt1_arr = df["WT1"].to_numpy(dtype=np.float64)
+        wt2_arr = df["WT2"].to_numpy(dtype=np.float64)
+        prev_wt1 = np.concatenate([[np.nan], wt1_arr[:-1]])
+        prev_wt2 = np.concatenate([[np.nan], wt2_arr[:-1]])
+        wt_valid = (
+            np.isfinite(wt1_arr) & np.isfinite(wt2_arr)
+            & np.isfinite(prev_wt1) & np.isfinite(prev_wt2)
+        )
+        green_cross = wt_valid & (wt1_arr > wt2_arr) & (prev_wt1 <= prev_wt2)
+        red_cross   = wt_valid & (wt2_arr > wt1_arr) & (prev_wt2 <= prev_wt1)
+        # Suppress markers in the very first lookback to avoid noise
+        warmup = 32
+        if len(green_cross) > warmup:
+            green_cross[:warmup] = False
+            red_cross[:warmup]   = False
+        wt_green_idx = np.where(green_cross)[0]
+        wt_red_idx   = np.where(red_cross)[0]
+
+        # Marker y placement — just inside the OB/OS bands so triangles
+        # are visible without clashing with the reference lines.
+        _marker_y = max(abs(WT_OB_LEVEL_1) - 10, 10)  # = 70 for ±80 levels
+
+        if len(wt_red_idx):
+            fig.add_trace(go.Scatter(
+                x=[df["DATE"].iloc[i] for i in wt_red_idx],
+                y=[-_marker_y] * len(wt_red_idx),
+                mode="markers", name="WT Bearish Cross",
+                marker=dict(symbol="triangle-down", size=9, color=C_ROSE,
+                            line=dict(color=C_ROSE, width=1)),
+                hoverinfo="skip", showlegend=False,
+            ), row=wt_row, col=1)
+
+        if len(wt_green_idx):
+            fig.add_trace(go.Scatter(
+                x=[df["DATE"].iloc[i] for i in wt_green_idx],
+                y=[+_marker_y] * len(wt_green_idx),
+                mode="markers", name="WT Bullish Cross",
+                marker=dict(symbol="triangle-up", size=9, color=C_EMERALD,
+                            line=dict(color=C_EMERALD, width=1)),
+                hoverinfo="skip", showlegend=False,
+            ), row=wt_row, col=1)
+
+        # Dynamic y-bounds — include the OB/OS bands so they're always
+        # visible, then REVERSE the range so negative is up / positive is
+        # down (matches mood + calibrated panes).
+        _wt_finite = np.concatenate([
+            wt1_arr[np.isfinite(wt1_arr)],
+            wt2_arr[np.isfinite(wt2_arr)],
+            np.array([WT_OB_LEVEL_1 + 8, WT_OS_LEVEL_1 - 8], dtype=np.float64),
+        ])
+        if len(_wt_finite) > 0:
+            _w_min = float(_wt_finite.min())
+            _w_max = float(_wt_finite.max())
+        else:
+            _w_min, _w_max = -100.0, 100.0
+        _w_pad = max((_w_max - _w_min) * 0.05, 4.0)
+        wt_y_lo, wt_y_hi = _w_min - _w_pad, _w_max + _w_pad
 
     # ── Row 4 (or 3): Calibrated Conviction (Intelligence Mode only) ────
     cal_row = (4 if show_wt_pane else 3) if show_cal_pane else None
@@ -300,14 +373,32 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         ), row=cal_row, col=1)
         fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, row=cal_row, col=1)
 
-        # Dynamic y-bounds for the calibrated pane — reversed (bearish on top).
+        # Calibrated Conviction reference bands — ±100 primary, ±80 secondary
+        from arthagati import (
+            CC_OB_LEVEL_1, CC_OB_LEVEL_2, CC_OS_LEVEL_1, CC_OS_LEVEL_2,
+        )
+        fig.add_hline(y=CC_OB_LEVEL_1, line_color="rgba(232,85,90,0.55)",
+                      line_width=1, line_dash="solid", row=cal_row, col=1)
+        fig.add_hline(y=CC_OS_LEVEL_1, line_color="rgba(45,212,168,0.55)",
+                      line_width=1, line_dash="solid", row=cal_row, col=1)
+        fig.add_hline(y=CC_OB_LEVEL_2, line_color="rgba(232,85,90,0.32)",
+                      line_width=1, line_dash="dot", row=cal_row, col=1)
+        fig.add_hline(y=CC_OS_LEVEL_2, line_color="rgba(45,212,168,0.32)",
+                      line_width=1, line_dash="dot", row=cal_row, col=1)
+
+        # Dynamic y-bounds — include the ±100 bands so they're always
+        # visible — then reverse the range so negative sits on top.
         _cal_finite = cal_slice[np.isfinite(cal_slice)] if cal_slice is not None else np.array([])
-        if len(_cal_finite) > 0:
-            _c_min = float(_cal_finite.min())
-            _c_max = float(_cal_finite.max())
+        _cal_all = np.concatenate([
+            _cal_finite,
+            np.array([CC_OB_LEVEL_1 + 5, CC_OS_LEVEL_1 - 5], dtype=np.float64),
+        ])
+        if len(_cal_all) > 0:
+            _c_min = float(_cal_all.min())
+            _c_max = float(_cal_all.max())
         else:
-            _c_min, _c_max = -100.0, 100.0
-        _c_pad = max((_c_max - _c_min) * 0.08, 2.0)
+            _c_min, _c_max = CC_OS_LEVEL_1 - 5, CC_OB_LEVEL_1 + 5
+        _c_pad = max((_c_max - _c_min) * 0.05, 4.0)
         cal_y_lo, cal_y_hi = _c_min - _c_pad, _c_max + _c_pad
 
     # ── Layout — Obsidian Quant ───────────────────────────────────────────
@@ -317,6 +408,17 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         spikethickness=0.5, spikedash="dash",
         spikecolor="rgba(148,163,184,0.18)",
     )
+
+    # MSF y-range — guarantee the ±4 OB/OS bands are always visible
+    from arthagati import MSF_OB_LEVEL_1 as _MSF_OB1, MSF_OS_LEVEL_1 as _MSF_OS1
+    _msf_finite = msf_values[np.isfinite(msf_values)] if msf_values is not None else np.array([])
+    if len(_msf_finite) > 0:
+        _msf_min = min(float(_msf_finite.min()), _MSF_OS1 - 0.5)
+        _msf_max = max(float(_msf_finite.max()), _MSF_OB1 + 0.5)
+    else:
+        _msf_min, _msf_max = _MSF_OS1 - 0.5, _MSF_OB1 + 0.5
+    _msf_pad = max((_msf_max - _msf_min) * 0.05, 0.5)
+    _msf_range = [_msf_min - _msf_pad, _msf_max + _msf_pad]
 
     # Chart height grows with pane count: 2 panes = 750, 3 = 880, 4 = 1020
     _pane_count = 2 + int(show_wt_pane) + int(show_cal_pane)
@@ -347,6 +449,8 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
             linecolor="rgba(255,255,255,0.04)",
             tickfont=_shared_tick,
+            # Lock the y-range wide enough to always show the ±4 OB/OS bands
+            range=_msf_range,
         ),
         xaxis=dict(
             showgrid=False, linecolor="rgba(255,255,255,0.04)",
@@ -354,7 +458,8 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         ),
     )
 
-    # WaveTrend pane (row 3 when present)
+    # WaveTrend pane (row 3 when present) — y-axis reversed: negative
+    # on top, positive on bottom (matches mood + calibrated convention).
     if show_wt_pane:
         layout_kwargs["yaxis3"] = dict(
             title=dict(
@@ -365,6 +470,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             zeroline=False,
             linecolor="rgba(255,255,255,0.04)",
             tickfont=_shared_tick,
+            range=[wt_y_hi, wt_y_lo],  # reversed
         )
 
     # Calibrated Conviction pane y-axis (row 3 or 4 depending on WT presence)
