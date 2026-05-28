@@ -1867,6 +1867,13 @@ footer {
     overflow: hidden;
     background: var(--glass);
     margin: var(--sp-2) 0 var(--sp-4) 0;
+    /* A few px of inner padding-bottom so the wrapper's bottom rounded
+       corner has room to render without the Plotly SVG clipping it.
+       (Plotly fixes the chart height in Python via fig.update_layout,
+       so without this padding the SVG sits flush to the content edge
+       and the bottom radius is hidden behind it.) */
+    padding-bottom: 6px;
+    box-sizing: content-box;
     transition: border-color 250ms ease, box-shadow 250ms ease;
 }
 
