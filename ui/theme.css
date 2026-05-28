@@ -1864,16 +1864,12 @@ footer {
 .stPlotlyChart {
     border-radius: var(--r-md) !important;
     border: 1px solid var(--border);
-    overflow: hidden;
     background: var(--glass);
     margin: var(--sp-2) 0 var(--sp-4) 0;
-    /* A few px of inner padding-bottom so the wrapper's bottom rounded
-       corner has room to render without the Plotly SVG clipping it.
-       (Plotly fixes the chart height in Python via fig.update_layout,
-       so without this padding the SVG sits flush to the content edge
-       and the bottom radius is hidden behind it.) */
-    padding-bottom: 6px;
-    box-sizing: content-box;
+    /* No overflow:hidden — Plotly's SVG has transparent paper/plot
+       backgrounds (see ui/theme.py PLOTLY_BASE), so its rectangular
+       corners never paint over the wrapper's rounded glass; clipping
+       it only risks cutting the bottom x-axis tick labels. */
     transition: border-color 250ms ease, box-shadow 250ms ease;
 }
 
