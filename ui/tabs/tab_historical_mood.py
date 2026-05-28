@@ -75,12 +75,27 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         return
 
     # ═══════════════════════════════════════════════════════════════════════
-    # CHART — Mood Score (row 1) + MSF Spread (row 2)
+    # CHART layout: 2 panes by default (Mood + MSF), 3 panes when an
+    # active Calibrated Conviction series is in session state.
     # ═══════════════════════════════════════════════════════════════════════
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        vertical_spacing=0.08, row_heights=[0.65, 0.35],
+    cal_full = st.session_state.get("_calibrated_conviction_series")
+    show_cal_pane = (cal_full is not None) and (len(cal_full) == len(mood_df))
+    cal_slice = (
+        np.asarray(cal_full[-len(df):]) if show_cal_pane else None
     )
+
+    if show_cal_pane:
+        fig = make_subplots(
+            rows=3, cols=1, shared_xaxes=True,
+            vertical_spacing=0.06,
+            row_heights=[0.50, 0.25, 0.25],
+        )
+    else:
+        fig = make_subplots(
+            rows=2, cols=1, shared_xaxes=True,
+            vertical_spacing=0.08,
+            row_heights=[0.65, 0.35],
+        )
 
     # Kalman confidence band
     if "Confidence_Upper" in df.columns and "Confidence_Lower" in df.columns:
@@ -95,28 +110,13 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             name="95% Confidence",
         ), row=1, col=1)
 
-    # Mood Score line (raw engine output — always plotted, amber)
+    # Mood Score line (raw engine output)
     fig.add_trace(go.Scattergl(
         x=df["DATE"], y=df["Mood_Score"],
-        mode="lines", name="Mood Score (raw)",
+        mode="lines", name="Mood Score",
         line=dict(color=C_AMBER, width=2),
         hovertemplate="<b>%{x|%d %b %Y}</b><br>Mood: %{y:.2f}<extra></extra>",
     ), row=1, col=1)
-
-    # Calibrated Conviction overlay (post-engine ensemble — plotted when
-    # Intelligence Mode produced a valid profile). Uses the full session
-    # series so historical periods reflect the calibrated view too.
-    cal_full = st.session_state.get("_calibrated_conviction_series")
-    if cal_full is not None and len(cal_full) == len(mood_df):
-        # Slice the same window the chart is showing
-        cal_slice = cal_full[-len(df):] if len(cal_full) > len(df) else cal_full
-        fig.add_trace(go.Scattergl(
-            x=df["DATE"], y=cal_slice,
-            mode="lines", name="Calibrated Conviction",
-            line=dict(color=C_EMERALD, width=1.6, dash="solid"),
-            opacity=0.85,
-            hovertemplate="<b>%{x|%d %b %Y}</b><br>Calibrated: %{y:.2f}<extra></extra>",
-        ), row=1, col=1)
 
     fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, line_dash="dash", row=1, col=1)
 
@@ -221,10 +221,27 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             hoverinfo="skip", showlegend=False,
         ), row=2, col=1)
 
+    # ── Row 3: Calibrated Conviction (Intelligence Mode only) ────────────
+    if show_cal_pane:
+        fig.add_trace(go.Scattergl(
+            x=df["DATE"], y=cal_slice,
+            mode="lines", name="Calibrated Conviction",
+            line=dict(color=C_EMERALD, width=2),
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>Calibrated: %{y:.2f}<extra></extra>",
+        ), row=3, col=1)
+        fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, row=3, col=1)
+
     # ── Layout — Obsidian Quant ───────────────────────────────────────────
-    fig.update_layout(
+    _shared_tick = dict(size=9, family="JetBrains Mono, monospace", color="#64748B")
+    _shared_spike = dict(
+        showspikes=True, spikemode="across", spikesnap="cursor",
+        spikethickness=0.5, spikedash="dash",
+        spikecolor="rgba(148,163,184,0.18)",
+    )
+
+    layout_kwargs = dict(
         **PLOTLY_BASE,
-        height=750,
+        height=900 if show_cal_pane else 750,
         hovermode="x unified",
         showlegend=True,
         legend=dict(
@@ -239,7 +256,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
             zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
             linecolor="rgba(255,255,255,0.04)",
-            tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
+            tickfont=_shared_tick,
             range=[mood_y_hi, mood_y_lo],
         ),
         yaxis2=dict(
@@ -247,30 +264,63 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
             zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
             linecolor="rgba(255,255,255,0.04)",
-            tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
+            tickfont=_shared_tick,
         ),
         xaxis=dict(
             showgrid=False, linecolor="rgba(255,255,255,0.04)",
-            showspikes=True, spikemode="across", spikesnap="cursor",
-            spikethickness=0.5, spikedash="dash",
-            spikecolor="rgba(148,163,184,0.18)",
-        ),
-        xaxis2=dict(
-            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5, type="date",
-            linecolor="rgba(255,255,255,0.04)",
-            tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
-            showspikes=True, spikemode="across", spikesnap="cursor",
-            spikethickness=0.5, spikedash="dash",
-            spikecolor="rgba(148,163,184,0.18)",
+            **_shared_spike,
         ),
     )
 
-    # Thin separator line between panes
-    fig.add_shape(
-        type="line", xref="paper", yref="paper",
-        x0=0, y0=0.38, x1=1, y1=0.38,
-        line=dict(color="rgba(255,255,255,0.06)", width=1),
-    )
+    if show_cal_pane:
+        # Bottom x-axis (row 3) is the date axis; mid x-axis (row 2)
+        # mirrors but doesn't show ticks.
+        layout_kwargs["yaxis3"] = dict(
+            title=dict(
+                text="Calibrated Conviction",
+                font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace"),
+            ),
+            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
+            zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
+            linecolor="rgba(255,255,255,0.04)",
+            tickfont=_shared_tick,
+        )
+        layout_kwargs["xaxis2"] = dict(
+            showgrid=False, linecolor="rgba(255,255,255,0.04)",
+            **_shared_spike,
+        )
+        layout_kwargs["xaxis3"] = dict(
+            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5, type="date",
+            linecolor="rgba(255,255,255,0.04)",
+            tickfont=_shared_tick,
+            **_shared_spike,
+        )
+    else:
+        layout_kwargs["xaxis2"] = dict(
+            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5, type="date",
+            linecolor="rgba(255,255,255,0.04)",
+            tickfont=_shared_tick,
+            **_shared_spike,
+        )
+
+    fig.update_layout(**layout_kwargs)
+
+    # Thin separator lines between panes — positions follow row_heights
+    if show_cal_pane:
+        # Row heights 0.50 / 0.25 / 0.25 with vertical_spacing 0.06 →
+        # separators at ~0.50 (after row 1) and ~0.25 (after row 2 from top)
+        for y in (0.50, 0.25):
+            fig.add_shape(
+                type="line", xref="paper", yref="paper",
+                x0=0, y0=y, x1=1, y1=y,
+                line=dict(color="rgba(255,255,255,0.06)", width=1),
+            )
+    else:
+        fig.add_shape(
+            type="line", xref="paper", yref="paper",
+            x0=0, y0=0.38, x1=1, y1=0.38,
+            line=dict(color="rgba(255,255,255,0.06)", width=1),
+        )
 
     st.markdown('<div class="chart-container mood">', unsafe_allow_html=True)
     st.plotly_chart(

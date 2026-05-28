@@ -230,22 +230,18 @@ def _render_profile_grid(profile: intel.CalibrationProfile) -> None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Calibration Impact — NEW: shows what changed due to calibration
+# Calibration Impact — split into composable helpers
 # ════════════════════════════════════════════════════════════════════════════
 
-def _render_calibration_impact(
+def _render_impact_strip(
     profile: intel.CalibrationProfile,
     mood_df: pd.DataFrame,
     msf_df: pd.DataFrame,
-) -> None:
-    """Show before/after impact of the calibration.
+) -> np.ndarray:
+    """Render the 4-card impact strip (Raw / Calibrated / Shift / Direction).
 
-    Renders three blocks:
-      A) Latest signal comparison: Raw Mood vs Calibrated Conviction +
-         shift + direction-change badge
-      B) Predictive power table: Spearman IR per horizon for raw mood
-         vs calibrated conviction, plus the lift %
-      C) Top contributing features (ranked by |weight| × importance)
+    Returns the full calibrated_series so callers can reuse it for the
+    Predictive Power Lift table below.
     """
     render_section_header(
         title="Calibration Impact",
@@ -255,16 +251,14 @@ def _render_calibration_impact(
     )
     section_gap()
 
-    # ── A) Latest signal comparison strip ───────────────────────────────
     raw_last = float(mood_df["Mood_Score"].iloc[-1])
     calibrated_series = intel.apply_calibration(mood_df, msf_df, profile.weights)
     cal_last = float(calibrated_series[-1])
     shift    = cal_last - raw_last
 
-    if abs(raw_last) > 5 and abs(cal_last) > 5:
-        flipped = (raw_last > 0) != (cal_last > 0)
-    else:
-        flipped = False
+    flipped = (
+        abs(raw_last) > 5 and abs(cal_last) > 5 and (raw_last > 0) != (cal_last > 0)
+    )
     if flipped:
         dir_label, dir_sub, dir_cls = "Flipped", "Sign reversed by calibration", "warning"
     elif abs(shift) > 30:
@@ -274,112 +268,92 @@ def _render_calibration_impact(
     else:
         dir_label, dir_sub, dir_cls = "Preserved", "Calibration broadly agrees", "success"
 
-    raw_zone = ("Bullish" if raw_last > 20 else
-                "Bearish" if raw_last < -20 else "Neutral")
-    cal_zone = ("Bullish" if cal_last > 20 else
-                "Bearish" if cal_last < -20 else "Neutral")
+    raw_zone = "Bullish" if raw_last > 20 else "Bearish" if raw_last < -20 else "Neutral"
+    cal_zone = "Bullish" if cal_last > 20 else "Bearish" if cal_last < -20 else "Neutral"
 
     c1, c2, c3, c4 = st.columns(4, gap="small")
     with c1:
         render_metric_card(
-            label="Raw Mood (Engine)",
-            value=f"{raw_last:+.2f}",
-            subtext=f"{raw_zone} · factory pipeline",
-            color_class="success" if raw_last > 20 else "danger" if raw_last < -20 else "neutral",
+            "Raw Mood (Engine)", f"{raw_last:+.2f}",
+            f"{raw_zone} · factory pipeline",
+            "success" if raw_last > 20 else "danger" if raw_last < -20 else "neutral",
             icon="activity",
         )
     with c2:
         render_metric_card(
-            label="Calibrated Conviction",
-            value=f"{cal_last:+.2f}",
-            subtext=f"{cal_zone} · post-engine ensemble",
-            color_class="success" if cal_last > 20 else "danger" if cal_last < -20 else "warning",
+            "Calibrated Conviction", f"{cal_last:+.2f}",
+            f"{cal_zone} · post-engine ensemble",
+            "success" if cal_last > 20 else "danger" if cal_last < -20 else "warning",
             icon="target",
         )
     with c3:
         render_metric_card(
-            label="Net Shift",
-            value=f"{shift:+.2f}",
-            subtext="Δ vs raw mood",
-            color_class="warning" if abs(shift) > 30 else "info",
+            "Net Shift", f"{shift:+.2f}",
+            "Δ vs raw mood",
+            "warning" if abs(shift) > 30 else "info",
             icon="trending-up" if shift > 0 else "trending-down",
         )
     with c4:
         render_metric_card(
-            label="Signal Direction",
-            value=dir_label,
-            subtext=dir_sub,
-            color_class=dir_cls,
-            icon="compass",
+            "Signal Direction", dir_label, dir_sub, dir_cls, icon="compass",
         )
 
-    section_gap()
+    return calibrated_series
 
-    # ── B + C side by side: IR comparison + Top drivers ─────────────────
-    left, mid, right = st.columns([11, 1, 9], gap="small")
-    with mid:
-        vertical_divider()
 
-    with left:
-        render_section_header(
-            title="Predictive Power Lift",
-            description="Spearman IR — raw Mood Score vs Calibrated Conviction · per horizon",
-            icon="bar-chart",
-            accent="cyan",
-        )
-        # Compute baseline IR for raw mood across the same fold structure.
-        raw_train_ir, raw_val_ir, raw_per_h = intel.score_series_ir(
-            mood_df["Mood_Score"].to_numpy(dtype=np.float64),
-            mood_df,
-            horizons=profile.horizons,
-            n_folds=profile.n_folds,
-            embargo_days=profile.embargo_days,
-        )
-        cal_train_ir, cal_val_ir, cal_per_h = intel.score_series_ir(
-            calibrated_series,
-            mood_df,
-            horizons=profile.horizons,
-            n_folds=profile.n_folds,
-            embargo_days=profile.embargo_days,
-        )
+def _render_predictive_power_table(
+    profile: intel.CalibrationProfile,
+    mood_df: pd.DataFrame,
+    calibrated_series: np.ndarray,
+) -> None:
+    """Per-horizon Spearman IR: raw Mood vs Calibrated · with lift column."""
+    raw_train_ir, raw_val_ir, raw_per_h = intel.score_series_ir(
+        mood_df["Mood_Score"].to_numpy(dtype=np.float64),
+        mood_df,
+        horizons=profile.horizons,
+        n_folds=profile.n_folds,
+        embargo_days=profile.embargo_days,
+    )
+    cal_train_ir, cal_val_ir, cal_per_h = intel.score_series_ir(
+        calibrated_series,
+        mood_df,
+        horizons=profile.horizons,
+        n_folds=profile.n_folds,
+        embargo_days=profile.embargo_days,
+    )
 
-        # Per-horizon table
-        rows_html = []
-        for h in profile.horizons:
-            h = int(h)
-            raw_v = raw_per_h.get(h, 0.0)
-            cal_v = cal_per_h.get(h, 0.0)
-            lift = (cal_v - raw_v)
-            lift_cls = "pos" if lift > 0 else "neg" if lift < 0 else "neutral"
-            lift_pct = (lift / abs(raw_v) * 100.0) if abs(raw_v) > 1e-6 else 0.0
-            lift_str = f"{lift:+.3f}  ({lift_pct:+.0f}%)" if abs(raw_v) > 1e-6 else f"{lift:+.3f}"
-            rows_html.append(
-                f"<tr>"
-                f"<td class='key'>+{h}D</td>"
-                f"<td class='value'>{raw_v:+.3f}</td>"
-                f"<td class='value'>{cal_v:+.3f}</td>"
-                f"<td class='value delta {lift_cls}'>{lift_str}</td>"
-                f"</tr>"
-            )
-        # Overall row
-        ov_lift = cal_val_ir - raw_val_ir
-        ov_lift_cls = "pos" if ov_lift > 0 else "neg" if ov_lift < 0 else "neutral"
-        ov_lift_pct = (ov_lift / abs(raw_val_ir) * 100.0) if abs(raw_val_ir) > 1e-6 else 0.0
-        ov_lift_str = (
-            f"{ov_lift:+.3f}  ({ov_lift_pct:+.0f}%)"
-            if abs(raw_val_ir) > 1e-6 else f"{ov_lift:+.3f}"
-        )
+    rows_html = []
+    for h in profile.horizons:
+        h = int(h)
+        raw_v = raw_per_h.get(h, 0.0)
+        cal_v = cal_per_h.get(h, 0.0)
+        lift  = cal_v - raw_v
+        lift_cls = "pos" if lift > 0 else "neg" if lift < 0 else "neutral"
+        lift_pct = (lift / abs(raw_v) * 100.0) if abs(raw_v) > 1e-6 else 0.0
+        lift_str = f"{lift:+.3f}  ({lift_pct:+.0f}%)" if abs(raw_v) > 1e-6 else f"{lift:+.3f}"
         rows_html.append(
-            f"<tr class='total'>"
-            f"<td class='key'>Overall IR</td>"
-            f"<td class='value'>{raw_val_ir:+.3f}</td>"
-            f"<td class='value'>{cal_val_ir:+.3f}</td>"
-            f"<td class='value delta {ov_lift_cls}'>{ov_lift_str}</td>"
+            f"<tr>"
+            f"<td class='key'>+{h}D</td>"
+            f"<td class='value'>{raw_v:+.3f}</td>"
+            f"<td class='value'>{cal_v:+.3f}</td>"
+            f"<td class='value delta {lift_cls}'>{lift_str}</td>"
             f"</tr>"
         )
+    ov_lift = cal_val_ir - raw_val_ir
+    ov_cls  = "pos" if ov_lift > 0 else "neg" if ov_lift < 0 else "neutral"
+    ov_pct  = (ov_lift / abs(raw_val_ir) * 100.0) if abs(raw_val_ir) > 1e-6 else 0.0
+    ov_str  = f"{ov_lift:+.3f}  ({ov_pct:+.0f}%)" if abs(raw_val_ir) > 1e-6 else f"{ov_lift:+.3f}"
+    rows_html.append(
+        f"<tr class='total'>"
+        f"<td class='key'>Overall IR</td>"
+        f"<td class='value'>{raw_val_ir:+.3f}</td>"
+        f"<td class='value'>{cal_val_ir:+.3f}</td>"
+        f"<td class='value delta {ov_cls}'>{ov_str}</td>"
+        f"</tr>"
+    )
 
-        st.markdown(
-            f"""\
+    st.markdown(
+        f"""\
 <div class="weights-table-wrap">
   <table class="weights-table impact-table">
     <thead><tr><th>Horizon</th><th>Raw Mood</th><th>Calibrated</th><th>Lift</th></tr></thead>
@@ -387,29 +361,71 @@ def _render_calibration_impact(
   </table>
 </div>
 """,
-            unsafe_allow_html=True,
-        )
+        unsafe_allow_html=True,
+    )
 
-    with right:
-        render_section_header(
-            title="Top Drivers",
-            description="Largest-magnitude features in the calibrated ensemble",
-            icon="layers",
-            accent="amber",
-        )
-        # Combined ranking by |weight| (the actual contribution to F @ w)
-        ranked = sorted(
-            profile.weights.items(),
-            key=lambda kv: -abs(float(kv[1])),
-        )[:5]
-        max_abs_w = max((abs(float(v)) for _, v in ranked), default=1.0)
-        for i, (name, w) in enumerate(ranked):
-            wf = float(w)
-            sign_cls = "pos" if wf > 0 else "neg" if wf < 0 else "neutral"
-            sign_label = "Bullish" if wf > 0.05 else "Bearish" if wf < -0.05 else "Neutral"
-            bar_pct = (abs(wf) / max_abs_w * 100.0)
-            st.markdown(
-                f"""\
+
+def _render_profile_table(profile: intel.CalibrationProfile) -> None:
+    """Profile provenance rendered as a 2-column key/value table (matches
+    the visual rhythm of the Predictive Power Lift table next to it)."""
+    age = intel.profile_age_days(profile)
+    if age < 1.0:
+        age_str = "today"
+    elif age < 2.0:
+        age_str = "yesterday"
+    elif age < 30:
+        age_str = f"{age:.0f}d ago"
+    else:
+        age_str = f"{age / 30:.1f}mo ago"
+    horizons_str = " · ".join(f"+{h}D" for h in profile.horizons)
+    pieces = [
+        ("Last Calibration",  profile.timestamp.replace("T", " ").rstrip("Z")[:16],
+         age_str),
+        ("Engine Version",    profile.arthagati_version, "Arthagati build"),
+        ("Profile Schema",    f"v{profile.schema_version}", "JSON envelope"),
+        ("Predictors",        f"{profile.n_predictors}", "active in calibration"),
+        ("Data Window End",   profile.data_end, f"from {profile.data_start}"),
+        ("Trials Run",        f"{profile.n_trials}", "Optuna TPE"),
+        ("CV Folds",          f"{profile.n_folds}", f"embargo {profile.embargo_days}d"),
+        ("Train Rows",        f"{profile.n_dates_train:,}", "expanding"),
+        ("Val Rows",          f"{profile.n_dates_val:,}",   "purged"),
+        ("Horizons",          horizons_str, "forward NIFTY return"),
+    ]
+    rows_html = "".join(
+        f"<tr>"
+        f"<td class='key'>{html_mod.escape(lbl)}</td>"
+        f"<td class='value'>{html_mod.escape(val)}</td>"
+        f"<td class='value sub'>{html_mod.escape(sub)}</td>"
+        f"</tr>"
+        for lbl, val, sub in pieces
+    )
+    st.markdown(
+        f"""\
+<div class="weights-table-wrap">
+  <table class="weights-table profile-table">
+    <thead><tr><th>Field</th><th>Value</th><th>Note</th></tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_top_drivers(profile: intel.CalibrationProfile, limit: int = 5) -> None:
+    """Top drivers list — ranked by |weight|. Position-card based."""
+    ranked = sorted(
+        profile.weights.items(),
+        key=lambda kv: -abs(float(kv[1])),
+    )[:limit]
+    max_abs_w = max((abs(float(v)) for _, v in ranked), default=1.0)
+    for i, (name, w) in enumerate(ranked):
+        wf = float(w)
+        sign_cls = "pos" if wf > 0 else "neg" if wf < 0 else "neutral"
+        sign_label = "Bullish" if wf > 0.05 else "Bearish" if wf < -0.05 else "Neutral"
+        bar_pct = (abs(wf) / max_abs_w * 100.0)
+        st.markdown(
+            f"""\
 <div class="position-card driver-card">
   <div class="driver-head">
     <span class="driver-rank">{i + 1}</span>
@@ -423,10 +439,10 @@ def _render_calibration_impact(
   </div>
 </div>
 """,
-                unsafe_allow_html=True,
-            )
-            st.markdown('<div style="height: var(--sp-2);"></div>',
-                        unsafe_allow_html=True)
+            unsafe_allow_html=True,
+        )
+        st.markdown('<div style="height: var(--sp-2);"></div>',
+                    unsafe_allow_html=True)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -570,34 +586,63 @@ def render(
 
     section_divider()
 
-    # ── NEW: Calibration Impact ─────────────────────────────────────────
-    if mood_df is not None and msf_df is not None and profile.weights:
-        _render_calibration_impact(profile, mood_df, msf_df)
-        section_divider()
-    else:
-        st.caption("Calibration Impact section requires cached engine output (run analysis first).")
+    # ── Calibration Impact strip (4 metric cards) ───────────────────────
+    if mood_df is None or msf_df is None or not profile.weights:
+        st.caption("Calibration Impact requires cached engine output (run analysis first).")
+        return
 
-    # ── Feature Analysis — consolidated grid (weight + importance) ──────
-    render_section_header(
-        title="Feature Analysis",
-        description="Per-feature weight + fANOVA importance · ranked by explanatory power",
-        icon="grid",
-        accent="amber",
-    )
+    calibrated_series = _render_impact_strip(profile, mood_df, msf_df)
     section_gap()
-    _render_feature_grid(profile.weights or defaults, profile.importance or {}, defaults)
+
+    # ── Predictive Power Lift + Profile Provenance · side-by-side ────────
+    left, mid, right = st.columns([10, 1, 10], gap="small")
+    with mid:
+        vertical_divider()
+    with left:
+        render_section_header(
+            title="Predictive Power Lift",
+            description="Spearman IR — raw Mood vs Calibrated · per horizon",
+            icon="bar-chart",
+            accent="cyan",
+        )
+        _render_predictive_power_table(profile, mood_df, calibrated_series)
+    with right:
+        render_section_header(
+            title="Profile Provenance",
+            description="Run details · CV configuration · dataset window",
+            icon="file-text",
+            accent="cyan",
+        )
+        _render_profile_table(profile)
 
     section_divider()
 
-    # ── Profile provenance (stat-card grid) ─────────────────────────────
-    render_section_header(
-        title="Profile Provenance",
-        description="Calibration run details · CV configuration · dataset window",
-        icon="file-text",
-        accent="cyan",
-    )
-    section_gap()
-    _render_profile_grid(profile)
+    # ── Feature Analysis + Top Drivers · side-by-side ───────────────────
+    left2, mid2, right2 = st.columns([13, 1, 7], gap="small")
+    with mid2:
+        vertical_divider()
+    with left2:
+        render_section_header(
+            title="Feature Analysis",
+            description="Per-feature weight + fANOVA importance · ranked by explanatory power",
+            icon="grid",
+            accent="amber",
+        )
+        section_gap()
+        _render_feature_grid(
+            profile.weights or defaults,
+            profile.importance or {},
+            defaults,
+        )
+    with right2:
+        render_section_header(
+            title="Top Drivers",
+            description="Largest-magnitude features in the ensemble",
+            icon="layers",
+            accent="amber",
+        )
+        section_gap()
+        _render_top_drivers(profile, limit=5)
 
 
 def _quality_subtext(profile: intel.CalibrationProfile) -> str:
