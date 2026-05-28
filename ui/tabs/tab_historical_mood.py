@@ -95,13 +95,28 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             name="95% Confidence",
         ), row=1, col=1)
 
-    # Mood Score line
+    # Mood Score line (raw engine output — always plotted, amber)
     fig.add_trace(go.Scattergl(
         x=df["DATE"], y=df["Mood_Score"],
-        mode="lines", name="Mood Score",
+        mode="lines", name="Mood Score (raw)",
         line=dict(color=C_AMBER, width=2),
         hovertemplate="<b>%{x|%d %b %Y}</b><br>Mood: %{y:.2f}<extra></extra>",
     ), row=1, col=1)
+
+    # Calibrated Conviction overlay (post-engine ensemble — plotted when
+    # Intelligence Mode produced a valid profile). Uses the full session
+    # series so historical periods reflect the calibrated view too.
+    cal_full = st.session_state.get("_calibrated_conviction_series")
+    if cal_full is not None and len(cal_full) == len(mood_df):
+        # Slice the same window the chart is showing
+        cal_slice = cal_full[-len(df):] if len(cal_full) > len(df) else cal_full
+        fig.add_trace(go.Scattergl(
+            x=df["DATE"], y=cal_slice,
+            mode="lines", name="Calibrated Conviction",
+            line=dict(color=C_EMERALD, width=1.6, dash="solid"),
+            opacity=0.85,
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>Calibrated: %{y:.2f}<extra></extra>",
+        ), row=1, col=1)
 
     fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, line_dash="dash", row=1, col=1)
 

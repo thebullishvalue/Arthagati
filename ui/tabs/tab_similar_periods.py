@@ -75,7 +75,7 @@ def _render_period_card(period: dict) -> None:
 
     fwd_tiles = "".join(
         _render_fwd_tile(h, period.get(k))
-        for h, k in [(30, "fwd_30d"), (60, "fwd_60d"), (90, "fwd_90d")]
+        for h, k in [(5, "fwd_5d"), (20, "fwd_20d"), (60, "fwd_60d"), (90, "fwd_90d")]
     )
 
     mood_color = "pos" if mood_val > 0 else "neg" if mood_val < 0 else "neutral"
@@ -148,13 +148,16 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
         return
 
     # ── Forward return summary cards ─────────────────────────────────────
-    fwd_30 = [p["fwd_30d"] for p in similar_periods if p["fwd_30d"] is not None]
+    fwd_5  = [p["fwd_5d"]  for p in similar_periods if p["fwd_5d"]  is not None]
+    fwd_20 = [p["fwd_20d"] for p in similar_periods if p["fwd_20d"] is not None]
     fwd_60 = [p["fwd_60d"] for p in similar_periods if p["fwd_60d"] is not None]
     fwd_90 = [p["fwd_90d"] for p in similar_periods if p["fwd_90d"] is not None]
 
-    if fwd_30 or fwd_60 or fwd_90:
-        cols = st.columns(3, gap="small")
-        for col, horizon, values in zip(cols, [30, 60, 90], [fwd_30, fwd_60, fwd_90]):
+    if fwd_5 or fwd_20 or fwd_60 or fwd_90:
+        cols = st.columns(4, gap="small")
+        for col, horizon, values in zip(
+            cols, [5, 20, 60, 90], [fwd_5, fwd_20, fwd_60, fwd_90],
+        ):
             if not values:
                 continue
             median_ret = np.median(values)

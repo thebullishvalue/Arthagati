@@ -63,7 +63,9 @@ def _val_ir_severity(val_ir: float) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Ensemble Weights — 2-col card grid
+# Feature Analysis — consolidated weight + importance per feature
+# (Replaces the old "Ensemble Weights" + "Parameter Importance" sections —
+#  one card per feature, two stacked bars, ranked by importance.)
 # ════════════════════════════════════════════════════════════════════════════
 
 # Human-readable labels for the engine-output features
@@ -81,8 +83,22 @@ _FEATURE_LABELS = {
 }
 
 
-def _weight_card(name: str, weight: float, max_abs: float) -> str:
-    """One feature-weight card. Tier-coloured strip + value + bar + badge."""
+def _feature_card(
+    rank: int,
+    name: str,
+    weight: float,
+    importance: float,
+    max_abs_w: float,
+    max_imp: float,
+) -> str:
+    """One consolidated feature card. Tier strip + name + weight + two bars.
+
+    Bars:
+      • Weight bar  — directional (emerald/rose) showing magnitude of
+        the linear coefficient relative to the largest |weight|
+      • Importance bar — neutral violet→amber gradient showing fANOVA %
+        relative to the most-explanatory feature
+    """
     if weight >= 0.15:
         tier, badge_cls, badge_label = "tier-strong-buy", "badge-strong-buy", "Bullish+"
     elif weight >= 0.05:
@@ -95,82 +111,71 @@ def _weight_card(name: str, weight: float, max_abs: float) -> str:
         tier, badge_cls, badge_label = "tier-hold",       "badge-hold",       "Neutral"
 
     val_cls = "pos" if weight > 0 else "neg" if weight < 0 else "neutral"
-    bar_pct = (abs(weight) / max_abs * 100.0) if max_abs > 0 else 0.0
-    label   = _FEATURE_LABELS.get(name, name)
+    w_bar_pct = (abs(weight) / max_abs_w * 100.0) if max_abs_w > 0 else 0.0
+    i_bar_pct = (importance / max_imp * 100.0) if max_imp > 0 else 0.0
+    label = _FEATURE_LABELS.get(name, name)
 
     return f"""\
-<div class="position-card weight-card {tier}">
-  <div class="weight-card-head">
-    <div class="weight-card-id">
-      <div class="weight-eyebrow">Feature</div>
-      <div class="weight-name">{html_mod.escape(label)}</div>
-      <div class="weight-key">{html_mod.escape(name)}</div>
+<div class="position-card feature-card {tier}">
+  <div class="feature-card-head">
+    <span class="feature-rank">{rank:02d}</span>
+    <div class="feature-card-id">
+      <div class="feature-card-name">{html_mod.escape(label)}</div>
+      <div class="feature-card-key">{html_mod.escape(name)}</div>
     </div>
     <span class="position-card-badge {badge_cls}">{badge_label}</span>
   </div>
-  <div class="weight-card-value {val_cls}">{weight:+.3f}</div>
-  <div class="weight-card-bar">
-    <div class="weight-card-bar-fill {val_cls}" style="width:{bar_pct:.0f}%;"></div>
+  <div class="feature-card-value {val_cls}">{weight:+.3f}</div>
+  <div class="feature-card-bar-row">
+    <span class="feature-card-bar-label">Weight</span>
+    <div class="feature-card-bar"><div class="feature-card-bar-fill {val_cls}" style="width:{w_bar_pct:.0f}%;"></div></div>
+    <span class="feature-card-bar-pct">{w_bar_pct:.0f}%</span>
   </div>
-  <div class="weight-card-foot">
-    <span class="weight-foot-label">Magnitude</span>
-    <span class="weight-foot-val">{bar_pct:.0f}% of max</span>
-  </div>
-</div>
-"""
-
-
-def _render_weight_cards(weights: dict, defaults: dict) -> None:
-    """Render all feature weights as a 2-column grid of cards."""
-    values = [float(weights.get(k, defaults.get(k, 0.0))) for k in defaults]
-    max_abs = max((abs(v) for v in values), default=1.0) or 1.0
-
-    cols = st.columns(2, gap="medium")
-    for i, k in enumerate(defaults):
-        with cols[i % 2]:
-            st.markdown(_weight_card(k, float(weights.get(k, 0.0)), max_abs),
-                        unsafe_allow_html=True)
-            st.markdown('<div style="height: var(--sp-2);"></div>',
-                        unsafe_allow_html=True)
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# Parameter Importance — 2-col card grid
-# ════════════════════════════════════════════════════════════════════════════
-
-def _importance_card(rank: int, name: str, pct: float, max_pct: float) -> str:
-    bar_pct = (pct / max_pct * 100.0) if max_pct > 0 else 0.0
-    label   = _FEATURE_LABELS.get(name, name)
-    return f"""\
-<div class="position-card importance-card">
-  <div class="importance-card-head">
-    <span class="importance-rank">{rank:02d}</span>
-    <div class="importance-id">
-      <div class="importance-name">{html_mod.escape(label)}</div>
-      <div class="importance-key">{html_mod.escape(name)}</div>
-    </div>
-    <span class="importance-pct">{pct:.1f}%</span>
-  </div>
-  <div class="importance-bar">
-    <div class="importance-bar-fill" style="width:{bar_pct:.0f}%;"></div>
+  <div class="feature-card-bar-row">
+    <span class="feature-card-bar-label">Importance</span>
+    <div class="feature-card-bar"><div class="feature-card-bar-fill importance" style="width:{i_bar_pct:.0f}%;"></div></div>
+    <span class="feature-card-bar-pct">{importance:.1f}%</span>
   </div>
 </div>
 """
 
 
-def _render_importance_cards(importance: dict) -> None:
-    if not importance:
-        st.caption("Importance data not yet available — calibration produces this on completion.")
-        return
-    rows = sorted(importance.items(), key=lambda kv: kv[1], reverse=True)
-    max_pct = rows[0][1] if rows else 1.0
-    cols = st.columns(2, gap="medium")
-    for i, (k, v) in enumerate(rows):
-        with cols[i % 2]:
-            st.markdown(_importance_card(i + 1, k, v, max_pct),
-                        unsafe_allow_html=True)
-            st.markdown('<div style="height: var(--sp-2);"></div>',
-                        unsafe_allow_html=True)
+def _render_feature_grid(weights: dict, importance: dict, defaults: dict) -> None:
+    """Render all features as a single CSS-grid of consolidated cards.
+
+    Cards are ranked by importance (descending). All cards in the same
+    grid row have equal height — that's what makes the layout feel
+    cohesive instead of looking like 'things thrown on the page'.
+    """
+    feature_order = list(defaults.keys())
+    if importance:
+        feature_order = sorted(
+            feature_order,
+            key=lambda k: -importance.get(k, 0.0),
+        )
+
+    # Use a single CSS Grid container — guarantees equal-height rows and
+    # stable layout across any combination of feature counts.
+    values = [float(weights.get(k, 0.0)) for k in feature_order]
+    max_abs_w = max((abs(v) for v in values), default=1.0) or 1.0
+    imp_values = [float(importance.get(k, 0.0)) for k in feature_order]
+    max_imp = max(imp_values, default=1.0) or 1.0
+
+    cards_html = "".join(
+        _feature_card(
+            rank=i + 1,
+            name=k,
+            weight=float(weights.get(k, 0.0)),
+            importance=float(importance.get(k, 0.0)),
+            max_abs_w=max_abs_w,
+            max_imp=max_imp,
+        )
+        for i, k in enumerate(feature_order)
+    )
+    st.markdown(
+        f'<div class="feature-grid">{cards_html}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -572,34 +577,22 @@ def render(
     else:
         st.caption("Calibration Impact section requires cached engine output (run analysis first).")
 
-    # ── Ensemble Weights (2-col card grid) ──────────────────────────────
+    # ── Feature Analysis — consolidated grid (weight + importance) ──────
     render_section_header(
-        title="Ensemble Weights",
-        description="Per-feature linear coefficients · post-engine layer",
+        title="Feature Analysis",
+        description="Per-feature weight + fANOVA importance · ranked by explanatory power",
         icon="grid",
         accent="amber",
     )
     section_gap()
-    _render_weight_cards(profile.weights or defaults, defaults)
+    _render_feature_grid(profile.weights or defaults, profile.importance or {}, defaults)
 
     section_divider()
 
-    # ── Parameter Importance (2-col card grid) ──────────────────────────
+    # ── Profile provenance (stat-card grid) ─────────────────────────────
     render_section_header(
-        title="Parameter Importance",
-        description="fANOVA importance (Optuna) · weight-share fallback",
-        icon="bar-chart",
-        accent="violet",
-    )
-    section_gap()
-    _render_importance_cards(profile.importance)
-
-    section_divider()
-
-    # ── Profile metadata (stat-card grid) ───────────────────────────────
-    render_section_header(
-        title="Profile",
-        description="Provenance · integrity · calibration run details",
+        title="Profile Provenance",
+        description="Calibration run details · CV configuration · dataset window",
         icon="file-text",
         accent="cyan",
     )
