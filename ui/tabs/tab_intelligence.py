@@ -579,7 +579,7 @@ def render(
         render_section_header(
             title="Feature Analysis",
             description="Per-feature weight + fANOVA importance · ranked by explanatory power",
-            icon="grid",
+            icon="layers",
             accent="amber",
         )
         section_gap()
@@ -590,18 +590,7 @@ def render(
         )
 
     with right:
-        # Top of the right column: Profile Provenance table
-        render_section_header(
-            title="Profile Provenance",
-            description="Run details · CV configuration · dataset window",
-            icon="file-text",
-            accent="cyan",
-        )
-        _render_profile_table(profile)
-
-        section_divider()
-
-        # Below it: Predictive Power Lift table
+        # Top of the right column: Predictive Power Lift table
         render_section_header(
             title="Predictive Power Lift",
             description="Spearman IR — raw Mood vs Calibrated · per horizon",
@@ -609,6 +598,17 @@ def render(
             accent="emerald",
         )
         _render_predictive_power_table(profile, mood_df, calibrated_series)
+
+        section_divider()
+
+        # Below it: Profile Provenance table
+        render_section_header(
+            title="Profile Provenance",
+            description="Run details · CV configuration · dataset window",
+            icon="file-text",
+            accent="cyan",
+        )
+        _render_profile_table(profile)
 
 
 def _quality_subtext(profile: intel.CalibrationProfile) -> str:
