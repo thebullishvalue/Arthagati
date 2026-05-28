@@ -1728,33 +1728,16 @@ def _render_intelligence_toggle() -> None:
         _invalidate_engine_cache()
     st.session_state["intelligence_mode"] = intelligence_mode
 
-    # Settings expander (advanced)
+    # Calibration tuning values stay at their factory defaults — the
+    # advanced settings expander was removed from the sidebar. If they
+    # need re-tuning later, set st.session_state['intel_n_trials'],
+    # ['intel_n_folds'], ['intel_embargo'] from elsewhere or expose a
+    # dedicated control. ``_auto_calibrate_if_needed`` reads these via
+    # session_state.get(..., default) so absent values just fall back to
+    # ``intelligence.DEFAULT_*``.
     st.session_state.setdefault("intel_n_trials", _intel.DEFAULT_TRIALS)
     st.session_state.setdefault("intel_n_folds",  _intel.DEFAULT_FOLDS)
     st.session_state.setdefault("intel_embargo",  _intel.DEFAULT_EMBARGO_DAYS)
-    if intelligence_mode:
-        with st.expander("⚙ Calibration Settings", expanded=False):
-            st.session_state["intel_n_trials"] = st.number_input(
-                "Trials", min_value=10, max_value=200,
-                value=int(st.session_state["intel_n_trials"]), step=5,
-                help="Optuna TPE trials. More = better search but slower.",
-            )
-            st.session_state["intel_n_folds"] = st.number_input(
-                "Walk-forward folds", min_value=3, max_value=10,
-                value=int(st.session_state["intel_n_folds"]), step=1,
-                help="Expanding-window CV folds.",
-            )
-            st.session_state["intel_embargo"] = st.number_input(
-                "Embargo days", min_value=0, max_value=30,
-                value=int(st.session_state["intel_embargo"]), step=1,
-                help="Gap between train end and val start each fold.",
-            )
-            _sig = (st.session_state["intel_n_trials"],
-                    st.session_state["intel_n_folds"],
-                    st.session_state["intel_embargo"])
-            if st.session_state.get("_intel_settings_sig") != _sig:
-                st.session_state["_intel_settings_sig"] = _sig
-                st.session_state.pop("_intel_calibration_done", None)
 
 
 def _render_intelligence_passport_body(
