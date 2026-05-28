@@ -1864,18 +1864,22 @@ footer {
 .stPlotlyChart {
     border-radius: var(--r-md) !important;
     border: 1px solid var(--border);
-    overflow: hidden;
     background: var(--glass);
     margin: var(--sp-2) 0 var(--sp-4) 0;
-    /* Plotly fixes the SVG to a pixel-exact height via fig.update_layout,
-       so it sits flush to the container's content edge. The rounded
-       bottom corner (--r-md = 10px) needs clearance below the SVG to
-       actually render — without padding, the corner falls inside the
-       SVG area and gets masked by it. Padding must be ≥ --r-md, plus a
-       hair extra to keep the curve crisp. */
-    padding-bottom: 14px;
-    box-sizing: content-box;
+    /* No padding/overflow tricks at the wrapper level — those fight with
+       Streamlit's column-layout height accounting and end up clipping
+       the bottom of the SVG. The rounded mask is applied to the inner
+       Plotly div instead (see selector below), which shares the SVG's
+       exact dimensions, so the shape clips cleanly with no layout shift. */
     transition: border-color 250ms ease, box-shadow 250ms ease;
+}
+
+/* Apply the rounded mask to the immediate Plotly chart div, not the
+   wrapper. This clips the SVG to the rounded shape without needing
+   padding/overflow on .stPlotlyChart itself. */
+.stPlotlyChart > div:first-child {
+    border-radius: var(--r-md);
+    overflow: hidden;
 }
 
 .stPlotlyChart:hover {
