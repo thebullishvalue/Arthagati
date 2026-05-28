@@ -6,6 +6,98 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
 
 ---
 
+## [v2.8.0] — 2026-05-28
+
+### Intelligence Mode + WaveTrend + Granular Horizons
+
+Two new indicators (WaveTrend on Mood Score, and a calibrated post-engine ensemble called *Calibrated Conviction*), plus a wholesale shift to more granular forward-return horizons (5D / 20D / 60D / 90D). A new Intelligence Center view exposes the calibration's diagnostics, per-feature weights, and predictive-power lift. Sidebar Model Passport ports Nishkarsh's fidelity for status + import / export / reset. Heavy investment in caching: engine output is session-cached by input fingerprint, calibrated profiles persist on disk and survive Streamlit Cloud cold wakes when fresh.
+
+#### Added
+- **WaveTrend Oscillator (LazyBear)** — faithful port with `hlc3` replaced by `Mood_Score`. Channel length 10, average length 21, signal-line SMA period 4. OB/OS bands at ±80 / ±60. WT1/WT2 crossover triangles (▲ at y=+70 bullish, ▼ at y=−70 bearish). Cyan zero-baselined WT1−WT2 area fill. First 31 bars masked while EMA chain warms up; divisor `d` floored at 0.5 to prevent warmup blowup. Rendered as a third pane in the Historical Mood chart with reversed y-axis (negative on top).
+- **Intelligence Mode — post-engine ensemble calibration**:
+  - Builds a 10-column feature matrix `F` from engine output: `mood`, `mood_smooth`, `mood_diverge`, `mood_squared`, `mood_sqrt`, `msf_spread`, plus the four MSF components.
+  - Optuna TPE sampler with `MedianPruner` searches the linear weight vector `w`. Per-trial cost is one `F @ w` plus a handful of Spearman correlations (microseconds), vs. the v1 prototype that re-ran the full engine per trial (~30-60s).
+  - Objective: `0.65 · Val IR + 0.35 · Train IR − L2(w)` where IR = mean Spearman / std Spearman across folds × horizons.
+  - Walk-forward CV with purged 5-day embargo across 5 folds × 4 horizons.
+  - Quality gate: `Val IR > 0` (else *No Edge* — profile saved but inactive) and `Stability ≥ 30%` (else *Overfit* — flagged but saved).
+  - Output: `calibrated_conviction = tanh((F @ w) / 3) · 100` ∈ [−100, +100], applied across the full history.
+- **Calibrated Conviction** metric card in the diagnostics strip (when Intelligence Mode is ON).
+- **Intelligence Center view** — read-only dashboard:
+  - Calibration Diagnostics (4-card strip: Train IR · Val IR · Stability · Quality)
+  - Calibration Impact (4-card strip: Raw Mood · Calibrated Conviction · Net Shift · Direction)
+  - Feature Analysis grid — per-feature card combining linear weight + fANOVA importance + Bullish/Bearish/Neutral badge, ranked by importance
+  - Predictive Power Lift table — per-horizon Spearman IR comparison: raw Mood vs Calibrated Conviction
+  - Profile Provenance table — run timestamp, predictors, CV setup, data window, schema version
+- **Sidebar Model Passport** (Nishkarsh fidelity port):
+  - Intelligence Mode toggle
+  - Status card (metric-card chrome with success / warning / neutral colour classes)
+  - Trained on · Train IR · Val IR · Updated rows
+  - Predictor-count mismatch warning
+  - ↑ Import Profile / ↓ Export Profile / ↺ Reset to Defaults
+- **MSF Spread reference bands** — solid (primary) + dotted (secondary) horizontal lines at ±5 / ±3. Divergence triangles moved from ±5 to ±4 so markers and primary band don't overlap.
+- **MSF y-axis range lock** — ensures the ±5 bands stay in view regardless of how compressed the MSF signal is in a given window.
+- **Granular forward horizons** — `BACKTEST_HORIZON` lowered from 30 → 20. Forward-return tiles in Similar Periods analog cards now show **5D / 20D / 60D / 90D** (was 30D / 60D / 90D). Median-return summary cards updated accordingly. `find_similar_periods` returns `fwd_5d`, `fwd_20d`, `fwd_60d`, `fwd_90d`.
+- **Engine-output session cache** — `mood_df` + `msf_df` cached in `st.session_state` keyed by `(row count, first date, last date, sorted predictor set)`. View switches and timeframe button clicks return in ~150ms instead of re-running the 30s engine.
+- **Cross-session profile freshness check** — profile reused across Streamlit Cloud cold wakes when (a) predictor count matches, (b) data end ≤14 days newer than profile fit time, and (c) profile age ≤14 days. Quality-gate failures are *not* counted as fresh.
+- **Structured pipeline summary box** in the terminal console — view mode, Intelligence on/off, predictor count, latest Mood / MSF / Calibrated Conviction, regime, OU half-life, Hurst, market entropy.
+- **Modular `ui/` package** — `theme.py`, `theme.css`, `components.py`, `tabs/{landing, historical_mood, similar_periods, correlation, intelligence}.py` (Obsidian Quant fidelity, ported from v2.7.0 work).
+- **Calibrated Conviction reference constants** `CC_OB_LEVEL_1 / _2 = ±100 / ±80` (for the metric card semantic colouring; the chart pane was removed in this release).
+- **Structured console logging system** (`core/logger_config.py`) — phase banners, step lines, item rows, success / warning / failure / checkpoint helpers, boxed summary, per-phase elapsed times.
+
+#### Changed
+- **Historical Mood chart layout**: 2 panes (Mood + MSF) → 3 panes (Mood + MSF + WaveTrend). Row heights `[0.50, 0.25, 0.25]`. Vertical spacing 0.06.
+- **Calibration architecture**: prototype v1 tuned structural hyperparameters (e.g. `CORR_HALF_LIFE`, `MSF_WINDOW`) per Optuna trial, requiring a full engine re-run per trial (~30-60s × 40 trials = unusable on Streamlit Cloud). v2 calibrates **on the engine output**, reducing per-trial cost by ~1000×.
+- **Calibrated Conviction pane removed from chart** — the signal is still produced, persisted, and surfaced as a metric card and on the Intelligence Center dashboard. Removing the chart pane gives the three signal panes (Mood, MSF, WT) more vertical room.
+- **OB/OS colour coding on reversed-axis panes** — Mood Score, WaveTrend, and Calibrated Conviction all reverse their y-axes. Reference-band colours now follow *sign*, not visual position: emerald on positive levels, rose on negative.
+- **Top OB/OS band alpha** dimmed from 0.55 to 0.30; secondary band alpha from 0.32 to 0.16. Signal lines now dominate the visual hierarchy.
+- **Plotly chart wrapper** (`.stPlotlyChart`) — `padding-bottom: 6px` and explicit `box-sizing: content-box` so the wrapper's bottom border-radius doesn't get clipped by the Plotly SVG's flush bottom edge.
+- **Sidebar passport split** into pre-analysis (toggle) and post-analysis (status card + import/export/reset) halves via `st.empty()` placeholder. The freshly-saved profile is reflected on the same Run-Analysis click that produced it — no need to switch views.
+- **Calibration progress messaging** — phase banner reads *Phase 5/5: Intelligence Calibration · Post-engine ensemble (Nishkarsh pattern)*; per-trial progress bar shows *Trial N/M · Optuna TPE · Best ρ:+X.XXXX*.
+- **README.md** restructured around the new architecture: dedicated sections for WaveTrend and Intelligence Mode, full feature matrix and weight bounds tables, granular horizons in Similar Periods.
+- **Triangle placement & marker sizes** — MSF Spread triangles moved from ±5 to ±4. Marker size constant `_TRI_SIZE = 9` shared between MSF and WaveTrend so they remain pixel-identical.
+
+#### Removed
+- **Calibration Settings expander** in the sidebar (Trials / Folds / Embargo number-inputs). Calibration now runs at factory defaults (40 trials, 5 folds, 5-day embargo) on every Run Analysis. The session-state values remain seeded with the defaults for backwards compatibility with future re-introduction.
+- **Top Drivers** section in the Intelligence Center — Feature Analysis already ranks features by importance, so the side-panel was redundant.
+- **Separate "Ensemble Weights" + "Parameter Importance"** sections — merged into the single **Feature Analysis** grid (one consolidated card per feature with weight bar + importance bar + direction badge).
+- **Calibrated Conviction chart pane** (Row 4 in Intelligence-Mode-ON layout). The signal is still computed and surfaced elsewhere.
+- **VISION.md** — superseded by the restructured README. The architecture, pipeline diagrams, and predictor schema are now in one place.
+
+#### Fixed
+- **Engine re-running on every UI click** — the v1 prototype's hyperparam-override path bypassed Streamlit's `@st.cache_data` wrapper, so every view switch / timeframe button click triggered a fresh 30-second mood engine run. The new session-state engine output cache resolves this (~150ms cache hit vs ~30s recompute).
+- **Sidebar passport stale on first Run Analysis** — passport was rendered before the analysis pipeline ran, so it showed the prior session's profile state. Split into toggle (pre-analysis) + body (post-analysis via `st.empty()` placeholder).
+- **WaveTrend divisor blowup during warmup** — `d = ema(|ap − esa|, n1)` underflows during the first ~10 bars, causing `ci` to spike. Floored `d` at 0.5 and masked the first `n1 + n2 = 31` bars (NaN, skipped by Plotly).
+- **Historical Mood chart bottom-edge clipping** — Plotly SVG sat flush against `.stPlotlyChart`'s `overflow: hidden` boundary, hiding the rounded bottom border. Added `padding-bottom: 6px` and explicit `box-sizing: content-box`.
+
+---
+
+## [v2.7.0] — 2026-04-15
+
+### Obsidian Quant UI Port
+
+Wholesale UI/UX redesign port from Nishkarsh's "Obsidian Quant" institutional research terminal aesthetic. Engine, math primitives, and data ingestion unchanged.
+
+#### Added
+- Modular `ui/` package: `theme.py`, `theme.css` (4 600+ lines), `components.py`, `tabs/{landing, historical_mood, similar_periods, correlation}.py`
+- Sanskrit serif masthead (`अर्थगति` overlay on title)
+- Section headers with icon badges and animated accent bars
+- Analog Period cards (Top Analog Periods view) with eyebrow / symbol / badge / stat-trio / forward-return tile grid / similarity progress-bar footer
+- Correlation Cards + Predictor Quality Cards with directional Bullish / Bearish badges
+- `core/logger_config.py` — structured terminal logging with phase banners, success / warning / checkpoint helpers, boxed summaries (ported from Nishkarsh)
+- Sidebar masthead, view-mode radio, model-configuration expander with predictor staging diff
+
+#### Changed
+- Fonts: Space Grotesk (display) + JetBrains Mono / IBM Plex Mono (data)
+- Palette: Obsidian deep-navy backgrounds (#050810 → #0A0E17), amber-gold (#D4A853) primary, cyan / emerald / rose accents
+- Plotly charts use transparent paper/plot backgrounds, JetBrains Mono ticks, dashed spike crosshairs
+- Page favicon: stylised amber chart line on circle
+
+#### Removed
+- CRT scanline overlay (legacy retro-broker aesthetic)
+- Legacy IBM Plex Sans / IBM Plex Mono token names (some retained as aliases for backwards compatibility)
+
+---
+
 ## [v2.6.0] — 2026-04-06
 
 ### Google Sheets Infrastructure Simplification

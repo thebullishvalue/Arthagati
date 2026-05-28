@@ -1,9 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-ARTHAGATI (अर्थगति) - Market Sentiment Analysis | An @thebullishvalue Product
+ARTHAGATI (अर्थगति) — Market Sentiment Analysis | An @thebullishvalue Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Quantitative market mood analysis with MSF-enhanced indicators.
-TradingView-style charting with institutional-grade analytics.
+
+Physics-informed quantitative market-mood engine.
+
+Pipeline (per Run Analysis):
+    1. Data ingestion         — Google Sheets gviz API
+    2. Correlation engine     — Decay-weighted Spearman vs PE & EY anchors
+    3. Sentiment engine       — OU normalisation + Kalman smoothing
+    4. MSF Spread             — Momentum · Structure · Regime · Flow oscillator
+    5. WaveTrend (LazyBear)   — Mood-Score-driven secondary oscillator
+    6. Intelligence Mode      — Optuna TPE ensemble calibration (post-engine)
+
+Views:
+    • Historical Mood       — 3-pane TradingView-style chart (Mood + MSF + WT)
+    • Similar Periods       — Mahalanobis + trajectory analog matching with
+                              forward-return tiles at 5D / 20D / 60D / 90D
+    • Correlation Analysis  — PE / EY decay-Spearman + entropy-weighted
+                              predictor quality assessment
+    • Intelligence Center   — Calibration diagnostics, ensemble weights, IR lift
 """
 
 import logging
@@ -190,7 +206,7 @@ WT_OB_LEVEL_2   = 60     # Overbought secondary
 WT_OS_LEVEL_1   = -80    # Oversold primary
 WT_OS_LEVEL_2   = -60    # Oversold secondary
 
-# Calibrated Conviction reference bands (Intelligence Mode overlay)
+# Calibrated Conviction reference bands (Intelligence Mode metric card)
 CC_OB_LEVEL_1   = 100    # Overbought primary
 CC_OB_LEVEL_2   = 80     # Overbought secondary
 CC_OS_LEVEL_1   = -100   # Oversold primary
@@ -1819,9 +1835,10 @@ def _render_intelligence_toggle() -> None:
         value=prev_on,
         help=(
             "When ON, Arthagati auto-calibrates a post-engine ensemble "
-            "(walk-forward Bayesian search) on every Run Analysis and "
-            "surfaces a Calibrated Conviction signal. When OFF, the "
-            "engine runs on factory defaults — no calibration overlay."
+            "(walk-forward Bayesian search over engine-output features) on "
+            "every Run Analysis and surfaces a Calibrated Conviction metric. "
+            "When OFF, the engine runs on factory defaults and no calibration "
+            "signal is produced."
         ),
         key="passport_intel_toggle",
     )
@@ -2012,7 +2029,7 @@ def _active_ensemble_weights() -> dict | None:
 
     Returns the saved profile's feature-weight dict when IM is ON and a
     profile exists. Returns None when IM is OFF or no profile is saved —
-    the UI then just doesn't draw the Calibrated Conviction overlay.
+    the UI then just doesn't show the Calibrated Conviction metric card.
     """
     import intelligence as _intel
     if not st.session_state.get("intelligence_mode"):
