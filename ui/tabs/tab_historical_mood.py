@@ -75,16 +75,32 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         return
 
     # ═══════════════════════════════════════════════════════════════════════
-    # CHART layout: 2 panes by default (Mood + MSF), 3 panes when an
-    # active Calibrated Conviction series is in session state.
+    # CHART layout:
+    #   Row 1: Mood Score        (always)
+    #   Row 2: MSF Spread        (always)
+    #   Row 3: WaveTrend         (always — LazyBear · Mood-driven)
+    #   Row 4: Calibrated Conviction  (only when Intelligence Mode produced one)
     # ═══════════════════════════════════════════════════════════════════════
     cal_full = st.session_state.get("_calibrated_conviction_series")
     show_cal_pane = (cal_full is not None) and (len(cal_full) == len(mood_df))
     cal_slice = (
         np.asarray(cal_full[-len(df):]) if show_cal_pane else None
     )
+    show_wt_pane = "WT1" in df.columns and "WT2" in df.columns
 
-    if show_cal_pane:
+    if show_cal_pane and show_wt_pane:
+        fig = make_subplots(
+            rows=4, cols=1, shared_xaxes=True,
+            vertical_spacing=0.05,
+            row_heights=[0.42, 0.20, 0.20, 0.18],
+        )
+    elif show_wt_pane:
+        fig = make_subplots(
+            rows=3, cols=1, shared_xaxes=True,
+            vertical_spacing=0.06,
+            row_heights=[0.50, 0.25, 0.25],
+        )
+    elif show_cal_pane:
         fig = make_subplots(
             rows=3, cols=1, shared_xaxes=True,
             vertical_spacing=0.06,
@@ -221,19 +237,70 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             hoverinfo="skip", showlegend=False,
         ), row=2, col=1)
 
-    # ── Row 3: Calibrated Conviction (Intelligence Mode only) ────────────
+    # ── Row 3: WaveTrend Oscillator (LazyBear · Mood-driven) ────────────
+    # Trace order matters for the area fill — plot the difference area
+    # first (zero-baselined), then the WT2 signal line, then WT1 wave on
+    # top so the lines aren't hidden by the fill.
+    wt_row = 3 if show_wt_pane else None
+    if show_wt_pane:
+        # WT1 − WT2 area (cyan, transparent, fills to y=0)
+        fig.add_trace(go.Scatter(
+            x=df["DATE"], y=df["WT1"] - df["WT2"],
+            mode="lines",
+            line=dict(color="rgba(6,182,212,0.0)", width=0),
+            fill="tozeroy",
+            fillcolor="rgba(6,182,212,0.20)",
+            name="WT1 − WT2",
+            hoverinfo="skip",
+            showlegend=False,
+        ), row=wt_row, col=1)
+
+        # WT2 (signal line — rose, dashed)
+        fig.add_trace(go.Scattergl(
+            x=df["DATE"], y=df["WT2"],
+            mode="lines", name="WT2 (signal)",
+            line=dict(color=C_ROSE, width=1.4, dash="dash"),
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>WT2: %{y:.2f}<extra></extra>",
+        ), row=wt_row, col=1)
+
+        # WT1 (wave line — emerald, solid)
+        fig.add_trace(go.Scattergl(
+            x=df["DATE"], y=df["WT1"],
+            mode="lines", name="WT1 (wave)",
+            line=dict(color=C_EMERALD, width=1.8),
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>WT1: %{y:.2f}<extra></extra>",
+        ), row=wt_row, col=1)
+
+        # Reference levels: 0 baseline + OB/OS bands
+        # Pull constants by import to keep them in one place
+        from arthagati import (
+            WT_OB_LEVEL_1, WT_OB_LEVEL_2, WT_OS_LEVEL_1, WT_OS_LEVEL_2,
+        )
+        fig.add_hline(y=0, line_color="rgba(148,163,184,0.40)",
+                      line_width=1, line_dash="dash", row=wt_row, col=1)
+        # Primary OB/OS — solid bright
+        fig.add_hline(y=WT_OB_LEVEL_1, line_color="rgba(232,85,90,0.55)",
+                      line_width=1, line_dash="solid", row=wt_row, col=1)
+        fig.add_hline(y=WT_OS_LEVEL_1, line_color="rgba(45,212,168,0.55)",
+                      line_width=1, line_dash="solid", row=wt_row, col=1)
+        # Secondary OB/OS — dotted dim
+        fig.add_hline(y=WT_OB_LEVEL_2, line_color="rgba(232,85,90,0.32)",
+                      line_width=1, line_dash="dot", row=wt_row, col=1)
+        fig.add_hline(y=WT_OS_LEVEL_2, line_color="rgba(45,212,168,0.32)",
+                      line_width=1, line_dash="dot", row=wt_row, col=1)
+
+    # ── Row 4 (or 3): Calibrated Conviction (Intelligence Mode only) ────
+    cal_row = (4 if show_wt_pane else 3) if show_cal_pane else None
     if show_cal_pane:
         fig.add_trace(go.Scattergl(
             x=df["DATE"], y=cal_slice,
             mode="lines", name="Calibrated Conviction",
             line=dict(color=C_EMERALD, width=2),
             hovertemplate="<b>%{x|%d %b %Y}</b><br>Calibrated: %{y:.2f}<extra></extra>",
-        ), row=3, col=1)
-        fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, row=3, col=1)
+        ), row=cal_row, col=1)
+        fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, row=cal_row, col=1)
 
-        # Dynamic y-bounds for the calibrated pane — we then reverse the
-        # range so negative is up and positive is down, matching the
-        # mood score pane's "bearish-on-top" convention.
+        # Dynamic y-bounds for the calibrated pane — reversed (bearish on top).
         _cal_finite = cal_slice[np.isfinite(cal_slice)] if cal_slice is not None else np.array([])
         if len(_cal_finite) > 0:
             _c_min = float(_cal_finite.min())
@@ -251,9 +318,12 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         spikecolor="rgba(148,163,184,0.18)",
     )
 
+    # Chart height grows with pane count: 2 panes = 750, 3 = 880, 4 = 1020
+    _pane_count = 2 + int(show_wt_pane) + int(show_cal_pane)
+    _heights = {2: 750, 3: 880, 4: 1020}
     layout_kwargs = dict(
         **PLOTLY_BASE,
-        height=900 if show_cal_pane else 750,
+        height=_heights[_pane_count],
         hovermode="x unified",
         showlegend=True,
         legend=dict(
@@ -284,11 +354,23 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         ),
     )
 
-    if show_cal_pane:
-        # Bottom x-axis (row 3) is the date axis; mid x-axis (row 2)
-        # mirrors but doesn't show ticks. y-axis is REVERSED so bearish
-        # conviction sits at the top — same convention as the mood pane.
+    # WaveTrend pane (row 3 when present)
+    if show_wt_pane:
         layout_kwargs["yaxis3"] = dict(
+            title=dict(
+                text="WaveTrend",
+                font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace"),
+            ),
+            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
+            zeroline=False,
+            linecolor="rgba(255,255,255,0.04)",
+            tickfont=_shared_tick,
+        )
+
+    # Calibrated Conviction pane y-axis (row 3 or 4 depending on WT presence)
+    if show_cal_pane:
+        cal_axis_key = "yaxis4" if show_wt_pane else "yaxis3"
+        layout_kwargs[cal_axis_key] = dict(
             title=dict(
                 text="Calibrated Conviction",
                 font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace"),
@@ -297,42 +379,42 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
             linecolor="rgba(255,255,255,0.04)",
             tickfont=_shared_tick,
-            range=[cal_y_hi, cal_y_lo],  # ← reversed: negative up, positive down
+            range=[cal_y_hi, cal_y_lo],  # reversed: negative up, positive down
         )
-        layout_kwargs["xaxis2"] = dict(
-            showgrid=False, linecolor="rgba(255,255,255,0.04)",
-            **_shared_spike,
-        )
-        layout_kwargs["xaxis3"] = dict(
-            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5, type="date",
-            linecolor="rgba(255,255,255,0.04)",
-            tickfont=_shared_tick,
-            **_shared_spike,
-        )
-    else:
-        layout_kwargs["xaxis2"] = dict(
-            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5, type="date",
-            linecolor="rgba(255,255,255,0.04)",
-            tickfont=_shared_tick,
-            **_shared_spike,
-        )
+
+    # X-axes: only the bottom-most row carries date ticks.
+    bottom_row_axis = f"xaxis{_pane_count}" if _pane_count > 1 else "xaxis"
+    for i in range(2, _pane_count + 1):
+        key = f"xaxis{i}"
+        if key == bottom_row_axis:
+            layout_kwargs[key] = dict(
+                showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5, type="date",
+                linecolor="rgba(255,255,255,0.04)",
+                tickfont=_shared_tick,
+                **_shared_spike,
+            )
+        else:
+            layout_kwargs[key] = dict(
+                showgrid=False, linecolor="rgba(255,255,255,0.04)",
+                **_shared_spike,
+            )
 
     fig.update_layout(**layout_kwargs)
 
-    # Thin separator lines between panes — positions follow row_heights
-    if show_cal_pane:
-        # Row heights 0.50 / 0.25 / 0.25 with vertical_spacing 0.06 →
-        # separators at ~0.50 (after row 1) and ~0.25 (after row 2 from top)
-        for y in (0.50, 0.25):
-            fig.add_shape(
-                type="line", xref="paper", yref="paper",
-                x0=0, y0=y, x1=1, y1=y,
-                line=dict(color="rgba(255,255,255,0.06)", width=1),
-            )
+    # Thin separator lines between panes. Positions are computed from
+    # row_heights so they always sit exactly on the row boundaries.
+    if _pane_count == 4:
+        heights = [0.42, 0.20, 0.20, 0.18]
+    elif _pane_count == 3:
+        heights = [0.50, 0.25, 0.25]
     else:
+        heights = [0.65, 0.35]
+    cum = 1.0
+    for h in heights[:-1]:
+        cum -= h
         fig.add_shape(
             type="line", xref="paper", yref="paper",
-            x0=0, y0=0.38, x1=1, y1=0.38,
+            x0=0, y0=cum, x1=1, y1=cum,
             line=dict(color="rgba(255,255,255,0.06)", width=1),
         )
 
