@@ -1,14 +1,10 @@
 """
 Arthagati — Intelligence Center (read-only dashboard).
 
-Five sections, all using the Obsidian Quant card system:
-  1. Dataset strip (5 metric cards)
-  2. Calibration Diagnostics (4 metric cards: Train IR · Val IR · Stability · Quality)
-  3. Calibration Impact (NEW — shows what changes when Intelligence is ON):
-     raw Mood vs Calibrated Conviction, per-horizon IR lift, top drivers
-  4. Ensemble Weights — 2-column card grid (per-feature weight cards)
-  5. Parameter Importance — 2-column card grid (fANOVA / weight-share)
-  6. Profile metadata — stat-card grid
+Three sections, all using the Obsidian Quant card system:
+  1. Calibration Diagnostics (4 metric cards: Train IR · Val IR · Stability · Quality)
+  2. Calibration Impact (4-card strip: Raw Mood · Calibrated · Shift · Direction)
+  3. Feature Analysis grid (left)  │  Predictive Power Lift + Profile (right)
 
 Import / Export / Reset controls live in the sidebar passport — this
 view is intentionally read-only.
@@ -433,13 +429,6 @@ def render(
     clicks **Run Analysis**. Import/Export/Reset live in the sidebar
     Model Passport — this view is purely diagnostic.
     """
-    render_section_header(
-        title="Intelligence Center",
-        description="Self-tuning mood-engine calibration · walk-forward Bayesian search",
-        icon="cpu",
-        accent="violet",
-    )
-
     intel_on   = bool(st.session_state.get("intelligence_mode"))
     profile    = intel.load_active_profile()
     last_run   = st.session_state.get("intel_last_profile")
@@ -449,44 +438,6 @@ def render(
     # Need the engine output for the impact section
     mood_df = st.session_state.get("_engine_mood_df")
     msf_df  = st.session_state.get("_engine_msf_df")
-
-    n_rows  = int(len(raw_df))
-    n_dates = int(raw_df["DATE"].nunique())
-    n_pred  = len(active_predictors)
-    start_d = raw_df["DATE"].min().strftime("%d %b %Y")
-    end_d   = raw_df["DATE"].max().strftime("%d %b %Y")
-
-    if profile is None:
-        profile_label = "Not Calibrated" if intel_on else "Default"
-        profile_color = "warning"        if intel_on else "neutral"
-        profile_sub   = "Active engine config"
-    else:
-        profile_label = "Calibrated" if intel_on else "Available · Inactive"
-        profile_color = "success"    if intel_on else "warning"
-        age_d = intel.profile_age_days(profile)
-        if age_d < 1.0:
-            age_str = "today"
-        elif age_d < 2.0:
-            age_str = "yesterday"
-        else:
-            age_str = f"{age_d:.0f}d ago"
-        profile_sub = f"Fit {age_str} · {profile.quality_check}"
-
-    # ── Dataset strip ───────────────────────────────────────────────────
-    section_gap()
-    c1, c2, c3, c4, c5 = st.columns(5, gap="small")
-    with c1:
-        render_metric_card("Observations", f"{n_rows:,}", "Daily rows", "info", icon="database")
-    with c2:
-        render_metric_card("Date Span",    f"{n_dates}",  f"{start_d} → {end_d}", "info", icon="globe")
-    with c3:
-        render_metric_card("Predictors",   f"{n_pred}",   "Active in pipeline", "info",  icon="layers")
-    with c4:
-        render_metric_card("Horizons",     "30 · 60 · 90", "Forward NIFTY return (days)", "warning", icon="target")
-    with c5:
-        render_metric_card("Profile State", profile_label, profile_sub, profile_color, icon="shield")
-
-    section_divider()
 
     # ── No-profile early-out ────────────────────────────────────────────
     if profile is None:
