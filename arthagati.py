@@ -173,6 +173,15 @@ MSF_ROC_LEN     = 14     # NIFTY rate-of-change period
 MSF_ZSCORE_CLIP = 3.0    # Z-score clipping threshold
 MSF_SCALE       = 10.0   # output scaling factor
 
+# WaveTrend Oscillator (LazyBear) — adapted to use Mood Score instead of HLC3
+WT_CHANNEL_LEN  = 10     # Channel length (PineScript: n1)
+WT_AVERAGE_LEN  = 21     # Average length (PineScript: n2)
+WT_SIGNAL_LEN   = 4      # Signal-line SMA period
+WT_OB_LEVEL_1   = 60     # Overbought primary
+WT_OB_LEVEL_2   = 53     # Overbought secondary
+WT_OS_LEVEL_1   = -60    # Oversold primary
+WT_OS_LEVEL_2   = -53    # Oversold secondary
+
 # Similar-period finder
 SIMILAR_W_MAHA  = 0.55   # Mahalanobis distance weight
 SIMILAR_W_TRAJ  = 0.35   # trajectory cosine-similarity weight
@@ -1530,6 +1539,85 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# WAVETREND OSCILLATOR  (LazyBear — adapted to Mood Score instead of HLC3)
+# ══════════════════════════════════════════════════════════════════════════════
+# Original PineScript:
+#   ap  = hlc3
+#   esa = ema(ap, n1)
+#   d   = ema(abs(ap - esa), n1)
+#   ci  = (ap - esa) / (0.015 * d)
+#   tci = ema(ci, n2)
+#   wt1 = tci
+#   wt2 = sma(wt1, 4)
+#
+# Arthagati adaptation: ``ap = Mood_Score`` — the OU-normalized, Kalman-
+# smoothed sentiment signal already lives in the same [-100, +100] range
+# that WaveTrend expects, so the oscillator levels (±60, ±53) carry their
+# original interpretation. EMA is computed via pandas' ewm(span=N) which
+# matches TradingView's ema() exactly.
+
+def _calculate_wavetrend_impl(
+    df,
+    source_col: str = 'Mood_Score',
+    n1: int = WT_CHANNEL_LEN,
+    n2: int = WT_AVERAGE_LEN,
+    signal_len: int = WT_SIGNAL_LEN,
+):
+    """Compute WaveTrend on the given source column. Returns a DataFrame
+    with columns ``DATE`` (passthrough), ``wt1`` (wave), ``wt2`` (signal).
+
+    Engineering notes vs. the raw PineScript:
+      • The divisor ``d`` (EMA of |ap − esa|) under-flows during the
+        first ~n1 bars when the EMA hasn't accumulated enough variance,
+        which causes ``ci = (ap − esa) / (0.015 * d)`` to spike to
+        absurd values. We floor ``d`` to a small positive constant so
+        the indicator stays bounded on flat segments.
+      • The first ``n1 + n2`` rows are masked (NaN) — Plotly skips them
+        in the chart automatically, and a properly warmed-up EMA emerges
+        cleanly afterwards.
+    """
+    if source_col not in df.columns or len(df) == 0:
+        return pd.DataFrame(columns=['DATE', 'wt1', 'wt2'])
+
+    ap  = pd.Series(df[source_col].values, dtype=np.float64)
+    esa = ap.ewm(span=n1, adjust=False).mean()
+    d   = (ap - esa).abs().ewm(span=n1, adjust=False).mean()
+    # Floor d to 0.5 — calibrated for Mood Score's ±100 range. Typical d
+    # during normal volatility is 3–15; 0.5 only kicks in for degenerate
+    # flat / warmup regimes.
+    safe_d = d.clip(lower=0.5)
+    ci  = (ap - esa) / (0.015 * safe_d)
+    tci = ci.ewm(span=n2, adjust=False).mean()
+
+    wt1 = tci
+    wt2 = wt1.rolling(signal_len, min_periods=1).mean()
+
+    # Mask warmup period — the EMAs need at least n1+n2 bars before the
+    # oscillator stabilises. NaN values are skipped by Plotly.
+    warmup = n1 + n2
+    if len(wt1) > warmup:
+        wt1.iloc[:warmup] = np.nan
+        wt2.iloc[:warmup] = np.nan
+
+    out = pd.DataFrame({
+        'DATE': df['DATE'].values,
+        'wt1':  wt1.values,
+        'wt2':  wt2.values,
+    })
+    return out
+
+
+@st.cache_data(max_entries=5, show_spinner=False)
+def calculate_wavetrend(df, source_col: str = 'Mood_Score'):
+    """Cached public entry — delegates to ``_calculate_wavetrend_impl``
+    with module-level constants for channel/average/signal lengths."""
+    return _calculate_wavetrend_impl(
+        df, source_col,
+        n1=WT_CHANNEL_LEN, n2=WT_AVERAGE_LEN, signal_len=WT_SIGNAL_LEN,
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SIMILAR PERIODS FINDER
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1980,12 +2068,29 @@ def _compute_engine_output(
     # ── Compute MSF Spread ──────────────────────────────────────────────
     console.start_phase("MSF Spread", num=4, total=total_phases)
     console.step(4, "Momentum · Structure · Regime · Flow (inverse-variance weights)")
-    _progress_bar(prog_slot, 85, "Computing MSF Spread", "Momentum · Structure · Regime · Flow")
+    _progress_bar(prog_slot, 80, "Computing MSF Spread", "Momentum · Structure · Regime · Flow")
     msf_df = calculate_msf_spread(mood_df)
     mood_df["MSF_Spread"] = msf_df["msf_spread"].values if not msf_df.empty else 0
     latest_msf = float(mood_df["MSF_Spread"].iloc[-1]) if not mood_df.empty else 0.0
     console.success(f"MSF Spread computed: {latest_msf:+.2f}")
     console.end_phase("MSF Spread")
+
+    # ── Compute WaveTrend (LazyBear · Mood-driven) ──────────────────────
+    _progress_bar(
+        prog_slot, 87,
+        "Computing WaveTrend",
+        f"LazyBear · Mood-driven · n1={WT_CHANNEL_LEN}, n2={WT_AVERAGE_LEN}",
+    )
+    wt_df = calculate_wavetrend(mood_df)
+    mood_df["WT1"] = wt_df["wt1"].values if not wt_df.empty else 0.0
+    mood_df["WT2"] = wt_df["wt2"].values if not wt_df.empty else 0.0
+    if not wt_df.empty:
+        latest_wt1 = float(mood_df["WT1"].iloc[-1])
+        latest_wt2 = float(mood_df["WT2"].iloc[-1])
+        console.detail(
+            f"WaveTrend: WT1={latest_wt1:+.2f} · WT2={latest_wt2:+.2f}  ·  "
+            f"levels ±{WT_OB_LEVEL_1}/{WT_OB_LEVEL_2}"
+        )
     console.detail("Engine output cached for session — subsequent UI interactions are instant")
 
     # ── Persist into session cache ──────────────────────────────────────
