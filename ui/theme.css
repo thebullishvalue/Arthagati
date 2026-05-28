@@ -4810,13 +4810,13 @@ div[data-multi-file-uploader] > div {
 
 .analog-card {
     padding: var(--sp-5) var(--sp-6) var(--sp-4);
-    padding-left: calc(var(--sp-6) + 6px);
-    /* Make the left-edge tier accent slightly wider so it reads as the
-       "conviction strip" of the card, not just a thin line. */
+    /* Left-edge tier accent strip suppressed by user preference — the
+       tier badge on the card head + the conviction bar in the footer
+       already communicate sentiment direction. */
 }
 
 .analog-card::before {
-    width: 4px;
+    display: none;
 }
 
 .analog-card-head {
@@ -5480,14 +5480,14 @@ div[data-multi-file-uploader] > div {
 
 .feature-card {
     padding: var(--sp-4) var(--sp-5);
-    padding-left: calc(var(--sp-5) + 4px);
-    /* Force every card in a row to match the tallest sibling's height. */
+    /* Left tier strip suppressed — direction is already encoded in the
+       big signed weight value + the weight bar colour + the side badge. */
     height: 100%;
     display: flex;
     flex-direction: column;
 }
 
-.feature-card::before { width: 3px; }
+.feature-card::before { display: none; }
 
 .feature-card-head {
     display: grid;
