@@ -76,31 +76,18 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
 
     # ═══════════════════════════════════════════════════════════════════════
     # CHART layout:
-    #   Row 1: Mood Score        (always)
-    #   Row 2: MSF Spread        (always)
-    #   Row 3: WaveTrend         (always — LazyBear · Mood-driven)
-    #   Row 4: Calibrated Conviction  (only when Intelligence Mode produced one)
+    #   Row 1: Mood Score   (always)
+    #   Row 2: MSF Spread   (always)
+    #   Row 3: WaveTrend    (always — LazyBear · Mood-driven)
+    #
+    # Calibrated Conviction is no longer drawn on this chart. The signal
+    # is still surfaced in the top-of-page metric strip and in the
+    # Intelligence Center dashboard — it just doesn't compete with the
+    # raw Mood Score on the historical pane any more.
     # ═══════════════════════════════════════════════════════════════════════
-    cal_full = st.session_state.get("_calibrated_conviction_series")
-    show_cal_pane = (cal_full is not None) and (len(cal_full) == len(mood_df))
-    cal_slice = (
-        np.asarray(cal_full[-len(df):]) if show_cal_pane else None
-    )
     show_wt_pane = "WT1" in df.columns and "WT2" in df.columns
 
-    if show_cal_pane and show_wt_pane:
-        fig = make_subplots(
-            rows=4, cols=1, shared_xaxes=True,
-            vertical_spacing=0.05,
-            row_heights=[0.42, 0.20, 0.20, 0.18],
-        )
-    elif show_wt_pane:
-        fig = make_subplots(
-            rows=3, cols=1, shared_xaxes=True,
-            vertical_spacing=0.06,
-            row_heights=[0.50, 0.25, 0.25],
-        )
-    elif show_cal_pane:
+    if show_wt_pane:
         fig = make_subplots(
             rows=3, cols=1, shared_xaxes=True,
             vertical_spacing=0.06,
@@ -206,13 +193,13 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     from arthagati import (
         MSF_OB_LEVEL_1, MSF_OB_LEVEL_2, MSF_OS_LEVEL_1, MSF_OS_LEVEL_2,
     )
-    fig.add_hline(y=MSF_OB_LEVEL_1, line_color="rgba(232,85,90,0.55)",
+    fig.add_hline(y=MSF_OB_LEVEL_1, line_color="rgba(232,85,90,0.30)",
                   line_width=1, line_dash="solid", row=2, col=1)
-    fig.add_hline(y=MSF_OS_LEVEL_1, line_color="rgba(45,212,168,0.55)",
+    fig.add_hline(y=MSF_OS_LEVEL_1, line_color="rgba(45,212,168,0.30)",
                   line_width=1, line_dash="solid", row=2, col=1)
-    fig.add_hline(y=MSF_OB_LEVEL_2, line_color="rgba(232,85,90,0.32)",
+    fig.add_hline(y=MSF_OB_LEVEL_2, line_color="rgba(232,85,90,0.16)",
                   line_width=1, line_dash="dot", row=2, col=1)
-    fig.add_hline(y=MSF_OS_LEVEL_2, line_color="rgba(45,212,168,0.32)",
+    fig.add_hline(y=MSF_OS_LEVEL_2, line_color="rgba(45,212,168,0.16)",
                   line_width=1, line_dash="dot", row=2, col=1)
 
     # Divergence triangles
@@ -232,19 +219,26 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     red_idx   = np.where(bear_mask & valid)[0]
     green_idx = np.where(bull_mask & valid)[0]
 
+    # Divergence triangles sit just inside the ±5 OB/OS bands (at ±4)
+    # so the marker and the level line don't visually overlap.
+    from arthagati import MSF_SIGNAL_Y as _MSF_TRI_Y
+    _TRI_SIZE = 9   # shared marker pixel-size (must match WT triangles below)
+
     if len(red_idx):
         fig.add_trace(go.Scatter(
-            x=[df["DATE"].iloc[i] for i in red_idx], y=[5] * len(red_idx),
+            x=[df["DATE"].iloc[i] for i in red_idx],
+            y=[+_MSF_TRI_Y] * len(red_idx),
             mode="markers", name="Bearish Signal",
-            marker=dict(symbol="triangle-down", size=9, color=C_ROSE,
+            marker=dict(symbol="triangle-down", size=_TRI_SIZE, color=C_ROSE,
                         line=dict(color=C_ROSE, width=1)),
             hoverinfo="skip", showlegend=False,
         ), row=2, col=1)
     if len(green_idx):
         fig.add_trace(go.Scatter(
-            x=[df["DATE"].iloc[i] for i in green_idx], y=[-5] * len(green_idx),
+            x=[df["DATE"].iloc[i] for i in green_idx],
+            y=[-_MSF_TRI_Y] * len(green_idx),
             mode="markers", name="Bullish Signal",
-            marker=dict(symbol="triangle-up", size=9, color=C_EMERALD,
+            marker=dict(symbol="triangle-up", size=_TRI_SIZE, color=C_EMERALD,
                         line=dict(color=C_EMERALD, width=1)),
             hoverinfo="skip", showlegend=False,
         ), row=2, col=1)
@@ -283,19 +277,22 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             hovertemplate="<b>%{x|%d %b %Y}</b><br>WT1: %{y:.2f}<extra></extra>",
         ), row=wt_row, col=1)
 
-        # Reference levels: 0 baseline + OB/OS bands
+        # Reference levels: 0 baseline + OB/OS bands.
+        # Axis is reversed (negative on top, positive on bottom), so colour
+        # coding follows the user's preference: emerald on positive levels,
+        # rose on negative — independent of the visual position.
         from arthagati import (
             WT_OB_LEVEL_1, WT_OB_LEVEL_2, WT_OS_LEVEL_1, WT_OS_LEVEL_2,
         )
         fig.add_hline(y=0, line_color="rgba(148,163,184,0.40)",
                       line_width=1, line_dash="dash", row=wt_row, col=1)
-        fig.add_hline(y=WT_OB_LEVEL_1, line_color="rgba(232,85,90,0.55)",
+        fig.add_hline(y=WT_OB_LEVEL_1, line_color="rgba(45,212,168,0.30)",
                       line_width=1, line_dash="solid", row=wt_row, col=1)
-        fig.add_hline(y=WT_OS_LEVEL_1, line_color="rgba(45,212,168,0.55)",
+        fig.add_hline(y=WT_OS_LEVEL_1, line_color="rgba(232,85,90,0.30)",
                       line_width=1, line_dash="solid", row=wt_row, col=1)
-        fig.add_hline(y=WT_OB_LEVEL_2, line_color="rgba(232,85,90,0.32)",
+        fig.add_hline(y=WT_OB_LEVEL_2, line_color="rgba(45,212,168,0.16)",
                       line_width=1, line_dash="dot", row=wt_row, col=1)
-        fig.add_hline(y=WT_OS_LEVEL_2, line_color="rgba(45,212,168,0.32)",
+        fig.add_hline(y=WT_OS_LEVEL_2, line_color="rgba(232,85,90,0.16)",
                       line_width=1, line_dash="dot", row=wt_row, col=1)
 
         # ── WT crossover markers ────────────────────────────────────────
@@ -312,8 +309,8 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             np.isfinite(wt1_arr) & np.isfinite(wt2_arr)
             & np.isfinite(prev_wt1) & np.isfinite(prev_wt2)
         )
-        green_cross = wt_valid & (wt1_arr > wt2_arr) & (prev_wt1 <= prev_wt2)
-        red_cross   = wt_valid & (wt2_arr > wt1_arr) & (prev_wt2 <= prev_wt1)
+        red_cross = wt_valid & (wt1_arr > wt2_arr) & (prev_wt1 <= prev_wt2)
+        green_cross   = wt_valid & (wt2_arr > wt1_arr) & (prev_wt2 <= prev_wt1)
         # Suppress markers in the very first lookback to avoid noise
         warmup = 32
         if len(green_cross) > warmup:
@@ -331,7 +328,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
                 x=[df["DATE"].iloc[i] for i in wt_red_idx],
                 y=[-_marker_y] * len(wt_red_idx),
                 mode="markers", name="WT Bearish Cross",
-                marker=dict(symbol="triangle-down", size=9, color=C_ROSE,
+                marker=dict(symbol="triangle-down", size=_TRI_SIZE, color=C_ROSE,
                             line=dict(color=C_ROSE, width=1)),
                 hoverinfo="skip", showlegend=False,
             ), row=wt_row, col=1)
@@ -341,7 +338,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
                 x=[df["DATE"].iloc[i] for i in wt_green_idx],
                 y=[+_marker_y] * len(wt_green_idx),
                 mode="markers", name="WT Bullish Cross",
-                marker=dict(symbol="triangle-up", size=9, color=C_EMERALD,
+                marker=dict(symbol="triangle-up", size=_TRI_SIZE, color=C_EMERALD,
                             line=dict(color=C_EMERALD, width=1)),
                 hoverinfo="skip", showlegend=False,
             ), row=wt_row, col=1)
@@ -362,44 +359,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         _w_pad = max((_w_max - _w_min) * 0.05, 4.0)
         wt_y_lo, wt_y_hi = _w_min - _w_pad, _w_max + _w_pad
 
-    # ── Row 4 (or 3): Calibrated Conviction (Intelligence Mode only) ────
-    cal_row = (4 if show_wt_pane else 3) if show_cal_pane else None
-    if show_cal_pane:
-        fig.add_trace(go.Scattergl(
-            x=df["DATE"], y=cal_slice,
-            mode="lines", name="Calibrated Conviction",
-            line=dict(color=C_EMERALD, width=2),
-            hovertemplate="<b>%{x|%d %b %Y}</b><br>Calibrated: %{y:.2f}<extra></extra>",
-        ), row=cal_row, col=1)
-        fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, row=cal_row, col=1)
-
-        # Calibrated Conviction reference bands — ±100 primary, ±80 secondary
-        from arthagati import (
-            CC_OB_LEVEL_1, CC_OB_LEVEL_2, CC_OS_LEVEL_1, CC_OS_LEVEL_2,
-        )
-        fig.add_hline(y=CC_OB_LEVEL_1, line_color="rgba(232,85,90,0.55)",
-                      line_width=1, line_dash="solid", row=cal_row, col=1)
-        fig.add_hline(y=CC_OS_LEVEL_1, line_color="rgba(45,212,168,0.55)",
-                      line_width=1, line_dash="solid", row=cal_row, col=1)
-        fig.add_hline(y=CC_OB_LEVEL_2, line_color="rgba(232,85,90,0.32)",
-                      line_width=1, line_dash="dot", row=cal_row, col=1)
-        fig.add_hline(y=CC_OS_LEVEL_2, line_color="rgba(45,212,168,0.32)",
-                      line_width=1, line_dash="dot", row=cal_row, col=1)
-
-        # Dynamic y-bounds — include the ±100 bands so they're always
-        # visible — then reverse the range so negative sits on top.
-        _cal_finite = cal_slice[np.isfinite(cal_slice)] if cal_slice is not None else np.array([])
-        _cal_all = np.concatenate([
-            _cal_finite,
-            np.array([CC_OB_LEVEL_1 + 5, CC_OS_LEVEL_1 - 5], dtype=np.float64),
-        ])
-        if len(_cal_all) > 0:
-            _c_min = float(_cal_all.min())
-            _c_max = float(_cal_all.max())
-        else:
-            _c_min, _c_max = CC_OS_LEVEL_1 - 5, CC_OB_LEVEL_1 + 5
-        _c_pad = max((_c_max - _c_min) * 0.05, 4.0)
-        cal_y_lo, cal_y_hi = _c_min - _c_pad, _c_max + _c_pad
+    # Calibrated Conviction pane removed — see header comment at top of render().
 
     # ── Layout — Obsidian Quant ───────────────────────────────────────────
     _shared_tick = dict(size=9, family="JetBrains Mono, monospace", color="#64748B")
@@ -420,9 +380,9 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     _msf_pad = max((_msf_max - _msf_min) * 0.05, 0.5)
     _msf_range = [_msf_min - _msf_pad, _msf_max + _msf_pad]
 
-    # Chart height grows with pane count: 2 panes = 750, 3 = 880, 4 = 1020
-    _pane_count = 2 + int(show_wt_pane) + int(show_cal_pane)
-    _heights = {2: 750, 3: 880, 4: 1020}
+    # Chart height grows with pane count: 2 panes = 750, 3 = 880
+    _pane_count = 2 + int(show_wt_pane)
+    _heights = {2: 750, 3: 880}
     layout_kwargs = dict(
         **PLOTLY_BASE,
         height=_heights[_pane_count],
@@ -459,7 +419,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     )
 
     # WaveTrend pane (row 3 when present) — y-axis reversed: negative
-    # on top, positive on bottom (matches mood + calibrated convention).
+    # on top, positive on bottom (matches mood pane convention).
     if show_wt_pane:
         layout_kwargs["yaxis3"] = dict(
             title=dict(
@@ -471,21 +431,6 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             linecolor="rgba(255,255,255,0.04)",
             tickfont=_shared_tick,
             range=[wt_y_hi, wt_y_lo],  # reversed
-        )
-
-    # Calibrated Conviction pane y-axis (row 3 or 4 depending on WT presence)
-    if show_cal_pane:
-        cal_axis_key = "yaxis4" if show_wt_pane else "yaxis3"
-        layout_kwargs[cal_axis_key] = dict(
-            title=dict(
-                text="Calibrated Conviction",
-                font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace"),
-            ),
-            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
-            zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
-            linecolor="rgba(255,255,255,0.04)",
-            tickfont=_shared_tick,
-            range=[cal_y_hi, cal_y_lo],  # reversed: negative up, positive down
         )
 
     # X-axes: only the bottom-most row carries date ticks.
@@ -509,9 +454,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
 
     # Thin separator lines between panes. Positions are computed from
     # row_heights so they always sit exactly on the row boundaries.
-    if _pane_count == 4:
-        heights = [0.42, 0.20, 0.20, 0.18]
-    elif _pane_count == 3:
+    if _pane_count == 3:
         heights = [0.50, 0.25, 0.25]
     else:
         heights = [0.65, 0.35]
