@@ -4934,7 +4934,7 @@ div[data-multi-file-uploader] > div {
 
 .analog-fwd-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: var(--sp-2);
 }
 
@@ -5467,15 +5467,12 @@ div[data-multi-file-uploader] > div {
 
 .feature-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    /* The grid lives inside the LEFT half of a 13:1:7 split in the
+       Intelligence Center, so we keep it single-column to give each card
+       enough room for the two stacked bars + value to breathe. */
+    grid-template-columns: 1fr;
     gap: var(--sp-3);
     margin-top: var(--sp-2);
-}
-
-@media (max-width: 900px) {
-    .feature-grid {
-        grid-template-columns: 1fr;
-    }
 }
 
 .feature-card {
@@ -5704,6 +5701,21 @@ div[data-multi-file-uploader] > div {
 
 .impact-table tbody tr.total td.key {
     color: var(--amber-bright);
+}
+
+/* Profile provenance — same table chassis as Predictive Power Lift, with
+   a dimmed third "note" column for the contextual annotation. */
+.profile-table .value.sub {
+    color: var(--ink-tertiary);
+    font-family: var(--data);
+    font-size: 0.72rem;
+    font-style: italic;
+    letter-spacing: 0.02em;
+}
+
+.profile-table thead th:last-child,
+.profile-table tbody td:last-child {
+    text-align: left !important;
 }
 
 /* Top-driver card — compact, rank + name + weight + bar */
