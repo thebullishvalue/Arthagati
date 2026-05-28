@@ -1,8 +1,17 @@
 """
-Arthagati — Historical Mood view (TradingView-style 2-pane chart).
+Arthagati — Historical Mood view (TradingView-style 3-pane chart).
 
-Obsidian Quant fidelity: glass surfaces, JetBrains Mono ticks, dashed
-spike crosshairs, transparent plot/paper backgrounds.
+Panes:
+    Row 1 · Mood Score       — Kalman-smoothed sentiment + 95% band + OU projection
+    Row 2 · MSF Spread       — 4-component oscillator + ±5 OB/OS bands + divergence ▲▼
+    Row 3 · WaveTrend        — LazyBear oscillator on Mood Score with ±80 bands
+                                and WT1/WT2 crossover ▲▼
+
+All oscillator panes share the date axis and use the Obsidian Quant
+chrome: glass surfaces, JetBrains Mono ticks, dashed spike crosshairs,
+transparent plot/paper backgrounds. Mood Score and WaveTrend y-axes are
+reversed (negative on top, positive on bottom) — bearish-on-top
+convention shared across the three signal panes.
 """
 
 from __future__ import annotations
@@ -36,7 +45,7 @@ from ui.theme import (
 
 
 def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
-    """TradingView-style mood + MSF spread chart + period summary + MSF breakdown."""
+    """TradingView-style Mood + MSF + WaveTrend chart, period summary, MSF breakdown."""
 
     render_section_header(
         title="Market Mood Terminal",
