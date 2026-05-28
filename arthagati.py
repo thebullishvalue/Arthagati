@@ -173,11 +173,13 @@ MSF_ROC_LEN     = 14     # NIFTY rate-of-change period
 MSF_ZSCORE_CLIP = 3.0    # Z-score clipping threshold
 MSF_SCALE       = 10.0   # output scaling factor
 
-# MSF Spread reference bands — solid (primary) + dotted (secondary) hlines
-MSF_OB_LEVEL_1  = 4      # Overbought primary
+# MSF Spread reference bands — solid (primary) + dotted (secondary) hlines.
+# Divergence triangles sit just inside the primary band (at ±MSF_SIGNAL_Y).
+MSF_OB_LEVEL_1  = 5      # Overbought primary
 MSF_OB_LEVEL_2  = 3      # Overbought secondary
-MSF_OS_LEVEL_1  = -4     # Oversold primary
+MSF_OS_LEVEL_1  = -5     # Oversold primary
 MSF_OS_LEVEL_2  = -3     # Oversold secondary
+MSF_SIGNAL_Y    = 4      # Triangle marker y-coordinate magnitude
 
 # WaveTrend Oscillator (LazyBear) — adapted to use Mood Score instead of HLC3
 WT_CHANNEL_LEN  = 10     # Channel length (PineScript: n1)
