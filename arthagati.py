@@ -173,14 +173,26 @@ MSF_ROC_LEN     = 14     # NIFTY rate-of-change period
 MSF_ZSCORE_CLIP = 3.0    # Z-score clipping threshold
 MSF_SCALE       = 10.0   # output scaling factor
 
+# MSF Spread reference bands — solid (primary) + dotted (secondary) hlines
+MSF_OB_LEVEL_1  = 4      # Overbought primary
+MSF_OB_LEVEL_2  = 3      # Overbought secondary
+MSF_OS_LEVEL_1  = -4     # Oversold primary
+MSF_OS_LEVEL_2  = -3     # Oversold secondary
+
 # WaveTrend Oscillator (LazyBear) — adapted to use Mood Score instead of HLC3
 WT_CHANNEL_LEN  = 10     # Channel length (PineScript: n1)
 WT_AVERAGE_LEN  = 21     # Average length (PineScript: n2)
 WT_SIGNAL_LEN   = 4      # Signal-line SMA period
-WT_OB_LEVEL_1   = 60     # Overbought primary
-WT_OB_LEVEL_2   = 53     # Overbought secondary
-WT_OS_LEVEL_1   = -60    # Oversold primary
-WT_OS_LEVEL_2   = -53    # Oversold secondary
+WT_OB_LEVEL_1   = 80     # Overbought primary
+WT_OB_LEVEL_2   = 60     # Overbought secondary
+WT_OS_LEVEL_1   = -80    # Oversold primary
+WT_OS_LEVEL_2   = -60    # Oversold secondary
+
+# Calibrated Conviction reference bands (Intelligence Mode overlay)
+CC_OB_LEVEL_1   = 100    # Overbought primary
+CC_OB_LEVEL_2   = 80     # Overbought secondary
+CC_OS_LEVEL_1   = -100   # Oversold primary
+CC_OS_LEVEL_2   = -80    # Oversold secondary
 
 # Similar-period finder
 SIMILAR_W_MAHA  = 0.55   # Mahalanobis distance weight
@@ -1539,7 +1551,7 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# WAVETREND OSCILLATOR  (LazyBear — adapted to Mood Score instead of HLC3)
+# WAVETREND OSCILLATOR  (Adapted to Mood Score instead of HLC3)
 # ══════════════════════════════════════════════════════════════════════════════
 # Original PineScript:
 #   ap  = hlc3
