@@ -231,6 +231,18 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         ), row=3, col=1)
         fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, row=3, col=1)
 
+        # Dynamic y-bounds for the calibrated pane — we then reverse the
+        # range so negative is up and positive is down, matching the
+        # mood score pane's "bearish-on-top" convention.
+        _cal_finite = cal_slice[np.isfinite(cal_slice)] if cal_slice is not None else np.array([])
+        if len(_cal_finite) > 0:
+            _c_min = float(_cal_finite.min())
+            _c_max = float(_cal_finite.max())
+        else:
+            _c_min, _c_max = -100.0, 100.0
+        _c_pad = max((_c_max - _c_min) * 0.08, 2.0)
+        cal_y_lo, cal_y_hi = _c_min - _c_pad, _c_max + _c_pad
+
     # ── Layout — Obsidian Quant ───────────────────────────────────────────
     _shared_tick = dict(size=9, family="JetBrains Mono, monospace", color="#64748B")
     _shared_spike = dict(
@@ -274,7 +286,8 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
 
     if show_cal_pane:
         # Bottom x-axis (row 3) is the date axis; mid x-axis (row 2)
-        # mirrors but doesn't show ticks.
+        # mirrors but doesn't show ticks. y-axis is REVERSED so bearish
+        # conviction sits at the top — same convention as the mood pane.
         layout_kwargs["yaxis3"] = dict(
             title=dict(
                 text="Calibrated Conviction",
@@ -284,6 +297,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
             linecolor="rgba(255,255,255,0.04)",
             tickfont=_shared_tick,
+            range=[cal_y_hi, cal_y_lo],  # ← reversed: negative up, positive down
         )
         layout_kwargs["xaxis2"] = dict(
             showgrid=False, linecolor="rgba(255,255,255,0.04)",

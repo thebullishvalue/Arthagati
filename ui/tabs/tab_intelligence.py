@@ -412,37 +412,9 @@ def _render_profile_table(profile: intel.CalibrationProfile) -> None:
     )
 
 
-def _render_top_drivers(profile: intel.CalibrationProfile, limit: int = 5) -> None:
-    """Top drivers list — ranked by |weight|. Position-card based."""
-    ranked = sorted(
-        profile.weights.items(),
-        key=lambda kv: -abs(float(kv[1])),
-    )[:limit]
-    max_abs_w = max((abs(float(v)) for _, v in ranked), default=1.0)
-    for i, (name, w) in enumerate(ranked):
-        wf = float(w)
-        sign_cls = "pos" if wf > 0 else "neg" if wf < 0 else "neutral"
-        sign_label = "Bullish" if wf > 0.05 else "Bearish" if wf < -0.05 else "Neutral"
-        bar_pct = (abs(wf) / max_abs_w * 100.0)
-        st.markdown(
-            f"""\
-<div class="position-card driver-card">
-  <div class="driver-head">
-    <span class="driver-rank">{i + 1}</span>
-    <span class="driver-name">{html_mod.escape(_FEATURE_LABELS.get(name, name))}</span>
-    <span class="driver-weight {sign_cls}">{wf:+.3f}</span>
-  </div>
-  <div class="driver-bar"><div class="driver-bar-fill {sign_cls}" style="width:{bar_pct:.0f}%;"></div></div>
-  <div class="driver-foot">
-    <span class="driver-label">{html_mod.escape(name)}</span>
-    <span class="driver-sign {sign_cls}">{sign_label}</span>
-  </div>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-        st.markdown('<div style="height: var(--sp-2);"></div>',
-                    unsafe_allow_html=True)
+# (Top Drivers panel removed — Feature Analysis already ranks features by
+#  importance and surfaces the same information without the duplicate
+#  side-by-side panel.)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -594,34 +566,16 @@ def render(
     calibrated_series = _render_impact_strip(profile, mood_df, msf_df)
     section_gap()
 
-    # ── Predictive Power Lift + Profile Provenance · side-by-side ────────
-    left, mid, right = st.columns([10, 1, 10], gap="small")
+    # ── Feature Analysis (left)  │  Profile + Predictive Power Lift (right)
+    # Feature Analysis owns the left column (tall, 10 cards stacked).
+    # The right column stacks Profile Provenance on top of Predictive
+    # Power Lift — both are KV tables sharing the same .weights-table
+    # chassis, so they read as a single coherent dossier.
+    left, mid, right = st.columns([12, 1, 10], gap="small")
     with mid:
         vertical_divider()
+
     with left:
-        render_section_header(
-            title="Predictive Power Lift",
-            description="Spearman IR — raw Mood vs Calibrated · per horizon",
-            icon="bar-chart",
-            accent="cyan",
-        )
-        _render_predictive_power_table(profile, mood_df, calibrated_series)
-    with right:
-        render_section_header(
-            title="Profile Provenance",
-            description="Run details · CV configuration · dataset window",
-            icon="file-text",
-            accent="cyan",
-        )
-        _render_profile_table(profile)
-
-    section_divider()
-
-    # ── Feature Analysis + Top Drivers · side-by-side ───────────────────
-    left2, mid2, right2 = st.columns([13, 1, 7], gap="small")
-    with mid2:
-        vertical_divider()
-    with left2:
         render_section_header(
             title="Feature Analysis",
             description="Per-feature weight + fANOVA importance · ranked by explanatory power",
@@ -634,15 +588,27 @@ def render(
             profile.importance or {},
             defaults,
         )
-    with right2:
+
+    with right:
+        # Top of the right column: Profile Provenance table
         render_section_header(
-            title="Top Drivers",
-            description="Largest-magnitude features in the ensemble",
-            icon="layers",
-            accent="amber",
+            title="Profile Provenance",
+            description="Run details · CV configuration · dataset window",
+            icon="file-text",
+            accent="cyan",
         )
-        section_gap()
-        _render_top_drivers(profile, limit=5)
+        _render_profile_table(profile)
+
+        section_divider()
+
+        # Below it: Predictive Power Lift table
+        render_section_header(
+            title="Predictive Power Lift",
+            description="Spearman IR — raw Mood vs Calibrated · per horizon",
+            icon="bar-chart",
+            accent="emerald",
+        )
+        _render_predictive_power_table(profile, mood_df, calibrated_series)
 
 
 def _quality_subtext(profile: intel.CalibrationProfile) -> str:
