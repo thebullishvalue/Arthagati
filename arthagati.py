@@ -2021,10 +2021,19 @@ def _render_intelligence_passport_body(
         )
         if st.button("↺ Reset to Defaults", use_container_width=True, key="passport_reset"):
             _intel.delete_active_profile()
+            # Force IM off on the next rerun. Without this, the auto-calibrator
+            # at _auto_calibrate_if_needed() sees IM=ON + no saved profile and
+            # immediately re-fits + re-saves a fresh profile, so the passport
+            # flashes back to "Calibrated" instead of showing the "Default · Off"
+            # state the user just asked for. Both keys must be set: the public
+            # flag *and* the toggle's widget key (Streamlit's widget state
+            # otherwise overrides the value parameter on the next render).
+            st.session_state["intelligence_mode"] = False
+            st.session_state["passport_intel_toggle"] = False
             st.session_state.pop("intel_last_profile", None)
             st.session_state.pop("_intel_calibration_done", None)
             _invalidate_engine_cache()
-            st.toast("Profile reset.")
+            st.toast("Profile reset to defaults.")
             st.rerun()
 
 
