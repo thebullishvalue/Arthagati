@@ -1863,6 +1863,29 @@ def _render_intelligence_toggle() -> None:
     st.session_state.setdefault("intel_embargo",  _intel.DEFAULT_EMBARGO_DAYS)
 
 
+def _reset_passport_to_defaults() -> None:
+    """on_click callback for the passport's Reset button.
+
+    Runs in Streamlit's callback phase (between user click and the next
+    script run), so widget-key state can be modified without hitting
+    StreamlitAPIException — that restriction only applies to mutations
+    *after* a widget has been instantiated in the current run.
+
+    Forces IM off so the auto-calibrator on the next run doesn't
+    immediately re-fit + re-save a fresh profile, which would make the
+    passport flash back to "Calibrated" instead of showing the
+    "Default · Off" state the user just asked for.
+    """
+    import intelligence as _intel
+    _intel.delete_active_profile()
+    st.session_state["intelligence_mode"] = False
+    st.session_state["passport_intel_toggle"] = False
+    st.session_state.pop("intel_last_profile", None)
+    st.session_state.pop("_intel_calibration_done", None)
+    _invalidate_engine_cache()
+    st.toast("Profile reset to defaults.")
+
+
 def _render_intelligence_passport_body(
     raw_df: pd.DataFrame | None = None,
     active_predictors: tuple | None = None,
@@ -2019,22 +2042,21 @@ def _render_intelligence_passport_body(
             use_container_width=True,
             key="passport_export",
         )
-        if st.button("↺ Reset to Defaults", use_container_width=True, key="passport_reset"):
-            _intel.delete_active_profile()
-            # Force IM off on the next rerun. Without this, the auto-calibrator
-            # at _auto_calibrate_if_needed() sees IM=ON + no saved profile and
-            # immediately re-fits + re-saves a fresh profile, so the passport
-            # flashes back to "Calibrated" instead of showing the "Default · Off"
-            # state the user just asked for. Both keys must be set: the public
-            # flag *and* the toggle's widget key (Streamlit's widget state
-            # otherwise overrides the value parameter on the next render).
-            st.session_state["intelligence_mode"] = False
-            st.session_state["passport_intel_toggle"] = False
-            st.session_state.pop("intel_last_profile", None)
-            st.session_state.pop("_intel_calibration_done", None)
-            _invalidate_engine_cache()
-            st.toast("Profile reset to defaults.")
-            st.rerun()
+        # Reset must run inside an on_click callback, NOT in an inline
+        # button-clicked branch. Reason: the IM toggle widget at
+        # _render_sidebar_passport() has already been instantiated earlier
+        # in this same script run, and Streamlit forbids modifying a
+        # widget's session_state key after instantiation. Callbacks run
+        # in a dedicated phase BEFORE widgets are re-created on the next
+        # run, so they can freely touch both the public flag and the
+        # toggle's widget key — preventing the auto-calibrator from
+        # immediately re-saving a fresh profile on the rerun.
+        st.button(
+            "↺ Reset to Defaults",
+            use_container_width=True,
+            key="passport_reset",
+            on_click=_reset_passport_to_defaults,
+        )
 
 
 def _active_ensemble_weights() -> dict | None:
