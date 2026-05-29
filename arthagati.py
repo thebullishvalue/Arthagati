@@ -1866,23 +1866,30 @@ def _render_intelligence_toggle() -> None:
 def _reset_passport_to_defaults() -> None:
     """on_click callback for the passport's Reset button.
 
-    Runs in Streamlit's callback phase (between user click and the next
-    script run), so widget-key state can be modified without hitting
-    StreamlitAPIException — that restriction only applies to mutations
-    *after* a widget has been instantiated in the current run.
+    Leaves Intelligence Mode visibly ON but prevents the auto-calibrator
+    from immediately re-fitting + re-saving a fresh profile (which would
+    flash the passport back to "Calibrated"). Trick: set
+    ``_intel_calibration_done=True`` after deleting the profile. On the
+    next rerun, ``_auto_calibrate_if_needed`` enters its cache-hit
+    branch, ``_active_ensemble_weights()`` returns None (no profile on
+    disk), the calibrator returns None *without re-fitting*, and the
+    passport renders the existing ``IM=True + saved_profile=None →
+    "Default"`` branch.
 
-    Forces IM off so the auto-calibrator on the next run doesn't
-    immediately re-fit + re-save a fresh profile, which would make the
-    passport flash back to "Calibrated" instead of showing the
-    "Default · Off" state the user just asked for.
+    Stays in callback phase to satisfy Streamlit's rule that widget
+    keys can only be modified before widgets are re-instantiated next
+    run — even though we no longer touch the toggle's widget key here,
+    keeping it as a callback also fires the toast at the right moment
+    and avoids the inline-button + ``st.rerun()`` race.
+
+    Profile is reset for the session; toggling IM off→on or changing
+    the active predictor set re-arms the calibrator (those code paths
+    pop ``_intel_calibration_done``).
     """
     import intelligence as _intel
     _intel.delete_active_profile()
-    st.session_state["intelligence_mode"] = False
-    st.session_state["passport_intel_toggle"] = False
+    st.session_state["_intel_calibration_done"] = True
     st.session_state.pop("intel_last_profile", None)
-    st.session_state.pop("_intel_calibration_done", None)
-    _invalidate_engine_cache()
     st.toast("Profile reset to defaults.")
 
 
