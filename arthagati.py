@@ -1015,7 +1015,7 @@ def load_data() -> pd.DataFrame | None:
                 f"{len(missing)} expected column(s) absent: {', '.join(missing)}",
             )
 
-        df['DATE'] = pd.to_datetime(df['DATE'], format='%m/%d/%Y', errors='coerce')
+        df['DATE'] = pd.to_datetime(df['DATE'], format='%d/%m/%Y', errors='coerce')
 
         non_date_cols = [c for c in df.columns if c != 'DATE']
         df[non_date_cols] = df[non_date_cols].apply(pd.to_numeric, errors='coerce')
