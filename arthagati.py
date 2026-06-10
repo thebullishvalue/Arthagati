@@ -197,14 +197,17 @@ MSF_OS_LEVEL_1  = -5     # Oversold primary
 MSF_OS_LEVEL_2  = -3     # Oversold secondary
 MSF_SIGNAL_Y    = 4      # Triangle marker y-coordinate magnitude
 
-# WaveTrend Oscillator (LazyBear) — adapted to use Mood Score instead of HLC3
-WT_CHANNEL_LEN  = 10     # Channel length (PineScript: n1)
-WT_AVERAGE_LEN  = 21     # Average length (PineScript: n2)
-WT_SIGNAL_LEN   = 4      # Signal-line SMA period
-WT_OB_LEVEL_1   = 80     # Overbought primary
-WT_OB_LEVEL_2   = 60     # Overbought secondary
-WT_OS_LEVEL_1   = -80    # Oversold primary
-WT_OS_LEVEL_2   = -60    # Oversold secondary
+# WaveTrend Oscillator (WRCI v3.5.0 core) — adapted to use Mood Score instead of HLC3
+WT_CHANNEL_LEN  = 10        # Channel length (PineScript: n1)
+WT_AVERAGE_LEN  = 21        # Average length (PineScript: n2)
+WT_SIGNAL_LEN   = 20        # Signal-line length (PineScript: wt2_len, v3.5.0 default 20)
+WT_SIGNAL_TYPE  = "ALMA"    # Signal-line smoother (PineScript: wt2_type, v3.5.0 default ALMA)
+WT_ALMA_OFFSET  = 0.85      # ALMA offset (PineScript ta.alma default)
+WT_ALMA_SIGMA   = 6         # ALMA sigma  (PineScript ta.alma default)
+WT_OB_LEVEL_1   = 80        # Overbought primary
+WT_OB_LEVEL_2   = 60        # Overbought secondary
+WT_OS_LEVEL_1   = -80       # Oversold primary
+WT_OS_LEVEL_2   = -60       # Oversold secondary
 
 # Calibrated Conviction reference bands (Intelligence Mode metric card)
 CC_OB_LEVEL_1   = 100    # Overbought primary
@@ -369,6 +372,40 @@ def rolling_mean_fast(series, window):
     # np.maximum prevents 0/0 division evaluation before np.where masks it
     means = np.where(counts > 0, sums / np.maximum(counts, 1.0), np.nan)
     return pd.Series(means, index=series.index) if hasattr(series, 'index') else means
+
+def alma(series, window, offset=0.85, sigma=6.0):
+    """Arnaud Legoux Moving Average — exact match for TradingView ``ta.alma(src, len, offset, sigma)``.
+
+    A Gaussian-weighted MA whose weight peak is shifted toward the most recent
+    bars by ``offset`` (0.85 ⇒ responsive) with spread controlled by ``sigma``.
+    Weights are indexed oldest→newest: ``w[j] = exp(-(j - m)² / (2s²))`` with
+    ``m = floor(offset·(window-1))`` and ``s = window / sigma``, then normalised.
+
+    Returns NaN for the first ``window-1`` bars (partial windows), matching
+    Pine's requirement of a full window before emitting a value.
+    """
+    a = series.values if hasattr(series, 'values') else np.asarray(series, dtype=np.float64)
+    a = np.asarray(a, dtype=np.float64)
+    n = len(a)
+    idx = series.index if hasattr(series, 'index') else None
+
+    if window <= 1 or n < window:
+        # Degenerate: window 1 is the identity; too-short series is all-NaN.
+        out = a.copy() if window <= 1 else np.full(n, np.nan, dtype=np.float64)
+        return pd.Series(out, index=idx) if idx is not None else out
+
+    m = np.floor(offset * (window - 1))
+    s = window / sigma
+    j = np.arange(window, dtype=np.float64)            # 0 = oldest … window-1 = newest
+    w = np.exp(-((j - m) ** 2) / (2.0 * s * s))
+    w /= w.sum()
+
+    # Sliding dot product: each output is the weighted sum of the trailing `window` values.
+    out = np.full(n, np.nan, dtype=np.float64)
+    windows = np.lib.stride_tricks.sliding_window_view(a, window)   # (n-window+1, window), oldest→newest
+    out[window - 1:] = windows @ w
+    return pd.Series(out, index=idx) if idx is not None else out
+
 
 def zscore_clipped(series, window, clip=3.0):
     """Z-score with rolling window and clipping — NaN-aware O(N) numpy cumsums."""
@@ -1575,20 +1612,21 @@ def calculate_msf_spread(df, mood_col='Mood_Score', nifty_col='NIFTY', breadth_c
 # ══════════════════════════════════════════════════════════════════════════════
 # WAVETREND OSCILLATOR  (Adapted to Mood Score instead of HLC3)
 # ══════════════════════════════════════════════════════════════════════════════
-# Original PineScript:
+# WRCI v3.5.0 core PineScript:
 #   ap  = hlc3
-#   esa = ema(ap, n1)
+#   esa = ema(ap, n1)                            n1 = 10
 #   d   = ema(abs(ap - esa), n1)
-#   ci  = (ap - esa) / (0.015 * d)
-#   tci = ema(ci, n2)
+#   ci  = (ap - esa) / math.max(0.015 * d, 1e-6) ← denom floored at 1e-6
+#   tci = ema(ci, n2)                            n2 = 21
 #   wt1 = tci
-#   wt2 = sma(wt1, 4)
+#   wt2 = f_smooth(wt1, wt2_len, wt2_type)       ← default ALMA, len 20
 #
 # Arthagati adaptation: ``ap = Mood_Score`` — the OU-normalized, Kalman-
 # smoothed sentiment signal already lives in the same [-100, +100] range
-# that WaveTrend expects, so the oscillator levels (±60, ±53) carry their
-# original interpretation. EMA is computed via pandas' ewm(span=N) which
-# matches TradingView's ema() exactly.
+# that WaveTrend expects, so the oscillator levels carry their original
+# interpretation. EMA is computed via pandas' ewm(span=N) which matches
+# TradingView's ema() exactly, and ALMA via the ``alma()`` helper which
+# matches ta.alma(src, len, offset, sigma) exactly.
 
 def _calculate_wavetrend_impl(
     df,
@@ -1597,18 +1635,20 @@ def _calculate_wavetrend_impl(
     n2: int = WT_AVERAGE_LEN,
     signal_len: int = WT_SIGNAL_LEN,
 ):
-    """Compute WaveTrend on the given source column. Returns a DataFrame
-    with columns ``DATE`` (passthrough), ``wt1`` (wave), ``wt2`` (signal).
+    """Compute the WRCI v3.5.0 WaveTrend core on the given source column.
+    Returns a DataFrame with columns ``DATE`` (passthrough), ``wt1`` (the
+    Composite Index wave) and ``wt2`` (the ALMA signal line).
 
-    Engineering notes vs. the raw PineScript:
-      • The divisor ``d`` (EMA of |ap − esa|) under-flows during the
-        first ~n1 bars when the EMA hasn't accumulated enough variance,
-        which causes ``ci = (ap − esa) / (0.015 * d)`` to spike to
-        absurd values. We floor ``d`` to a small positive constant so
-        the indicator stays bounded on flat segments.
+    Engineering notes vs. the v3.5.0 PineScript:
+      • The divisor ``0.015 * d`` (d = EMA of |ap − esa|) under-flows on
+        flat / warm-up segments. v3.5.0 floors it at 1e-6 — matching the
+        WRCI run_full_analysis reference — rather than the legacy d.clip(0.5).
+      • The WT2 signal line is ALMA(wt1, ``signal_len``, 0.85, 6) — the
+        f_smooth default in v3.5.0 — replacing the legacy SMA(wt1, 4).
       • The first ``n1 + n2`` rows are masked (NaN) — Plotly skips them
-        in the chart automatically, and a properly warmed-up EMA emerges
-        cleanly afterwards.
+        in the chart automatically, and a properly warmed-up EMA/ALMA
+        emerges cleanly afterwards (ALMA's own ``signal_len``-bar warm-up
+        is fully covered since signal_len ≤ n1 + n2).
     """
     if source_col not in df.columns or len(df) == 0:
         return pd.DataFrame(columns=['DATE', 'wt1', 'wt2'])
@@ -1616,15 +1656,14 @@ def _calculate_wavetrend_impl(
     ap  = pd.Series(df[source_col].values, dtype=np.float64)
     esa = ap.ewm(span=n1, adjust=False).mean()
     d   = (ap - esa).abs().ewm(span=n1, adjust=False).mean()
-    # Floor d to 0.5 — calibrated for Mood Score's ±100 range. Typical d
-    # during normal volatility is 3–15; 0.5 only kicks in for degenerate
-    # flat / warmup regimes.
-    safe_d = d.clip(lower=0.5)
-    ci  = (ap - esa) / (0.015 * safe_d)
+    # v3.5.0: floor the denominator (0.015 * d) at 1e-6, not d itself at 0.5.
+    denom = (0.015 * d).clip(lower=1e-6)
+    ci  = (ap - esa) / denom
     tci = ci.ewm(span=n2, adjust=False).mean()
 
     wt1 = tci
-    wt2 = wt1.rolling(signal_len, min_periods=1).mean()
+    # v3.5.0: WT2 = ALMA signal line (f_smooth default), replacing SMA(4).
+    wt2 = alma(wt1, signal_len, WT_ALMA_OFFSET, WT_ALMA_SIGMA)
 
     # Mask warmup period — the EMAs need at least n1+n2 bars before the
     # oscillator stabilises. NaN values are skipped by Plotly.
