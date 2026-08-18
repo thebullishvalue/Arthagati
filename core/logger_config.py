@@ -1,5 +1,5 @@
 """
-Arthagati v2.7.0 — Logger configuration: direct console output system.
+Arthagati — Logger configuration: direct console output system.
 अर्थगति (Arthagati) — "Market sentiment / movement of meaning"
 
 CORE — Bypasses Python logging, writes coloured output to stdout for a
