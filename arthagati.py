@@ -90,6 +90,7 @@ from ui.components import (
     section_divider,
     render_footer,
 )
+from ui.charts import register_theme as _register_chart_theme
 from ui.tabs.tab_landing import render_landing_page
 from ui.tabs.tab_historical_mood import render as render_historical_mood
 from ui.tabs.tab_similar_periods import render as render_similar_periods
@@ -226,6 +227,9 @@ def quiet_engine_logs():
 # ══════════════════════════════════════════════════════════════════════════════
 
 inject_css()
+# Registers the `arthagati` Plotly template as the default, so every figure
+# inherits font, margin, grid, hover, legend and crosshair without asking.
+_register_chart_theme()
 
 # ── Boot banner (printed once per Streamlit process) ─────────────────────────
 if not st.session_state.get("_arthagati_banner_printed"):
