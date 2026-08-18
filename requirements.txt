@@ -1,6 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # ARTHAGATI — Python Dependencies
-# @thebullishvalue · v2.8.0  (WaveTrend + Intelligence Mode)
+# @thebullishvalue — see config.VERSION for the authoritative version
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # Install:  pip install -r requirements.txt

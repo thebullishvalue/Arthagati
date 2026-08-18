@@ -6,6 +6,179 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
 
 ---
 
+## [v2.9.0] — 2026-08-18
+
+### Audit Remediation
+
+A full adversarial audit of v2.8.0 found that the system's three
+self-validation surfaces — the backtest scatter, the Intelligence Mode
+quality gate, and the Predictive Power Lift table — were each constructed so
+that they could not fail, and that the mood and MSF series were not causal
+despite documentation claiming otherwise. This release fixes the defects and
+adds the regression tests that would have caught them.
+
+#### Fixed — Correctness
+
+- **Look-ahead in the mood score.** The walk-forward block applied
+  correlation weights estimated on data through the END of the segment it was
+  scoring, so a score at time *t* depended on up to 63 days of its own
+  future. Measured: perturbing only rows after index 300 moved scores inside
+  the untouched prefix by as much as **12.75 points**. Segment *k* now reads
+  its statistics from checkpoint *k−1*; the regression asserts bit-equality
+  to 1e-9. Rows before `CORR_MIN_WARMUP` borrow the first checkpoint's
+  statistics and are flagged `Is_Warmup`, and every evaluation path excludes
+  them.
+- **Look-ahead in the MSF Spread.** Component weights were derived from the
+  variance of the trailing 60 rows and applied across all of history, so
+  past MSF values shifted whenever new data arrived (measured: up to 0.52 on
+  a ±5 band). Variance is now expanding.
+- **Look-ahead in the regime labels.** Both classification axes were split at
+  the median of the *whole* series. Now split at their own expanding median.
+- **MSF degenerate-component capture.** A component with no variance took
+  `1/1e-6` inverse-variance, won ~100% of the weight, and — being identically
+  zero after the z-score/sigmoid chain — flattened the composite to a
+  constant (measured std 0.0001 against a healthy 1.95). A sheet missing its
+  `AD_RATIO` column triggered it silently. Weights are clamped to
+  `[0.10, 0.50]`; a dead component is excluded and reported in the UI.
+- **Percentile overshoot.** The decayed ECDF could return 1.0000000000000002,
+  which then flowed into Layer 3's `1 − 2·pct` mapping. Clipped to `[0, 1]`.
+- **Zero-crossing return blow-ups.** Entropy was estimated on `diff / |prev|`.
+  Both term spreads and `PE_DEV` / `EY_DEV` cross zero, and a near-zero
+  denominator produced changes of several hundred ×, dominating the
+  Freedman-Diaconis bin width. Now first differences.
+- **`kalman_filter_1d` returned a 3-tuple on empty input** while annotated
+  and unpacked as 2.
+- **Backtest split had no embargo** — the last `horizon` training points drew
+  their labels from inside the test window.
+- **Coverage counted NaN as data.** `raw_df[var] != 0` is True for NaN, so an
+  all-NaN column reported 100% coverage.
+
+#### Changed — Intelligence Mode
+
+The quality gate previously asked whether the optimised validation IR
+exceeded zero, while Optuna maximised `0.65·val_IR + 0.35·train_IR` — testing
+the objective against itself. On forward returns drawn from an independent
+random walk it reported train IR 1.56, val IR 0.71, stability 45% and a
+**Quality OK** badge, on five seeds out of five.
+
+- **Holdout.** The final 25% of the series is withheld from the search, the
+  CV folds, and the feature standardisation, and scored once afterwards. The
+  holdout IR is now what the gate and the UI report.
+- **Embargo = max(horizon) = 90 days**, was 5 against horizons up to 90 — so
+  training labels reached 85 days into the validation window.
+- **Permutation null.** 200 circular shifts of the signal against the same
+  returns; the statistic is mean rank correlation, which is far more stable
+  than the IR on a dozen correlated measurements.
+- **Power floor.** Forward windows overlap, so a 600-row holdout carries ~6
+  independent observations at a 90-day horizon — too few for any threshold to
+  discriminate. Below `GATE_MIN_INDEPENDENT_WINDOWS` (10) the calibrator
+  returns **Insufficient Data** and declines to grade rather than guessing.
+- **Feature matrix reduced from 10 to 7 columns.** It carried five
+  near-collinear transforms of the mood score (pairwise |ρ| 0.91–0.97,
+  condition number 1.2 × 10¹⁷), making the per-feature weights and their
+  Bullish/Bearish badges unidentifiable. Condition number is now ~10⁴.
+  `l2_alpha` raised 0.001 → 0.05, and standardisation is expanding rather
+  than full-sample.
+- **Feature "importance"** was Optuna fANOVA over the objective — a property
+  of the search surface, not of the feature. Now contribution share of the
+  fitted coefficients.
+- **Predictive Power Lift** scored raw Mood and Calibrated Conviction on the
+  very folds the weights were fitted to, so a positive lift was guaranteed;
+  on random-walk returns it still reported +0.92. Now scored on the holdout.
+- **Only `Quality OK` activates.** `Overfit` profiles were previously saved
+  *and* applied.
+- **Profile import is validated** — feature names, numeric types and weight
+  bounds — and the grade is recomputed rather than trusted. A weight of 5000
+  used to import cleanly and produce a permanently saturated ±100 signal.
+- **Stability is holdout/train**, was val/train — a ratio the objective
+  actively pushed above 1 by weighting val at 0.65 against train at 0.35.
+- **Row counts** summed overlapping expanding folds, reporting 5,140 "train
+  rows" for a 2,200-row series. Now unique rows.
+- Schema version 3; v2 profiles are rejected on load.
+
+#### Changed — Performance
+
+- **`adaptive_percentile` is O(N log N)**, was O(N²) despite the README and
+  its own docstring claiming otherwise. Rewritten over a Fenwick tree of
+  value ranks: the `exp(-λt)` factor cancels between numerator and
+  denominator, leaving a prefix-sum. Verified bit-exact (4.5e-15) against a
+  direct transcription of the definition. 4,000 rows: 436 ms → 37 ms. The
+  full engine on 5,000 rows: ~30 s → **6.9 s**.
+
+#### Changed — Views
+
+- **Timeframe windows filter by date, not row count.** Calendar-day constants
+  were passed to `.tail(n)`, stretching every window by ~1.4× — "1Y" returned
+  365 rows spanning 510 calendar days, "5Y" spanned just over seven years.
+- **WaveTrend OB/OS bands are calibrated from the data** (95th/80th
+  percentile of |wt1| over the full history). The inherited ±80 was
+  unreachable when the source is `Mood_Score` — |wt1| peaks near 70 — leaving
+  ~40% of the pane permanently empty.
+- **Analog separation.** Analogs are selected greedily with a 20-day minimum
+  gap; five of ten previously fell inside a 32-row window while the UI quoted
+  their median return as ten independent observations. The trailing 90 rows
+  are excluded, and `recency_weight` is now the actual blend weight — it was
+  scaled in and normalised straight back out, making it a no-op.
+- **Predictor Quality scores every numeric column.** It read |ρ| from frames
+  built only from the *active* set, so an inactive predictor always scored
+  0.00 and was badged "Weak" — the panel meant to guide predictor selection
+  could never recommend anything not already selected.
+- **Signal precedence is stated.** Mood Score and Calibrated Conviction
+  differ in sign on ~46% of days; the UI now says which governs and why.
+- **The Intelligence Center no longer renders a stale profile as live.** A
+  run rejected by the gate left the previous profile on screen while the
+  metric strip hid the conviction card.
+- Backtest labels said "+30d" while the horizon was 20.
+
+#### Changed — Infrastructure
+
+- **`config.py`** holds all schemas, hyperparameters and display constants.
+  `ui/tabs/*` imported constants via `from arthagati import ...`; because
+  Streamlit runs the entrypoint as `__main__`, that re-executed the whole
+  script as a second module object — confirmed under a real `ScriptRunContext`
+  to inject the theme CSS twice, and a hard error on the Streamlit 1.32 floor
+  the requirements declared.
+- **Cache clears are scoped** to this app's cached functions.
+  `st.cache_data.clear()` is process-global and flushed every concurrent
+  user's frames.
+- **Reset to Defaults is session-scoped.** It deleted `active.json`, which is
+  shared by every session of a deployment.
+- **`ARTHAGATI_PROFILE_DIR`** relocates the profile store; archives are
+  pruned to the most recent 20.
+- `datetime.utcnow()` → timezone-aware `datetime.now(timezone.utc)`.
+- Removed the dead `hyperparam_overrides` / `TUNABLE_HYPERPARAMS` /
+  `get_default_hyperparams` machinery, whose docstrings described an
+  architecture the same file repudiated 1,800 lines later. Also removed
+  `run_calibration`, `list_profiles`'s unused callers, `_render_profile_grid`,
+  `_stat_card`, ~15 unused imports and three unused parameters.
+- A real spreadsheet ID was embedded in the sheet-fetch error message as an
+  "example".
+- Version strings unified — `config.VERSION` is the single source.
+
+#### Added
+
+- **Test suite** (`tests/`, 46 fast + slow-marked statistical regressions):
+  causality of the mood, MSF and regime series; Fenwick percentile exactness
+  against a reference implementation; degenerate-component guards; analog
+  separation; profile-import validation; and the headline regression that the
+  gate rejects data containing no edge.
+- `Is_Warmup` column marking rows scored with borrowed statistics.
+- `Insufficient Data` quality grade.
+- Degraded-input banner naming any MSF component excluded for lack of signal.
+
+#### Known limitations
+
+- The gate is **deliberately conservative**: on synthetic data carrying a
+  genuine but weak edge it activates on a minority of draws. Withholding a
+  real marginal signal is the cheaper error.
+- Overlapping forward windows are not corrected for in the backtest scatter's
+  reported coefficients; the view says so rather than adjusting them.
+- Layer 4's OU rescaling is near-identity on the score (stationary std ≈ 1.09
+  measured) because its input is already an expanding z-score. It is retained
+  for the diagnostics it produces, and the README now says so.
+
+---
+
 ## [v2.8.0] — 2026-05-28
 
 ### Intelligence Mode + WaveTrend + Granular Horizons

@@ -1,5 +1,23 @@
 # ARTHAGATI — Architecture & Design Vision
-### @thebullishvalue · Architect's Working Document · v2.6.0
+### @thebullishvalue · Architect's Working Document · current as of v2.9.0
+
+> **Status.** This document records the *curation philosophy* — which theories
+> were adopted, which were cut, and why. It is the reasoning behind the
+> architecture; README.md is the specification of what the code does today.
+> Where the two disagree, README wins and this file is stale.
+>
+> v2.9.0 changed two decisions recorded below, both for reasons this document's
+> own principles imply:
+>
+> - **§2-I term spreads.** The spreads were derived but omitted from
+>   `DEPENDENT_VARS`, so the flagship feature was off by default while the raw
+>   yields it was meant to replace were on. Now the reverse, as §2-I intended.
+> - **§4 regime thresholds.** Hurst on the mood score sits far above 0.5
+>   (~84% of observations), so the theoretical boundary collapsed the four
+>   quadrants into one. Both axes now split at their own expanding median.
+>   §6's argument for *stable* thresholds still holds for the mood
+>   classification bands (±20, ±60), which remain fixed; it never applied to a
+>   diagnostic whose absolute scale carries no meaning.
 
 ---
 
@@ -257,6 +275,26 @@ Feature vector = [mood, volatility, NIFTY_ROC, Hurst, entropy]
 ---
 
 ## §6  Key Design Decisions
+
+**Q: Why validate the calibrator against a holdout rather than the CV folds?**
+
+Because a gate that reads the number the optimiser maximised is not a gate.
+v2.8.0 asked whether the optimised validation IR exceeded zero while Optuna
+maximised a function of that same IR; on forward returns drawn from an
+independent random walk it graded five datasets out of five "Quality OK".
+
+The principle this violated is the one in §1: *every mathematical choice must
+serve one of the six steps.* A validation statistic that cannot come out
+negative serves none of them — it is decoration that reads as evidence, which
+is worse than no statistic at all.
+
+The replacement follows from the same rule. A holdout the search never sees, a
+purge gap at least as long as the label horizon, and a permutation null are
+the minimum needed for the number to mean what the UI says it means. And when
+the available history cannot support the test — fewer than ten independent
+forward windows — the honest output is *Insufficient Data*, not a verdict.
+
+---
 
 **Q: Why fixed mood classification thresholds (±20, ±60) instead of adaptive?**
 

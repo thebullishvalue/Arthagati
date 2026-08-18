@@ -1,4 +1,4 @@
-# ARTHAGATI (अर्थगति) · v2.8.0
+# ARTHAGATI (अर्थगति) · v2.9.0
 
 **Market Sentiment Analysis Engine** — An @thebullishvalue Product
 
@@ -80,7 +80,7 @@ produces six outputs:
 ┌─────────────────────────────────────────────────────────────────────┐
 │   WAVETREND OSCILLATOR (LazyBear · Mood-Score-driven)               │
 │   esa = EMA(Mood, 10) · ci = (Mood − esa) / (0.015 · EMA(|Δ|,10))   │
-│   WT1 = EMA(ci, 21) · WT2 = SMA(WT1, 4) · crossover ▲ / ▼ signals   │
+│   WT1 = EMA(ci, 21) · WT2 = ALMA(WT1, 20) · crossover ▲ / ▼ signals │
 └────────────────────────────┬────────────────────────────────────────┘
                              │
               ┌──────────────┴──────────────┐
@@ -90,9 +90,10 @@ produces six outputs:
 │  INTELLIGENCE MODE       │  │   OUTPUT LAYER                     │
 │  (post-engine ensemble)  │  │                                    │
 │                          │  │   Mood Score · MSF Spread · WT     │
-│  10-feature matrix F →   │──┤   Calibrated Conviction (if IM ON) │
+│  7-feature matrix F →    │──┤   Calibrated Conviction (if IM ON) │
 │  Optuna TPE on weights w │  │   Diagnostics · Similar Periods    │
-│  Walk-forward CV folds   │  │   Backtest · Correlation Analysis  │
+│  Walk-forward CV + 25%   │  │   Backtest · Correlation Analysis  │
+│  holdout + permutation   │  │                                    │
 │  Calibrated = F @ w      │  │                                    │
 └──────────────────────────┘  └────────────────────────────────────┘
 ```
@@ -117,7 +118,12 @@ Raw Data ──► L1: Walk-Forward Correlations ──► L2: Entropy Weighting
 #### Layer 1 — Walk-Forward Correlations
 - Exponential-decay-weighted Spearman rank correlation at quarterly checkpoints
 - Half-life: `CORR_HALF_LIFE` = 504 days (~2 trading years)
-- Expanding window eliminates look-ahead bias
+- **Strictly causal**: the statistics applied to segment *k* are estimated on
+  data ending at checkpoint *k−1*. The score at time *t* is a function of
+  data up to *t* and nothing after it, which a regression test asserts to
+  1e-9 by perturbing future rows and checking the past does not move.
+- Rows before `CORR_MIN_WARMUP` borrow the first checkpoint's statistics and
+  are flagged `Is_Warmup`; every evaluation path excludes them
 - Weight blending across checkpoints (α ≈ 0.29, HL = 2) prevents discontinuous jumps
 
 #### Layer 2 — Information-Theoretic Weighting
@@ -127,7 +133,9 @@ Raw Data ──► L1: Walk-Forward Correlations ──► L2: Entropy Weighting
 - Noisy/random variables suppressed; structured signals amplified
 
 #### Layer 3 — Adaptive Percentiles
-- Decay-weighted empirical CDF with sorted-insert + binary search: **O(N log N)**
+- Decay-weighted empirical CDF over a Fenwick tree of value ranks: **O(N log N)**
+- Writing `w_i = exp(-λt)·exp(λi)`, the `exp(-λt)` factor cancels between
+  numerator and denominator, leaving a prefix-sum over rank
 - Half-life: `PCT_HALF_LIFE` = 252 days (~1 trading year)
 - Answers: *"Where is PE today vs recent history?"* — not vs all-time
 
@@ -135,7 +143,12 @@ Raw Data ──► L1: Walk-Forward Correlations ──► L2: Entropy Weighting
 - Models mood as mean-reverting diffusion: `dx = θ(μ − x)dt + σdW`
 - Kendall-Marriott-Pope first-order bias correction on AR(1) coefficient
 - Per-observation residual RSS (correct under expanding AR(1) coefficients)
-- Normalises by stationary std: `(x − μ) / (σ/√2θ) × MOOD_SCALE` → **[−100, +100]**
+- Rescales by stationary std: `(x − μ) / (σ/√2θ) × MOOD_SCALE` → **[−100, +100]**
+- **Scope note**: the input is already an expanding z-score, so the stationary
+  std is ≈ 1 (measured 1.09) and this layer's effect on the *score* is a few
+  percent — the −100…+100 range comes from `MOOD_SCALE`. Layer 4 earns its
+  place through the diagnostics it produces (θ, μ, half-life, and the forward
+  reversion projection), not through the rescaling.
 
 #### Layer 5 — Kalman Smoothing
 - 1D fading-memory Kalman filter (Sorenson-Sacks)
@@ -158,74 +171,136 @@ Four-component confirmation oscillator, weighted by inverse-variance (Markowitz 
 
 **Reference bands**: ±5 (primary, solid) and ±3 (secondary, dotted).
 **Divergence markers**: ▲ bullish at y=−4, ▼ bearish at y=+4 (just inside the primary bands).
-**Weighting**: inverse-variance — stable components receive more weight, recalculated each run.
+
+**Weighting**: inverse-variance — stable components receive more weight —
+with two guard rails:
+
+- **Causal.** Variance is *expanding*, so the weight at time *t* uses only
+  observations up to *t*. It was previously computed from the trailing 60
+  rows and applied across all of history, which meant past MSF values shifted
+  every time new data arrived (measured: up to 0.52 on a ±5 band).
+- **Clamped.** Weights are bounded to `[0.10, 0.50]` and any component whose
+  variance collapses is excluded and reported. A zero-variance component took
+  `1/1e-6` inverse-variance, won ~100% of the weight, and — being identically
+  zero after the z-score/sigmoid chain — flattened the composite to a
+  constant (measured std 0.0001 against a healthy 1.95). A sheet missing its
+  `AD_RATIO` column was enough to trigger it, silently. The view now shows a
+  banner naming the dead component.
 
 ---
 
-### WaveTrend (LazyBear · Mood-driven)
+### WaveTrend (Mood-driven)
 
-Faithful port of LazyBear's WaveTrend Oscillator, with `hlc3` replaced by `Mood_Score`:
+Port of the WaveTrend oscillator core, with `hlc3` replaced by `Mood_Score`:
 
 ```
 ap  = Mood_Score
-esa = ema(ap, 10)                  // Channel length (n1)
-d   = ema(|ap − esa|, 10)           // Floored at 0.5 to prevent warmup blowup
-ci  = (ap − esa) / (0.015 · d)
-tci = ema(ci, 21)                  // Average length (n2)
-wt1 = tci                          // Wave line
-wt2 = sma(wt1, 4)                  // Signal line
+esa = ema(ap, 10)                       // Channel length (n1)
+d   = ema(|ap − esa|, 10)
+ci  = (ap − esa) / max(0.015 · d, 1e-6) // denominator floored
+tci = ema(ci, 21)                       // Average length (n2)
+wt1 = tci                               // Wave line
+wt2 = alma(wt1, 20, 0.85, 6)            // Signal line
 ```
 
 | Element | Detail |
 |---|---|
 | **Source** | `Mood_Score` (engine output) |
-| **OB / OS** | ±80 (primary, solid) · ±60 (secondary, dotted) |
-| **Crossover signals** | ▲ green when WT1 crosses above WT2 (bullish) at y=+70 · ▼ red when WT2 crosses above WT1 (bearish) at y=−70 |
-| **WT1 − WT2 area fill** | Cyan, transparent (zero-baselined) — magnitude of the wave/signal spread |
-| **Y-axis convention** | Reversed (negative on top, positive on bottom) to match the Mood Score pane |
+| **Signal line** | `ALMA(20, offset 0.85, sigma 6)` — matches `ta.alma` exactly |
+| **OB / OS** | **Calibrated from the data** — see below |
+| **Crossover signals** | ▲ green when WT1 crosses above WT2 · ▼ red when WT2 crosses above WT1 |
+| **WT1 − WT2 area fill** | Cyan, transparent (zero-baselined) |
+| **Y-axis convention** | Reversed (negative on top) to match the Mood Score pane |
 
-The first 31 bars are masked to let the EMA chain stabilise before the
-oscillator is drawn.
+**Why the bands are computed, not hardcoded.** The familiar ±80 / ±60 levels
+assume `ci` built from `hlc3`. Driven by `Mood_Score` the oscillator has a
+different scale: |wt1| empirically peaks near 70 and never reaches 80, so the
+primary band was unreachable and roughly 40% of the pane was permanently
+empty. The levels are now the 95th and 80th percentiles of |wt1| over the
+**full history** — stable across timeframe switches, and slow-moving as data
+arrives. `WT_OB_LEVEL_1 / _2` remain as fallbacks for short series.
 
----
+The first `n1 + n2 = 31` bars are masked while the EMA chain stabilises.
 
 ### Intelligence Mode — Post-Engine Ensemble
 
-A walk-forward Bayesian calibrator that runs **on the engine's output**
-(not on its internal hyperparameters) — keeping per-trial cost in the
-millisecond range while preserving the engine's mathematical guarantees.
+A calibrator that runs **on the engine's output** (not on its internal
+hyperparameters), keeping per-trial cost in the millisecond range while
+preserving the engine's mathematical guarantees.
 
-**Feature matrix** (10 columns, standardised, built once per Run Analysis):
+**Feature matrix** (7 columns, causally standardised, built once per Run Analysis):
 
 | Feature | Meaning |
 |---|---|
 | `mood`           | Raw Mood Score |
-| `mood_smooth`    | Smoothed Mood Score (Kalman) |
-| `mood_diverge`   | `mood − mood_smooth` |
-| `mood_squared`   | `sign(mood) · mood² / 100` (asymmetric amplification) |
-| `mood_sqrt`      | `sign(mood) · √|mood|` (asymmetric damping) |
+| `mood_diverge`   | `mood − Kalman(mood)` — short-vs-long sentiment gap |
 | `msf_spread`     | MSF Spread composite |
 | `msf_momentum`   | MSF momentum component |
 | `msf_structure`  | MSF structure component |
 | `msf_regime`     | MSF regime component |
 | `msf_flow`       | MSF flow component |
 
-**Optimiser**: Optuna TPE sampler with `MedianPruner` (warmup 8 trials, 1 step).
-**Objective**: 0.65 × Validation IR + 0.35 × Train IR − L2 penalty on weights.
-**Information Ratio**: mean Spearman / std Spearman across (folds × horizons).
-**Horizons**: 5D, 20D, 60D, 90D — short-term predictability + medium-term carry.
-**Cross-validation**: walk-forward expanding-window folds with a 5-day
-embargo gap to prevent forward-return leakage at fold boundaries.
+> The matrix previously carried five near-collinear transforms of the mood
+> score (`mood`, `mood_smooth`, `mood_diverge`, `mood_squared`, `mood_sqrt`;
+> pairwise |ρ| 0.91–0.97, condition number 1.2 × 10¹⁷). Linear weights over a
+> singular design are not identifiable, so the per-feature coefficients and
+> the Bullish/Bearish badges derived from them were reading noise. The
+> reduced set has a condition number around 10⁴.
 
-**Quality gate** before a profile is auto-activated:
-- `Val IR > 0` (otherwise: *No Edge* — profile saved but inactive)
-- `Stability = Val IR / Train IR ≥ 30%` (otherwise: *Overfit* — flagged, still saved)
+**Optimiser**: Optuna TPE with `MedianPruner`.
+**Objective**: `0.65 × Val IR + 0.35 × Train IR − L2(w)`.
+**Horizons**: 5D, 20D, 60D, 90D.
 
-**Persistence**: `profiles/active.json` (atomic write via `tempfile + os.replace`),
-plus a timestamped archive `profiles/profile_<UTC>.json`. The Sidebar
-Passport surfaces Profile · Trained on · Train IR · Val IR · Updated,
-with a predictor-count mismatch warning when the saved profile was fit
-on a different active predictor set.
+#### How a calibration is validated
+
+This is the part to read carefully, because it is where a calibrated model
+is most likely to lie to you.
+
+**1 · Holdout.** The final **25%** of the series is removed before the search
+begins. Optuna never sees it, the CV folds never touch it, and the feature
+standardisation is computed causally so its distribution does not leak
+backwards. It is scored exactly once, afterwards. **The holdout IR — not the
+optimised validation IR — is the number the gate and the UI report.**
+
+**2 · Embargo = max(horizon) = 90 days.** The purge gap between a training
+fold and the validation fold that follows it must exceed the longest
+forward-return horizon, or the training labels are drawn from inside the
+validation window.
+
+**3 · Permutation null.** The holdout statistic is compared against a
+distribution built by circularly shifting the signal against the same
+returns — 200 draws. Circular shifts preserve the autocorrelation of both
+series and destroy only their alignment, which is the relationship under
+test. The reported `p` is the share of shifted draws matching or beating the
+observed statistic.
+
+**4 · Power check.** Forward windows overlap: at a 90-day horizon a 600-row
+holdout carries roughly **six** independent observations, and an information
+ratio built on six effective points accepts noise regardless of the nominal
+threshold. When the holdout spans fewer than
+`GATE_MIN_INDEPENDENT_WINDOWS` (10) non-overlapping windows, the calibrator
+returns **Insufficient Data** and declines to grade. Roughly ten years of
+daily history is needed before the 90-day horizon can be validated at all.
+
+#### Quality gate
+
+Checked in this order. Only **Quality OK** activates the overlay; the others
+are saved to disk for inspection but never drive the UI.
+
+| Grade | Condition |
+|---|---|
+| **Insufficient Data** | holdout spans < 10 independent forward windows |
+| **No Edge** | holdout IR < 0.25, or `p` > 0.05 |
+| **Overfit** | holdout / train < 30% |
+| **Quality OK** | clears all of the above |
+
+> **What this replaced.** Optuna maximised `0.65·val_IR + 0.35·train_IR` and
+> the gate then asked whether `val_IR > 0` — testing the objective against
+> itself. On a dataset whose forward returns were an independent random walk
+> it reported train IR 1.56, val IR 0.71, stability 45% and a **Quality OK**
+> badge, on five seeds out of five. The current gate grades the same data
+> *No Edge* or *Insufficient Data*, and the regression is pinned in
+> `tests/test_calibration.py`.
 
 **Calibrated Conviction**:
 
@@ -233,12 +308,20 @@ on a different active predictor set.
 calibrated_conviction = tanh( (F @ w) / 3 ) · 100   ∈ [−100, +100]
 ```
 
-Shown as a metric card in the diagnostics strip + as the centrepiece of
-the Intelligence Center's *Calibration Impact* section. Computed across
-the full history, so historical periods are calibrated under the same
-ensemble as the latest signal.
+It is a **forward-return overlay**, not a second opinion on the current
+state. It is fitted to predict NIFTY returns at 5–90 days and is free to
+disagree with the Mood Score — on typical data the two differ in sign on
+roughly 46% of days. **When they conflict, the Mood Score is the primary
+reading**: it describes where the market *is*. The conviction score is a bet
+about where it goes next and carries the wider error bars.
 
----
+**Persistence**: `profiles/active.json` (atomic write via `tempfile + os.replace`),
+plus a timestamped archive pruned to the most recent 20. Set
+`ARTHAGATI_PROFILE_DIR` to relocate the store — the default lives beside the
+code, which on Streamlit Cloud is ephemeral and shared across sessions.
+Imported profiles are validated against `FEATURE_NAMES` and `WEIGHT_BOUNDS`,
+and their grade is **recomputed** rather than trusted, so a hand-edited file
+cannot smuggle weights past the gate.
 
 ### Similar Periods Engine
 
@@ -250,11 +333,22 @@ Three-part scoring to find historical analogs:
 | **Trajectory** | 35% | Cosine similarity on least-squares detrended 20-day mood path |
 | **Recency** | 10% | Exponential decay (365-day half-life) |
 
-Each match includes forward NIFTY returns at **5D, 20D, 60D, and 90D**.
-A backtest scatter plots mood score at T vs NIFTY return at
-T+`BACKTEST_HORIZON` (20 days) with 70/30 train/test split.
+**Minimum separation.** Analogs are selected greedily with a
+`SIMILAR_MIN_SEPARATION` = 20 trading-day gap. Adjacent trading days describe
+near-identical states, so an unconstrained top-10 routinely collapsed onto two
+or three episodes — measured, five of ten inside a 32-row window — while the
+UI quoted a median forward return and a hit rate over those ten rows as though
+they were ten independent observations. The trailing 90 rows are also excluded,
+since they cannot carry a full set of forward returns.
 
----
+Each match includes forward NIFTY returns at **5D, 20D, 60D, and 90D**.
+
+**Backtest scatter.** Mood Score at T vs NIFTY return at T+`BACKTEST_HORIZON`
+(20 days), 70/30 chronological split with a **one-horizon embargo** between
+the halves — without it the last 20 training points draw their labels from
+inside the test window. Consecutive dots share almost all of their forward
+window, so the effective sample is far smaller than the dot count and the
+reported coefficients are more certain-looking than they are; the view says so.
 
 ### Regime Detection
 
@@ -262,14 +356,29 @@ Hurst exponent × entropy classifies the market into four quadrants:
 
 | Regime | Hurst | Entropy | Strategy Implication |
 |--------|-------|---------|---------------------|
-| **Trending** | > 0.5 | Low | Momentum strategies work |
-| **Volatile Trend** | > 0.5 | High | Directional with large swings |
-| **Mean-Reverting** | < 0.5 | Low | Contrarian / range strategies |
-| **Choppy** | < 0.5 | High | Hardest to trade — reduce size |
+| **Trending** | high | low | Momentum strategies work |
+| **Volatile Trend** | high | high | Directional with large swings |
+| **Mean-Reverting** | low | low | Contrarian / range strategies |
+| **Choppy** | low | high | Hardest to trade — reduce size |
 
-Current regime displayed in diagnostic cards.
+**Thresholds are relative and causal.** Both axes are split at their own
+*expanding median*, not at a fixed constant:
 
----
+- The theoretical `H = 0.5` random-walk boundary does not apply. Hurst is
+  measured on the mood score — a smoothed composite of percentiles — where
+  ~84% of observations sit above 0.5 and the upper quartile pins to the 0.99
+  clip. A 0.5 split assigned nearly everything to "trending" and the four
+  quadrants collapsed to one (measured: 887 / 864 / 136 / 113).
+- The threshold was previously the median of the *whole* series, so a regime
+  label depended on data from after the point it described. An expanding
+  median uses only observations up to and including each row.
+
+So **"Trending" means persistent relative to this series' own history**, not
+`H > 0.5` in the absolute sense. Classification is withheld (`Unknown`) until
+`REGIME_MIN_HISTORY` observations are available.
+
+Regime is a **diagnostic only** — it never feeds the score, the MSF weights,
+or the OU horizon.
 
 ## Mathematical Primitives
 
@@ -280,7 +389,7 @@ Pure-NumPy functions with single callsites:
 | `exponential_decay_weights` | L1 | Recency weighting |
 | `weighted_spearman` | L1 | Robust rank correlation with decay |
 | `shannon_entropy` | L2 | Freedman-Diaconis bin-width entropy estimation |
-| `adaptive_percentile` | L3 | O(N log N) sorted-insert decay-weighted CDF |
+| `adaptive_percentile` | L3 | O(N log N) Fenwick-tree decay-weighted CDF |
 | `kalman_filter_1d` | L5 | Fading-memory filter with burn-in bootstrap |
 | `rolling_hurst` | Diagnostics | DFA-1 with minimum 4-segment guard |
 | `rolling_entropy` | Diagnostics | Market disorder measurement |
@@ -288,7 +397,8 @@ Pure-NumPy functions with single callsites:
 | `mahalanobis_distance_batch` | Similar Periods | Shrinkage-regularised state matching |
 | `cosine_similarity` | Similar Periods | Least-squares detrended trajectory matching |
 | `detect_regime_transitions` | Diagnostics | Hurst × Entropy quadrant classification |
-| `_calculate_wavetrend_impl` | WaveTrend | LazyBear oscillator on Mood Score |
+| `_calculate_wavetrend_impl` | WaveTrend | WaveTrend oscillator on Mood Score |
+| `wavetrend_bands` | WaveTrend | Empirically calibrated OB/OS levels |
 
 Plus internal helpers: `_hurst_dfa` (DFA implementation), `sigmoid`
 (overflow-safe normalisation), `rolling_mean_fast` (O(N) cumsum-based),
@@ -352,7 +462,7 @@ The gviz endpoint works without authentication.
 | `MOOD_SCALE` | 30.0 | OU signal → mood score scaling |
 | `KALMAN_CI_Z` | 1.96 | Confidence band width (~95%) |
 | `KALMAN_HALF_LIFE` | 126d | Kalman fading memory |
-| `CORR_MIN_WARMUP` | 252 | Min observations before first checkpoint |
+| `CORR_MIN_WARMUP` | 252 | Warm-up length; earlier rows flagged `Is_Warmup` |
 | `CORR_REBALANCE_PERIOD` | 63 | Expanding-window rebalance interval |
 | `MSF_WINDOW` | 20 | MSF rolling window |
 | `MSF_ROC_LEN` | 14 | NIFTY rate-of-change period |
@@ -362,8 +472,9 @@ The gviz endpoint works without authentication.
 | `MSF_SIGNAL_Y` | 4 | MSF divergence-triangle y-coordinate magnitude |
 | `WT_CHANNEL_LEN` | 10 | WaveTrend n1 (channel length) |
 | `WT_AVERAGE_LEN` | 21 | WaveTrend n2 (average length) |
-| `WT_SIGNAL_LEN` | 4 | WaveTrend signal-line SMA period |
-| `WT_OB_LEVEL_1 / _2` | ±80 / ±60 | WaveTrend OB/OS bands |
+| `WT_SIGNAL_LEN` | 20 | WaveTrend ALMA signal-line period |
+| `WT_OB_QUANTILE_1 / _2` | 0.95 / 0.80 | Quantiles of \|wt1\| used for the OB/OS bands |
+| `WT_OB_LEVEL_1 / _2` | ±60 / ±40 | Fallback bands for short series |
 | `CC_OB_LEVEL_1 / _2` | ±100 / ±80 | Calibrated Conviction reference bands |
 | `SIMILAR_W_MAHA` | 0.55 | Mahalanobis distance weight |
 | `SIMILAR_W_TRAJ` | 0.35 | Trajectory similarity weight |
@@ -371,6 +482,12 @@ The gviz endpoint works without authentication.
 | `TRAJ_WINDOW` | 20 | Trajectory comparison window |
 | `OU_PROJ_DAYS` | 90 | OU forward projection horizon |
 | `BACKTEST_HORIZON` | 20 | Forward-return horizon for the backtest scatter |
+| `SIMILAR_MIN_SEPARATION` | 20 | Minimum trading days between accepted analogs |
+| `MSF_MIN_WEIGHT / _MAX_WEIGHT` | 0.10 / 0.50 | Inverse-variance weight clamp |
+| `HOLDOUT_FRACTION` | 0.25 | Share of history withheld from the calibrator |
+| `GATE_MIN_HOLDOUT_IR` | 0.25 | Minimum holdout effect size to activate |
+| `GATE_MAX_P_VALUE` | 0.05 | Permutation-null threshold |
+| `GATE_MIN_INDEPENDENT_WINDOWS` | 10 | Power floor before a verdict is issued |
 
 ### Predictor Selection
 
@@ -380,7 +497,26 @@ Sidebar → Model Configuration uses a **staging → commit** pattern:
 3. Click **Apply Configuration** to commit
 4. Engine recomputes with new predictor set; cache + calibration cleared
 
----
+The default set includes `IN_TERM_SPREAD` and `US_TERM_SPREAD` and excludes
+the 2-year legs they are built from — per VISION §2-I, the spread carries the
+orthogonal information and including both double-counts the curve. The
+spreads were previously derived and then left out of `DEPENDENT_VARS`, so the
+documented flagship feature was off by default while the raw yields it was
+meant to replace were on.
+
+### Testing
+
+```bash
+pip install pytest
+pytest                 # fast suite
+pytest -m slow         # statistical regressions (runs the engine repeatedly)
+```
+
+The suite pins the defects this release fixed rather than testing happy
+paths: causality of the mood score, MSF and regime series; exactness of the
+Fenwick percentile against a direct transcription of its definition; the
+degenerate-component guard; analog separation; and — the headline —
+that the calibration gate rejects data containing no edge.
 
 ## Key Features
 
@@ -394,9 +530,13 @@ trigger a full recompute.
 ### Cross-Session Profile Caching
 The Intelligence Mode profile (`profiles/active.json`) is reused across
 sessions as long as it remains *fresh*: same predictor count, data end
-≤14 days newer than fit time, and profile age ≤14 days. Streamlit-Cloud
-wake-ups don't pay the calibration cost if the profile on disk still
-applies to the current data.
+≤14 days newer than fit time, profile age ≤14 days, **and a grade of
+Quality OK** — a profile that failed the gate is never treated as fresh.
+
+> **Multi-user caveat.** `active.json` is a single file shared by every
+> session of a deployment. Set `ARTHAGATI_PROFILE_DIR` to isolate it. Reset
+> to Defaults is session-scoped and does not delete the shared file, which it
+> previously did — removing the calibrated profile for every concurrent user.
 
 ### OU Forward Projection
 The mood chart extends a dotted line 90 days beyond the last data point
@@ -413,9 +553,9 @@ fundamentally different from +40 with wide bands.
 - **WaveTrend** — bullish (▲ at y=+70) and bearish (▼ at y=−70) WT1/WT2 crossover triangles
 
 ### Data Staleness Warning
-If the most recent data point is more than 3 calendar days old, an amber
-warning callout reports the gap and reminds the user that scores reflect
-stale data.
+If the most recent data point is more than `STALE_DATA_DAYS` (4) calendar
+days old, an amber callout reports the gap. The threshold clears a normal
+weekend without firing.
 
 ### MSF Component Breakdown
 Four horizontal bars show each component's current contribution vs
@@ -467,6 +607,7 @@ streamlit run arthagati.py
 
 | Version | Date | Summary |
 |---------|------|---------|
+| **v2.9.0** | 2026-08-18 | **Audit remediation.** Eliminated look-ahead in the mood, MSF and regime series; rebuilt the Intelligence Mode quality gate around a 25% holdout, a 90-day embargo and a permutation null (it previously graded pure noise "Quality OK"); O(N log N) percentiles; MSF degenerate-component guard; analog separation; `config.py` extraction; first test suite |
 | **v2.8.0** | 2026-05-28 | WaveTrend Oscillator (LazyBear · Mood-driven), Intelligence Mode (post-engine ensemble calibration via Optuna TPE + walk-forward CV), Calibrated Conviction metric, granular forward horizons (5D / 20D / 60D / 90D), MSF Spread reference bands at ±5/±3, structured run-summary console log |
 | **v2.7.0** | 2026-04-15 | Obsidian Quant UI port: modular `ui/` package with `theme.css`, components, tabs; Sanskrit serif masthead; section headers with icon badges; analog/correlation/quality cards |
 | **v2.6.0** | 2026-04-06 | Google Sheets Infrastructure Simplification: gviz API migration, OAuth removal, environment variable configuration, retry logic |

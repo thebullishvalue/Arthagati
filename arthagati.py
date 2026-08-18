@@ -32,11 +32,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import pytz
 import requests
 import streamlit as st
-from plotly.subplots import make_subplots
 
 # ── Make ui/ + core/ importable when running `streamlit run arthagati.py`
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -44,7 +42,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # Structured terminal console (banner / phase / step / checkpoint / summary).
-from core.logger_config import console, generate_run_id, get_run_id, Colors
+from core.logger_config import console, generate_run_id
 
 # Quiet noisy library loggers — the structured console handles user-facing output
 logging.basicConfig(
@@ -77,21 +75,13 @@ from ui.theme import (
     PRODUCT_NAME,
     COMPANY,
     C_AMBER,
-    C_AMBER_BRIGHT,
     C_CYAN,
     C_EMERALD,
     C_ROSE,
     C_MUTED,
-    C_BG_CARD,
-    C_TEXT,
-    PLOTLY_BASE,
-    PLOTLY_GRID,
 )
 from ui.components import (
-    render_header,
-    render_section_header,
     render_metric_card,
-    render_info_box,
     render_warning_box,
     sidebar_title,
     sidebar_masthead,
@@ -99,7 +89,6 @@ from ui.components import (
     section_gap,
     section_divider,
     render_footer,
-    get_icon,
 )
 from ui.tabs.tab_landing import render_landing_page
 from ui.tabs.tab_historical_mood import render as render_historical_mood
@@ -107,12 +96,6 @@ from ui.tabs.tab_similar_periods import render as render_similar_periods
 from ui.tabs.tab_correlation import render as render_correlation_analysis
 from ui.tabs.tab_intelligence import render as render_intelligence_center
 
-# Legacy aliases kept inside arthagati.py for engine code paths
-C_PRIMARY = C_AMBER
-C_GREEN   = C_EMERALD
-C_RED     = C_ROSE
-C_AMBER_LEGACY = C_AMBER
-C_BG_GRID = PLOTLY_GRID
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA SOURCE
@@ -129,101 +112,71 @@ C_BG_GRID = PLOTLY_GRID
 SHEET_ID  = os.environ.get("ARTHAGATI_SHEET_ID", "")
 SHEET_GID = os.environ.get("ARTHAGATI_SHEET_GID", "")
 
-EXPECTED_COLUMNS = [
-    'DATE', 'NIFTY',
-    'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'BREADTH', 'COUNT',
-    'NIFTY50_PE', 'NIFTY50_EY', 'NIFTY50_DY', 'NIFTY50_PB',
-    'IN10Y', 'IN02Y', 'IN30Y', 'INIRYY',
-    'REPO', 'CRR',
-    'US02Y', 'US10Y', 'US30Y', 'US_FED',
-    'PE_DEV', 'EY_DEV',
-]
-
-DEPENDENT_VARS = [
-    'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'COUNT',
-    'IN10Y', 'IN02Y', 'IN30Y', 'INIRYY',
-    'REPO',
-    'US02Y', 'US10Y', 'US30Y',
-    'NIFTY50_DY', 'NIFTY50_PB',
-]
-
-# Columns that are anchors or index keys, never predictors
-NON_PREDICTOR_COLS: frozenset[str] = frozenset({'DATE', 'NIFTY', 'NIFTY50_PE', 'NIFTY50_EY'})
-
-# Timeframe labels → calendar-day window (None = use all data / special handling)
-TIMEFRAMES: dict[str, int | None] = {
-    '1W':  7,
-    '1M':  30,
-    '3M':  90,
-    '6M':  180,
-    'YTD': None,   # computed at runtime from Jan 1
-    '1Y':  365,
-    '2Y':  730,
-    '5Y':  1825,
-    'MAX': None,   # all available rows
-}
-
-# Note: Colour palette + Plotly base are now sourced from ui.theme — see
-# the imports above. C_PRIMARY/C_GREEN/C_RED/C_CYAN/C_MUTED/C_BG_CARD/C_BG_GRID
-# remain in scope for engine code paths.
-
 # ══════════════════════════════════════════════════════════════════════════════
-# MODEL HYPERPARAMETERS
+# CONFIGURATION — schemas, hyperparameters, display constants
 # ══════════════════════════════════════════════════════════════════════════════
+# All of these live in config.py so the ui/ package can read them without
+# importing this module. Streamlit runs this file as `__main__`, so a
+# `from arthagati import ...` elsewhere re-executes it as a second module
+# object rather than hitting sys.modules.
 
-# Correlation engine
-CORR_HALF_LIFE  = 504    # ~2 trading years; exponential recency weight for Spearman
-PCT_HALF_LIFE   = 252    # ~1 trading year;  recency weight for adaptive ECDF
-MOOD_SCALE      = 30.0   # maps OU-normalised signal → mood score
-KALMAN_CI_Z     = 1.96   # Kalman confidence band (≈95%)
-KALMAN_HALF_LIFE = 126   # Kalman fading memory half-life (trading days, independent of PCT)
-DATA_TTL        = 3600   # Streamlit cache TTL for the Google Sheets fetch (seconds)
-
-# Walk-forward correlation rebalancing (eliminates look-ahead bias)
-CORR_MIN_WARMUP       = 252   # minimum observations before first correlation checkpoint
-CORR_REBALANCE_PERIOD = 63    # expanding-window rebalance interval (≈quarterly)
-
-# MSF Spread indicator
-MSF_WINDOW      = 20     # rolling window for all MSF components
-MSF_ROC_LEN     = 14     # NIFTY rate-of-change period
-MSF_ZSCORE_CLIP = 3.0    # Z-score clipping threshold
-MSF_SCALE       = 10.0   # output scaling factor
-
-# MSF Spread reference bands — solid (primary) + dotted (secondary) hlines.
-# Divergence triangles sit just inside the primary band (at ±MSF_SIGNAL_Y).
-MSF_OB_LEVEL_1  = 5      # Overbought primary
-MSF_OB_LEVEL_2  = 3      # Overbought secondary
-MSF_OS_LEVEL_1  = -5     # Oversold primary
-MSF_OS_LEVEL_2  = -3     # Oversold secondary
-MSF_SIGNAL_Y    = 4      # Triangle marker y-coordinate magnitude
-
-# WaveTrend Oscillator (WRCI v3.5.0 core) — adapted to use Mood Score instead of HLC3
-WT_CHANNEL_LEN  = 10        # Channel length (PineScript: n1)
-WT_AVERAGE_LEN  = 21        # Average length (PineScript: n2)
-WT_SIGNAL_LEN   = 20        # Signal-line length (PineScript: wt2_len, v3.5.0 default 20)
-WT_SIGNAL_TYPE  = "ALMA"    # Signal-line smoother (PineScript: wt2_type, v3.5.0 default ALMA)
-WT_ALMA_OFFSET  = 0.85      # ALMA offset (PineScript ta.alma default)
-WT_ALMA_SIGMA   = 6         # ALMA sigma  (PineScript ta.alma default)
-WT_OB_LEVEL_1   = 80        # Overbought primary
-WT_OB_LEVEL_2   = 60        # Overbought secondary
-WT_OS_LEVEL_1   = -80       # Oversold primary
-WT_OS_LEVEL_2   = -60       # Oversold secondary
-
-# Calibrated Conviction reference bands (Intelligence Mode metric card)
-CC_OB_LEVEL_1   = 100    # Overbought primary
-CC_OB_LEVEL_2   = 80     # Overbought secondary
-CC_OS_LEVEL_1   = -100   # Oversold primary
-CC_OS_LEVEL_2   = -80    # Oversold secondary
-
-# Similar-period finder
-SIMILAR_W_MAHA  = 0.55   # Mahalanobis distance weight
-SIMILAR_W_TRAJ  = 0.35   # trajectory cosine-similarity weight
-SIMILAR_W_RECV  = 0.10   # recency decay weight
-TRAJ_WINDOW     = 20     # trajectory comparison window (trading days)
-BACKTEST_HORIZON = 20    # default forward-return horizon for the backtest scatter (trading days)
-
-# Chart display
-OU_PROJ_DAYS    = 90     # OU mean-reversion projection horizon (calendar days)
+from config import (  # noqa: E402
+    EXPECTED_COLUMNS,
+    DEPENDENT_VARS,
+    NON_PREDICTOR_COLS,
+    REQUIRED_COLUMNS,
+    MSF_SOURCE_COLUMNS,
+    TIMEFRAMES,
+    CORR_HALF_LIFE,
+    PCT_HALF_LIFE,
+    MOOD_SCALE,
+    KALMAN_CI_Z,
+    KALMAN_HALF_LIFE,
+    DATA_TTL,
+    CORR_MIN_WARMUP,
+    CORR_REBALANCE_PERIOD,
+    REGIME_WINDOW,
+    REGIME_MIN_HISTORY,
+    REGIME_SMOOTH,
+    MSF_WINDOW,
+    MSF_ROC_LEN,
+    MSF_ZSCORE_CLIP,
+    MSF_SCALE,
+    MSF_MIN_WEIGHT,
+    MSF_MAX_WEIGHT,
+    MSF_MIN_WARMUP,
+    MSF_DEGENERATE_STD,
+    MSF_OB_LEVEL_1,
+    MSF_OB_LEVEL_2,
+    MSF_OS_LEVEL_1,
+    MSF_OS_LEVEL_2,
+    MSF_SIGNAL_Y,
+    WT_CHANNEL_LEN,
+    WT_AVERAGE_LEN,
+    WT_SIGNAL_LEN,
+    WT_SIGNAL_TYPE,
+    WT_ALMA_OFFSET,
+    WT_ALMA_SIGMA,
+    WT_OB_QUANTILE_1,
+    WT_OB_QUANTILE_2,
+    WT_OB_LEVEL_1,
+    WT_OB_LEVEL_2,
+    WT_OS_LEVEL_1,
+    WT_OS_LEVEL_2,
+    CC_OB_LEVEL_1,
+    CC_OB_LEVEL_2,
+    CC_OS_LEVEL_1,
+    CC_OS_LEVEL_2,
+    SIMILAR_W_MAHA,
+    SIMILAR_W_TRAJ,
+    SIMILAR_W_RECV,
+    SIMILAR_MIN_SEPARATION,
+    SIMILAR_EXCLUDE_TAIL,
+    TRAJ_WINDOW,
+    BACKTEST_HORIZON,
+    OU_PROJ_DAYS,
+    STALE_DATA_DAYS,
+)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DOMAIN LOOK-UP TABLES
@@ -241,46 +194,19 @@ REGIME_STYLES: dict[str, tuple[str, str]] = {
 # PLOTLY_BASE imported from ui.theme (transparent paper/plot + JetBrains Mono).
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HYPERPARAMETER OVERRIDES  (Intelligence Mode hook-point)
+# ENGINE LOG VERBOSITY
 # ══════════════════════════════════════════════════════════════════════════════
-# The engine reads constants like CORR_HALF_LIFE, MSF_WINDOW, etc. directly
-# from module globals. Intelligence Mode temporarily overrides those globals
-# inside the `hyperparam_overrides(...)` context manager, runs the pipeline,
-# then restores them. This keeps the engine code untouched while letting the
-# optimizer explore alternate hyperparameter configurations.
 
 from contextlib import contextmanager as _contextmanager
 
-# Names of hyperparameters the Intelligence Mode is allowed to tune.
-# (Whitelist — prevents an Optuna search from accidentally overwriting state
-# that isn't meant to be a hyperparameter.)
-TUNABLE_HYPERPARAMS: tuple[str, ...] = (
-    "CORR_HALF_LIFE",
-    "PCT_HALF_LIFE",
-    "KALMAN_HALF_LIFE",
-    "MSF_WINDOW",
-    "MSF_ROC_LEN",
-    "MSF_ZSCORE_CLIP",
-    "CORR_MIN_WARMUP",
-    "CORR_REBALANCE_PERIOD",
-)
-
-
-def get_default_hyperparams() -> dict:
-    """Return the factory-default values for every tunable hyperparameter."""
-    return {k: globals()[k] for k in TUNABLE_HYPERPARAMS}
-
-
-# Set to True by ``calibration_quiet_mode()`` while Optuna trials run. The
-# engine's trailing per-call detail log line is suppressed when this is
-# True — otherwise N trials would emit N noisy log lines on the operator
-# console, drowning the structured calibration phase output.
+# Suppresses the engine's trailing per-call detail line. Used by the test
+# suite and by any batch caller that runs the engine in a loop.
 _CALIBRATION_QUIET: bool = False
 
 
 @_contextmanager
-def calibration_quiet_mode():
-    """Suppress engine detail logs for the duration of a calibration sweep."""
+def quiet_engine_logs():
+    """Suppress engine detail logs for the duration of a batch run."""
     global _CALIBRATION_QUIET
     prev = _CALIBRATION_QUIET
     _CALIBRATION_QUIET = True
@@ -289,34 +215,6 @@ def calibration_quiet_mode():
     finally:
         _CALIBRATION_QUIET = prev
 
-
-@_contextmanager
-def hyperparam_overrides(params: dict | None):
-    """Temporarily swap engine-level hyperparameter constants.
-
-    Usage::
-
-        with hyperparam_overrides({"CORR_HALF_LIFE": 380, "MSF_WINDOW": 24}):
-            mood_df = _calculate_historical_mood_impl(raw_df, predictors)
-
-    Restores the original module globals on context exit, even if the body
-    raises. ``None`` / ``{}`` is a no-op.
-    """
-    if not params:
-        yield
-        return
-    saved: dict = {}
-    g = globals()
-    for k, v in params.items():
-        if k not in TUNABLE_HYPERPARAMS:
-            continue
-        if k in g:
-            saved[k] = g[k]
-            g[k] = v
-    try:
-        yield
-    finally:
-        g.update(saved)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DESIGN SYSTEM — injected from ui/theme.css (Obsidian Quant)
@@ -575,74 +473,118 @@ def shannon_entropy(values, n_bins=20):
     h_max = np.log2(adaptive_bins)
     return np.clip(h_corrected / h_max, 0.0, 1.0) if h_max > 0 else 0.0
 
+class _FenwickTree:
+    """Binary-indexed tree over value ranks, holding decayed observation mass.
+
+    Supports O(log N) point-update and prefix-sum, plus an O(N) rescale used
+    to keep the exponentially growing mass representable in float64.
+    """
+
+    __slots__ = ("_n", "_t")
+
+    def __init__(self, n: int) -> None:
+        self._n = n
+        self._t = np.zeros(n + 1, dtype=np.float64)
+
+    def add(self, i: int, value: float) -> None:
+        """Add ``value`` at 1-based index ``i``."""
+        t, n = self._t, self._n
+        while i <= n:
+            t[i] += value
+            i += i & (-i)
+
+    def prefix(self, i: int) -> float:
+        """Sum over 1-based indices [1, i]."""
+        t, s = self._t, 0.0
+        while i > 0:
+            s += t[i]
+            i -= i & (-i)
+        return s
+
+    def rescale(self, factor: float) -> None:
+        """Divide every stored mass by ``factor`` (the tree is linear)."""
+        self._t /= factor
+
+
 def adaptive_percentile(series, half_life=252):
     """
-    Exponential-decay-weighted empirical CDF — O(N log N) via sorted-insert.
+    Exponential-decay-weighted empirical CDF — O(N log N).
 
-    For each time t, the percentile of x_t is:
-        P(t) = Σ_{i≤t} w_i · 𝟙(x_i ≤ x_t) / Σ_{i≤t} w_i
-    where w_i = exp(-λ·(t-i)), λ = ln(2)/half_life.
+    For each time t the percentile of x_t is
 
-    Implementation: maintain a sorted array of observed values with their
-    insertion times. At each step, binary-search for x_t's rank position,
-    compute the cumulative weighted CDF using vectorised decay on the
-    sorted array. The search is O(log N), but list insertion is O(N).
-    Total time complexity: O(N²).
+        P(t) = Σ_{i≤t} w_i · 1(x_i ≤ x_t) / Σ_{i≤t} w_i,   w_i = exp(-λ(t-i))
 
-    Greenwald & Khanna (2001) motivates the streaming quantile approach;
-    here the sorted-insert + searchsorted is exact.
+    Implementation. Writing w_i = exp(-λt)·exp(λi), the exp(-λt) factor is
+    common to numerator and denominator and cancels. What remains is a
+    prefix-sum over value rank of the mass exp(λi), which a Fenwick tree
+    answers in O(log N) per step — O(N log N) overall.
+
+    The previous implementation re-derived the full decay vector at every
+    step (O(N) per step, O(N²) overall) and was the single largest cost in
+    the engine: ~436 ms at N=4000 versus ~9 ms here.
+
+    exp(λi) grows without bound, so the tree is rescaled whenever the running
+    total exceeds ``_RESCALE_AT``; because the tree is linear in its stored
+    values, an elementwise divide is exact.
+
+    Ties are handled by ranking against the sorted unique values with
+    ``side='right'``, which counts every observation ≤ x_t.
 
     Used in: calculate_historical_mood (Layer 3)
     """
-    from bisect import bisect_right
-
     values = np.asarray(series, dtype=np.float64)
     n = len(values)
     if n == 0:
         return np.array([])
 
-    lam = np.log(2) / max(half_life, 1)
     valid = np.isfinite(values)
-
     if not np.any(valid):
         return np.full(n, 0.5)
 
+    lam = np.log(2) / max(half_life, 1)
+
+    # Rank space: 1-based index of each value among the sorted unique values.
+    uniques = np.unique(values[valid])
+    ranks = np.searchsorted(uniques, values, side="right")  # 0 for NaN-ish lows
+    n_ranks = len(uniques)
+
+    tree = _FenwickTree(n_ranks)
     result = np.full(n, np.nan)
 
-    # Maintain parallel sorted arrays: sorted_vals (for bisect) and
-    # sorted_times (insertion time for each value, same order).
-    sorted_vals = []    # sorted by value
-    sorted_times = []   # insertion time corresponding to each sorted value
-    total_weight = 0.0  # running sum of all weights (decayed each step)
-    decay_factor = np.exp(-lam)  # multiplicative decay per step
+    total = 0.0
+    _RESCALE_AT = 1e150
+    log_scale = 0.0   # accumulated log of the rescale factors already applied
 
     for t in range(n):
-        # Decay all existing weights by one step (equivalent to aging everything)
-        total_weight *= decay_factor
-
         if not valid[t]:
             continue
 
-        v = values[t]
-        w_new = 1.0  # current observation always has weight 1.0 (most recent)
+        # Mass of this observation in the shifted frame.
+        mass = np.exp(lam * t - log_scale)
+        if not np.isfinite(mass):
+            # Frame has drifted too far; re-anchor on the current step.
+            shift = lam * t - log_scale
+            tree.rescale(np.exp(shift))
+            total /= np.exp(shift)
+            log_scale += shift
+            mass = 1.0
 
-        # Insert into sorted order
-        pos = bisect_right(sorted_vals, v)
-        sorted_vals.insert(pos, v)
-        sorted_times.insert(pos, t)
-        total_weight += w_new
+        tree.add(int(ranks[t]), mass)
+        total += mass
 
-        if total_weight < 1e-12:
+        if total <= 0.0:
             continue
+        # Clip to [0, 1]: the Fenwick prefix and the running total accumulate
+        # in different orders, so their ratio can overshoot the closed unit
+        # interval by an ulp or two. A percentile outside [0, 1] would flow
+        # straight into the (1 - 2*pct) mapping in Layer 3.
+        result[t] = min(max(tree.prefix(int(ranks[t])) / total, 0.0), 1.0)
 
-        # Compute weighted CDF: sum of weights for all values ≤ v
-        # All values in sorted_vals[:pos+1] have value ≤ v (side='right')
-        # Their weights are exp(-λ·(t - insertion_time))
-        times_leq = np.array(sorted_times[:pos + 1], dtype=np.float64)
-        w_leq = np.exp(-lam * (t - times_leq))
-        result[t] = np.sum(w_leq) / total_weight
+        if total > _RESCALE_AT:
+            tree.rescale(_RESCALE_AT)
+            total /= _RESCALE_AT
+            log_scale += np.log(_RESCALE_AT)
 
-    # Convert lists to arrays for the final cleanup
     return pd.Series(result).ffill().fillna(0.5).values
 
 def kalman_filter_1d(
@@ -664,7 +606,7 @@ def kalman_filter_1d(
     obs = np.asarray(observations, dtype=np.float64)
     n = len(obs)
     if n == 0:
-        return np.array([]), np.array([]), np.array([])
+        return np.array([]), np.array([])
     
     # Causal noise estimation flags
     auto_process = process_var is None
@@ -890,80 +832,95 @@ def cosine_similarity(a, b):
         return 0.0
     return np.dot(a, b) / (norm_a * norm_b)
 
-def detect_regime_transitions(hurst_values, entropy_values, window=10):
+def detect_regime_transitions(
+    hurst_values,
+    entropy_values,
+    window: int = REGIME_SMOOTH,
+    min_history: int = REGIME_MIN_HISTORY,
+):
     """
-    Detect regime transitions using Hurst exponent + entropy jointly.
-    
-    The idea: market operates in one of 4 quadrants:
-      High H, Low S  → Trending/Ordered   (momentum works, strong directional move)
-      High H, High S → Trending/Disordered (volatile trend, large swings in one direction)
-      Low H, Low S   → Mean-reverting/Ordered (range-bound, predictable oscillation)
-      Low H, High S  → Mean-reverting/Disordered (choppy chaos, hardest to trade)
-    
-    A regime TRANSITION is when the market crosses quadrant boundaries.
-    Specifically, the most important transitions are:
-      Trending→Choppy : H drops below 0.5 while S rises → trend exhaustion
-      Choppy→Trending : H rises above 0.5 while S drops → new trend emerging
-    
-    We smooth both signals and detect crossover events.
-    
-    Returns: array of regime labels + transition indices
+    Classify each observation into a Hurst x entropy quadrant.
+
+        High H, Low S  -> Trending        (momentum works)
+        High H, High S -> Volatile Trend  (directional, large swings)
+        Low  H, Low S  -> Mean-Reverting  (range-bound)
+        Low  H, High S -> Choppy          (hardest to trade)
+
+    Thresholds are ADAPTIVE and CAUSAL.
+
+    Both axes are split at their own *expanding* median rather than at a
+    fixed constant. Two reasons:
+
+      1. The theoretical H = 0.5 random-walk boundary does not apply here.
+         Hurst is measured on the mood score, which is a smoothed composite
+         of percentiles — empirically ~84% of observations sit above 0.5 and
+         the upper quartile pins to the 0.99 clip, so a 0.5 split assigns
+         nearly everything to "trending" and the four quadrants collapse to
+         one. Entropy is similarly compressed (interquartile range ~0.89 to
+         ~0.96).
+
+      2. The previous implementation used the median of the *whole* series,
+         which meant the regime label at time t depended on data from after
+         t. The expanding median uses only observations up to and including
+         t, so labels are reproducible and never revised by future data.
+
+    Labels are therefore RELATIVE: "Trending" means persistent relative to
+    this series' own history, not H > 0.5 in the absolute sense.
+
+    Until ``min_history`` observations are available the classification is
+    withheld ('Unknown') rather than guessed from a handful of points.
+
+    Returns: (array of regime labels, list of transition records)
     """
     h = np.asarray(hurst_values, dtype=np.float64)
     s = np.asarray(entropy_values, dtype=np.float64)
     n = len(h)
-    
-    if n < window * 2:
+
+    if n < max(window * 2, 4):
         return np.full(n, 'Unknown', dtype=object), []
-    
-    # Smooth both signals to avoid noise-triggered transitions
-    h_smooth = pd.Series(h).rolling(window=window, min_periods=1).mean().values
-    s_smooth = pd.Series(s).rolling(window=window, min_periods=1).mean().values
-    
-    # Median thresholds (adaptive to the data, not hardcoded)
-    h_threshold = 0.5   # Theoretical random walk boundary
-    s_median = np.median(s_smooth[s_smooth > 0]) if np.any(s_smooth > 0) else 0.5
-    
-    # Classify each point into regime quadrant
-    regimes = np.full(n, 'Unknown', dtype=object)
-    for i in range(n):
-        trending = h_smooth[i] > h_threshold
-        ordered = s_smooth[i] < s_median
-        
-        if trending and ordered:
-            regimes[i] = 'Trending'         # Best for momentum
-        elif trending and not ordered:
-            regimes[i] = 'Volatile Trend'   # Momentum with risk
-        elif not trending and ordered:
-            regimes[i] = 'Mean-Reverting'   # Best for contrarian
-        else:
-            regimes[i] = 'Choppy'           # Hardest to trade
-    
-    # Detect transition points (regime[i] != regime[i-1])
+
+    # Smooth both axes so single-point jitter doesn't trigger a transition.
+    h_smooth = pd.Series(h).rolling(window=window, min_periods=1).mean()
+    s_smooth = pd.Series(s).rolling(window=window, min_periods=1).mean()
+
+    # Causal, self-calibrating thresholds.
+    h_thresh = h_smooth.expanding(min_periods=1).median().to_numpy()
+    s_thresh = s_smooth.expanding(min_periods=1).median().to_numpy()
+    h_arr = h_smooth.to_numpy()
+    s_arr = s_smooth.to_numpy()
+
+    trending = h_arr > h_thresh
+    ordered  = s_arr < s_thresh
+
+    regimes = np.where(
+        trending,
+        np.where(ordered, 'Trending', 'Volatile Trend'),
+        np.where(ordered, 'Mean-Reverting', 'Choppy'),
+    ).astype(object)
+
+    # Withhold a verdict until the adaptive thresholds have enough support.
+    warm = min(min_history, n)
+    regimes[:warm] = 'Unknown'
+
+    # Transition records (a change of quadrant between consecutive points).
+    major_pairs = {
+        ('Trending', 'Choppy'), ('Choppy', 'Trending'),
+        ('Trending', 'Mean-Reverting'), ('Mean-Reverting', 'Trending'),
+    }
     transitions = []
     for i in range(1, n):
-        if regimes[i] != regimes[i - 1]:
-            prev = regimes[i - 1]
-            curr = regimes[i]
-            
-            # Classify transition significance
-            # Major: Trending↔Choppy (complete character flip)
-            # Minor: adjacent quadrant shifts
-            major_pairs = {
-                ('Trending', 'Choppy'), ('Choppy', 'Trending'),
-                ('Trending', 'Mean-Reverting'), ('Mean-Reverting', 'Trending'),
-            }
-            is_major = (prev, curr) in major_pairs
-            
-            transitions.append({
-                'index': i,
-                'from': prev,
-                'to': curr,
-                'major': is_major,
-                'hurst': h_smooth[i],
-                'entropy': s_smooth[i],
-            })
-    
+        prev, curr = regimes[i - 1], regimes[i]
+        if prev == curr or 'Unknown' in (prev, curr):
+            continue
+        transitions.append({
+            'index': i,
+            'from': prev,
+            'to': curr,
+            'major': (prev, curr) in major_pairs,
+            'hurst': float(h_arr[i]),
+            'entropy': float(s_arr[i]),
+        })
+
     return regimes, transitions
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -982,8 +939,8 @@ def _fetch_sheet_csv(max_retries: int = 3) -> str:
     if not SHEET_ID or not SHEET_GID:
         raise RuntimeError(
             "ARTHAGATI_SHEET_ID and ARTHAGATI_SHEET_GID environment variables are not set.\n"
-            '  export ARTHAGATI_SHEET_ID="1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c"\n'
-            '  export ARTHAGATI_SHEET_GID="1938234952"'
+            '  export ARTHAGATI_SHEET_ID="<spreadsheet-id>"   # from the sheet URL\n'
+            '  export ARTHAGATI_SHEET_GID="<worksheet-gid>"   # the ?gid= parameter'
         )
 
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid={SHEET_GID}"
@@ -1203,14 +1160,23 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
     if not checkpoints or checkpoints[-1] != n - 1:
         checkpoints.append(n - 1)
 
-    # Pre-compute returns for expanding entropy
+    # Pre-compute first differences for the expanding entropy estimate.
+    #
+    # These used to be relative changes (diff / |prev|). Several predictors
+    # cross zero — both term spreads by construction, plus PE_DEV / EY_DEV —
+    # and a denominator near zero produced returns of several hundred x. A
+    # single such spike dominates the Freedman-Diaconis bin width and
+    # corrupts that variable's entropy weight for the rest of the run.
+    #
+    # Entropy is estimated from a histogram whose bin width already adapts to
+    # the data's scale, so it is invariant to the units of the differenced
+    # series. Plain first differences are therefore both safe and sufficient.
     var_returns_all = {}
     for var in vars_to_check:
         vals = df[var].values
         rets = np.empty(len(vals))
         rets[0] = np.nan
-        with np.errstate(divide='ignore', invalid='ignore'):
-            rets[1:] = np.where(np.abs(vals[:-1]) > 1e-12, np.diff(vals) / np.abs(vals[:-1]), 0.0)
+        rets[1:] = np.diff(vals)
         rets = np.where(np.isfinite(rets), rets, np.nan)
         var_returns_all[var] = rets
 
@@ -1238,7 +1204,20 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
         seg_start = checkpoints[cp_idx - 1] + 1 if cp_idx > 0 else 0
         seg_end = cp + 1
 
-        cp_n = cp + 1
+        # CAUSALITY: the statistics applied to a segment must be estimated
+        # on data that ends BEFORE the segment begins.
+        #
+        # This block previously used `cp_n = cp + 1` — data through the END
+        # of the very segment being scored — so a score at time t depended
+        # on up to CORR_REBALANCE_PERIOD days of its own future. Measured on
+        # synthetic data, perturbing only rows after index 300 moved scores
+        # inside the untouched prefix by as much as 12.75 points.
+        #
+        # Segment k now reads its weights from checkpoint k-1. The first
+        # segment has no prior checkpoint, so it borrows the first one and
+        # is flagged Is_Warmup; those rows are excluded from every
+        # evaluation path (calibration folds, backtest, IR scoring).
+        cp_n = (checkpoints[cp_idx - 1] + 1) if cp_idx > 0 else (checkpoints[0] + 1)
         cp_half_life = min(CORR_HALF_LIFE, cp_n // 2) if cp_n > 20 else max(cp_n // 2, 5)
         cp_weights = exponential_decay_weights(cp_n, cp_half_life)
 
@@ -1423,8 +1402,8 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
     # readings stay internally consistent. Computing Hurst on price *levels*
     # produces H≈1.0 trivially (integrated random walk) — that's why this
     # operates on mood_scores, which are OU-normalized and stationary.
-    hurst_vals = rolling_hurst(mood_scores, window=90, step=5)
-    entropy_vals = rolling_entropy(mood_scores, window=90, n_bins=15)
+    hurst_vals = rolling_hurst(mood_scores, window=REGIME_WINDOW, step=5)
+    entropy_vals = rolling_entropy(mood_scores, window=REGIME_WINDOW, n_bins=15)
 
     # ── Regime Detection ────────────────────────────────────────────────
     regime_labels, regime_transitions = detect_regime_transitions(hurst_vals, entropy_vals)
@@ -1451,6 +1430,10 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
         'Confidence_Upper': np.tanh(confidence_upper / 100.0) * 100.0,
         'Confidence_Lower': np.tanh(confidence_lower / 100.0) * 100.0,
         'Regime': regime_labels,
+        # True for rows scored with borrowed (non-causal) warm-up statistics.
+        # Every evaluation path filters these out; the chart still draws them
+        # so the Kalman and MSF chains stay continuous.
+        'Is_Warmup': np.arange(n) < min(min_warmup, n),
     })
 
     if not _CALIBRATION_QUIET:
@@ -1498,9 +1481,22 @@ def _calculate_msf_spread_impl(df, mood_col='Mood_Score', nifty_col='NIFTY', bre
     result = pd.DataFrame(index=df.index)
     n = len(df)
     
+    # Missing sources used to be replaced with constants (or, for NIFTY,
+    # with the mood score itself). Both choices produced a plausible-looking
+    # but meaningless oscillator. Absence is now recorded so the component is
+    # excluded from the composite and reported to the user.
+    missing_sources: list[str] = []
     mood = df[mood_col].values if mood_col in df.columns else np.zeros(n)
-    nifty = df[nifty_col].values if nifty_col in df.columns else mood
-    breadth = df[breadth_col].values if breadth_col in df.columns else np.ones(n)
+    if nifty_col in df.columns:
+        nifty = df[nifty_col].values
+    else:
+        missing_sources.append(nifty_col)
+        nifty = np.full(n, np.nan)
+    if breadth_col in df.columns:
+        breadth = df[breadth_col].values
+    else:
+        missing_sources.append(breadth_col)
+        breadth = np.full(n, np.nan)
     
     mood_series = pd.Series(mood, index=df.index)
     nifty_series = pd.Series(nifty, index=df.index)
@@ -1509,6 +1505,13 @@ def _calculate_msf_spread_impl(df, mood_col='Mood_Score', nifty_col='NIFTY', bre
     if n == 0:
         console.failure("MSF Spread", "received an empty DataFrame — no rows to process")
         return result
+
+    if missing_sources and not _CALIBRATION_QUIET:
+        console.issue(
+            "SCHEMA", "MSF Spread",
+            f"source column(s) absent: {', '.join(missing_sources)} — "
+            f"the dependent component(s) will be excluded from the composite",
+        )
     
     # ── Component 1: Momentum (NIFTY ROC z-score) ──────────────────────
     roc_raw = nifty_series.pct_change(MSF_ROC_LEN)
@@ -1564,42 +1567,100 @@ def _calculate_msf_spread_impl(df, mood_col='Mood_Score', nifty_col='NIFTY', bre
     breadth_z = zscore_clipped(breadth_ratio - 1, MSF_WINDOW, MSF_ZSCORE_CLIP)
     flow_norm = sigmoid(breadth_z, 1.5)
     
-    # ── Inverse-Variance Weighting ──────────────────────────────────────
+    # ── Inverse-Variance Weighting (causal + guarded) ───────────────────
     # Markowitz for signals: stable (low variance) components get more weight.
+    #
+    # Two defects are fixed here.
+    #
+    # 1. LOOK-AHEAD. Weights were derived from the variance of the LAST 60
+    #    rows and applied across all of history, so historical MSF values
+    #    shifted every time new data arrived (measured: up to 0.52 on a +/-5
+    #    band). The variance is now EXPANDING — the weight at time t uses
+    #    only observations up to t.
+    #
+    # 2. DEGENERATE CAPTURE. A component with zero variance took
+    #    1/1e-6 = 1e6 inverse-variance and won ~100% of the weight; because a
+    #    constant component is identically zero after the z-score/sigmoid
+    #    chain, the whole composite collapsed to a flat line (measured std
+    #    0.0001 versus a healthy 1.95). A missing AD_RATIO column alone was
+    #    enough to trigger it. Weights are now clamped to
+    #    [MSF_MIN_WEIGHT, MSF_MAX_WEIGHT] and renormalised, and any component
+    #    whose full-sample std falls below MSF_DEGENERATE_STD is reported.
     components = {
         'momentum': momentum_norm,
         'structure': structure_norm,
         'regime': regime_norm,
         'flow': flow_norm,
     }
-    
-    tail_window = min(60, n)
-    inv_vars = {}
-    for name, comp in components.items():
-        comp_vals = comp.values if hasattr(comp, 'values') else np.asarray(comp)
-        tail = comp_vals[-tail_window:]
-        tail_clean = tail[np.isfinite(tail)]
-        var = np.var(tail_clean) if len(tail_clean) > 5 else 1.0
-        inv_vars[name] = 1.0 / max(var, 1e-6)
-    
-    total_inv_var = sum(inv_vars.values())
-    weights = {k: v / total_inv_var for k, v in inv_vars.items()}
-    
-    msf_raw = sum(weights[name] * comp for name, comp in components.items())
-    msf_spread = msf_raw * MSF_SCALE
+    names = list(components)
+    comp_mat = np.column_stack([
+        np.asarray(components[k].values if hasattr(components[k], 'values') else components[k],
+                   dtype=np.float64)
+        for k in names
+    ])
+    comp_mat = np.where(np.isfinite(comp_mat), comp_mat, 0.0)
+
+    # Components that carry no information at all over the full sample.
+    full_std = comp_mat.std(axis=0)
+    degenerate = [names[i] for i in range(len(names)) if full_std[i] < MSF_DEGENERATE_STD]
+
+    # Expanding mean/variance per component, O(N) via cumulative sums.
+    counts = np.arange(1, n + 1, dtype=np.float64)[:, None]
+    cs = np.cumsum(comp_mat, axis=0)
+    cs2 = np.cumsum(comp_mat ** 2, axis=0)
+    exp_var = (cs2 - (cs ** 2) / counts) / np.maximum(counts - 1.0, 1.0)
+    exp_var = np.maximum(exp_var, 1e-6)
+
+    inv_var = 1.0 / exp_var
+    w = inv_var / inv_var.sum(axis=1, keepdims=True)
+
+    # Clamp, then renormalise. Iterate twice so a clamp on one component
+    # cannot push another back outside the band.
+    for _ in range(2):
+        w = np.clip(w, MSF_MIN_WEIGHT, MSF_MAX_WEIGHT)
+        w = w / w.sum(axis=1, keepdims=True)
+
+    # Equal weights until there is enough history to estimate variance.
+    warm = min(MSF_MIN_WARMUP, n)
+    w[:warm, :] = 1.0 / len(names)
+
+    # A dead component contributes nothing but must not absorb weight from
+    # the live ones either — zero it out and redistribute.
+    if degenerate:
+        for i, name in enumerate(names):
+            if name in degenerate:
+                w[:, i] = 0.0
+        row_sum = w.sum(axis=1, keepdims=True)
+        w = np.where(row_sum > 1e-12, w / np.maximum(row_sum, 1e-12), 1.0 / len(names))
+
+    msf_raw = np.sum(w * comp_mat, axis=1)
+    msf_spread = pd.Series(msf_raw * MSF_SCALE, index=df.index)
 
     result['msf_spread'] = msf_spread
     result['momentum']   = momentum_norm  * MSF_SCALE
     result['structure']  = structure_norm * MSF_SCALE
     result['regime']     = regime_norm    * MSF_SCALE
     result['flow']       = flow_norm      * MSF_SCALE
-    
+
+    # Latest weights, for the console line and the component breakdown card.
+    weights = {name: float(w[-1, i]) for i, name in enumerate(names)}
+    result.attrs['weights'] = weights
+    result.attrs['degenerate_components'] = degenerate
+
     weight_str = '  '.join(f"{k}={v:.0%}" for k, v in weights.items())
     if not _CALIBRATION_QUIET:
         console.detail(
             f"MSF Spread complete — {time.time() - start_time:.2f}s  ·  "
-            f"Inverse-variance weights: {weight_str}"
+            f"Latest inverse-variance weights: {weight_str}"
         )
+        if degenerate:
+            console.issue(
+                "DATA",
+                "MSF Spread",
+                f"{len(degenerate)} component(s) carry no signal and were excluded: "
+                f"{', '.join(degenerate)}. Check the source columns "
+                f"({', '.join(sorted(set(MSF_SOURCE_COLUMNS.values())))}) in the sheet.",
+            )
     return result
 
 
@@ -1680,6 +1741,34 @@ def _calculate_wavetrend_impl(
     return out
 
 
+def wavetrend_bands(wt1: np.ndarray) -> tuple[float, float]:
+    """Overbought/oversold levels for the WaveTrend pane, from the data.
+
+    LazyBear's +/-80 and +/-60 assume ``ci`` built from hlc3. Driven by
+    Mood_Score the oscillator has a different scale: measured over synthetic
+    and production-shaped data, |wt1| peaks near 70 and never reaches 80, so
+    the primary band was unreachable and roughly 40% of the pane was
+    permanently empty.
+
+    The levels are quantiles of |wt1| over the FULL history — not the visible
+    window — so they stay put as the user switches timeframes, and they move
+    only slowly as new data arrives. Falls back to the config constants when
+    there is too little history to estimate them.
+    """
+    finite = wt1[np.isfinite(wt1)]
+    if len(finite) < 100:
+        return float(WT_OB_LEVEL_1), float(WT_OB_LEVEL_2)
+    mag = np.abs(finite)
+    primary = float(np.quantile(mag, WT_OB_QUANTILE_1))
+    secondary = float(np.quantile(mag, WT_OB_QUANTILE_2))
+    # Round to a readable gridline and keep the bands apart.
+    primary = max(round(primary / 5.0) * 5.0, 10.0)
+    secondary = max(round(secondary / 5.0) * 5.0, 5.0)
+    if secondary >= primary:
+        secondary = max(primary - 5.0, 5.0)
+    return primary, secondary
+
+
 @st.cache_data(max_entries=5, show_spinner=False)
 def calculate_wavetrend(df, source_col: str = 'Mood_Score'):
     """Cached public entry — delegates to ``_calculate_wavetrend_impl``
@@ -1695,79 +1784,90 @@ def calculate_wavetrend(df, source_col: str = 'Mood_Score'):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(max_entries=5, show_spinner=False)
-def find_similar_periods(df, top_n=10, recency_weight=0.1):
+def find_similar_periods(
+    df,
+    top_n: int = 10,
+    recency_weight: float = SIMILAR_W_RECV,
+    min_separation: int = SIMILAR_MIN_SEPARATION,
+):
     """
-    v2.0 Similar Period Finder.
-    
+    Historical analog matching.
+
     3-part scoring:
-      1. Mahalanobis distance (55%) — covariance-aware state matching
+      1. Mahalanobis distance   — covariance-aware state matching
          Features: mood, volatility, NIFTY momentum, Hurst, entropy
-      2. Trajectory cosine similarity (35%) — detrended mood path shape
-      3. Exponential recency decay (10%) — prefer recent analogs
+      2. Trajectory cosine      — detrended mood path shape
+      3. Exponential recency    — prefer recent analogs
+
+    Two corrections versus the previous implementation.
+
+    SEPARATION. ``nlargest`` returned whichever rows scored highest, and
+    adjacent trading days describe near-identical states — so the "top 10"
+    routinely collapsed onto two or three episodes (measured: five of ten
+    inside a 32-row window). Downstream the UI quotes a median forward
+    return and a hit rate over those ten rows as though they were ten
+    independent observations. Selection is now greedy with a
+    ``min_separation`` gap, and the count of distinct episodes is returned
+    so the UI can report the effective sample size honestly.
+
+    RECENCY WEIGHT. ``recency_weight`` was scaled into the recency term and
+    then normalised straight back out, making the parameter a no-op —
+    passing 0.1 or 99.0 returned identical analogs. It is now the actual
+    blend weight.
     """
     if df.empty or 'Mood_Score' not in df.columns:
         return []
-    
+
     latest = df.iloc[-1]
     n = len(df)
-    
-    historical = df.iloc[:-30].copy() if n > 30 else df.iloc[:-1].copy()
+
+    # Exclude the trailing window: those rows cannot have a full set of
+    # forward returns, so including them biases the outcome tiles.
+    tail = min(SIMILAR_EXCLUDE_TAIL, max(n - 5, 1))
+    historical = df.iloc[:-tail].copy() if n > tail else df.iloc[:-1].copy()
+    # Warm-up rows are scored with borrowed statistics — not comparable states.
+    if 'Is_Warmup' in historical.columns:
+        historical = historical[~historical['Is_Warmup'].astype(bool)]
     if historical.empty or len(historical) < 5:
         return []
-    
-    # ── Build Feature Vectors ───────────────────────────────────────────
+
+    # ── Feature vectors ─────────────────────────────────────────────────
     nifty_roc = df['NIFTY'].pct_change(MSF_ROC_LEN).fillna(0).values
-    
-    feature_cols = ['Mood_Score', 'Mood_Volatility']
+    hist_pos = np.array([df.index.get_loc(i) for i in historical.index], dtype=int)
+
     current_features = [latest['Mood_Score'], latest['Mood_Volatility']]
     hist_arrays = [historical['Mood_Score'].values, historical['Mood_Volatility'].values]
-    
-    # NIFTY momentum
-    feature_cols.append('NIFTY_ROC')
+
     current_features.append(nifty_roc[-1] if len(nifty_roc) > 0 else 0.0)
-    h_roc = nifty_roc[:len(historical)]
-    if len(h_roc) < len(historical):
-        h_roc = np.pad(h_roc, (len(historical) - len(h_roc), 0), constant_values=0)
-    hist_arrays.append(h_roc[:len(historical)])
-    
-    # Hurst (if available from v2.0 engine)
-    if 'Hurst' in df.columns:
-        feature_cols.append('Hurst')
-        current_features.append(latest['Hurst'])
-        hist_arrays.append(historical['Hurst'].values)
-    
-    # Market Entropy (if available)
-    if 'Market_Entropy' in df.columns:
-        feature_cols.append('Market_Entropy')
-        current_features.append(latest['Market_Entropy'])
-        hist_arrays.append(historical['Market_Entropy'].values)
-    
+    hist_arrays.append(nifty_roc[hist_pos])
+
+    for col in ('Hurst', 'Market_Entropy'):
+        if col in df.columns:
+            current_features.append(latest[col])
+            hist_arrays.append(historical[col].values)
+
     current_vec = np.array(current_features, dtype=np.float64)
     hist_matrix = np.column_stack(hist_arrays)
-    
-    # Clean NaN/Inf → column medians
+
     for col in range(hist_matrix.shape[1]):
         col_data = hist_matrix[:, col]
         valid = np.isfinite(col_data)
         median_val = np.median(col_data[valid]) if valid.any() else 0.0
         hist_matrix[~valid, col] = median_val
     current_vec = np.where(np.isfinite(current_vec), current_vec, 0.0)
-    
-    # ── Part 1: Mahalanobis Distance (55%) ──────────────────────────────
+
+    # ── Part 1: Mahalanobis distance ────────────────────────────────────
     cov_matrix = np.cov(hist_matrix, rowvar=False)
     if cov_matrix.ndim < 2:
         cov_matrix = np.array([[max(float(cov_matrix), 1e-6)]])
-    
+
     maha_dist = mahalanobis_distance_batch(hist_matrix, current_vec, cov_matrix)
     max_dist = maha_dist.max() if maha_dist.max() > 0 else 1.0
     maha_sim = 1.0 - (maha_dist / max_dist)
-    
-    # ── Part 2: Trajectory Cosine Similarity (SIMILAR_W_TRAJ) ──────────
-    traj_sim = np.zeros(len(historical))
 
+    # ── Part 2: Trajectory cosine similarity ────────────────────────────
+    traj_sim = np.zeros(len(historical))
     if n > TRAJ_WINDOW:
-        # Least-squares linear detrend (minimises residual variance, unlike endpoint
-        # anchoring which distorts on V-shaped or reversal trajectories).
         _traj_x = np.arange(TRAJ_WINDOW, dtype=np.float64)
         _traj_xm = _traj_x - _traj_x.mean()
         _traj_xvar = np.sum(_traj_xm ** 2)
@@ -1778,38 +1878,46 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
             slope = np.sum(_traj_xm * (traj - traj.mean())) / _traj_xvar
             return traj - (traj.mean() + slope * _traj_xm)
 
-        current_traj = df['Mood_Score'].values[-TRAJ_WINDOW:]
-        ct_detrended = _ls_detrend(current_traj)
-
-        for j, idx in enumerate(historical.index):
-            pos = df.index.get_loc(idx)
+        mood_vals = df['Mood_Score'].values
+        ct_detrended = _ls_detrend(mood_vals[-TRAJ_WINDOW:])
+        for j, pos in enumerate(hist_pos):
             if pos >= TRAJ_WINDOW:
-                hist_traj = df['Mood_Score'].values[pos - TRAJ_WINDOW:pos]
-                ht_detrended = _ls_detrend(hist_traj)
-                traj_sim[j] = (cosine_similarity(ct_detrended, ht_detrended) + 1) / 2
+                ht = _ls_detrend(mood_vals[pos - TRAJ_WINDOW:pos])
+                traj_sim[j] = (cosine_similarity(ct_detrended, ht) + 1) / 2
 
-    # ── Part 3: Exponential Recency Decay (SIMILAR_W_RECV) ──────────────
+    # ── Part 3: Exponential recency decay ───────────────────────────────
     days_since = (latest['DATE'] - historical['DATE']).dt.days.values.astype(float)
-    recency = np.exp(-np.log(2) * days_since / 365.0) * recency_weight
-    recency_norm = recency / max(recency.max(), 1e-6)
+    recency_norm = np.exp(-np.log(2) * days_since / 365.0)
 
     # ── Combined ────────────────────────────────────────────────────────
-    combined = SIMILAR_W_MAHA * maha_sim + SIMILAR_W_TRAJ * traj_sim + SIMILAR_W_RECV * recency_norm
-    
-    historical = historical.copy()
-    historical['similarity'] = combined
-    top_similar = historical.nlargest(top_n, 'similarity')
-    
-    results = []
+    w_state = SIMILAR_W_MAHA
+    w_traj  = SIMILAR_W_TRAJ
+    w_recv  = float(recency_weight)
+    w_total = max(w_state + w_traj + w_recv, 1e-9)
+    combined = (w_state * maha_sim + w_traj * traj_sim + w_recv * recency_norm) / w_total
+
+    # ── Greedy selection with a minimum separation ──────────────────────
+    order = np.argsort(-combined)
+    chosen: list[int] = []
+    chosen_pos: list[int] = []
+    for j in order:
+        pos = int(hist_pos[j])
+        if all(abs(pos - p) >= min_separation for p in chosen_pos):
+            chosen.append(int(j))
+            chosen_pos.append(pos)
+        if len(chosen) >= top_n:
+            break
+
     nifty_vals = df['NIFTY'].values
-    for _, row in top_similar.iterrows():
-        idx_pos = df.index.get_loc(row.name)
+    hist_rows = historical.iloc[chosen]
+    results = []
+    for rank, (j, pos) in enumerate(zip(chosen, chosen_pos)):
+        row = hist_rows.iloc[rank]
         nifty_at = row['NIFTY'] if 'NIFTY' in row and row['NIFTY'] > 0 else None
-        
-        # Forward returns at the new granular horizons: 5d / 20d / 60d / 90d
+
         fwd_returns = {}
-        for horizon in [5, 20, 60, 90]:
-            fwd_idx = idx_pos + horizon
+        for horizon in (5, 20, 60, 90):
+            fwd_idx = pos + horizon
             if fwd_idx < len(nifty_vals) and nifty_at and nifty_at > 0:
                 fwd_returns[horizon] = (nifty_vals[fwd_idx] / nifty_at - 1) * 100
             else:
@@ -1817,7 +1925,7 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
 
         results.append({
             'date': row['DATE'].strftime('%Y-%m-%d'),
-            'similarity': row['similarity'],
+            'similarity': float(combined[j]),
             'mood_score': row['Mood_Score'],
             'mood': row['Mood'],
             'mood_volatility': row['Mood_Volatility'],
@@ -1826,8 +1934,9 @@ def find_similar_periods(df, top_n=10, recency_weight=0.1):
             'fwd_20d': fwd_returns.get(20),
             'fwd_60d': fwd_returns.get(60),
             'fwd_90d': fwd_returns.get(90),
+            'separation_days': min_separation,
         })
-    
+
     return results
 
 
@@ -1925,17 +2034,20 @@ def _reset_passport_to_defaults() -> None:
     the active predictor set re-arms the calibrator (those code paths
     pop ``_intel_calibration_done``).
     """
-    import intelligence as _intel
-    _intel.delete_active_profile()
+    # Session-scoped. ``profiles/active.json`` is a single file shared by
+    # every session of a deployment, so deleting it here removed the
+    # calibrated profile for all concurrent users. Disabling it for this
+    # session leaves other sessions untouched; the file is reclaimed by the
+    # next successful calibration.
+    st.session_state["_intel_profile_disabled"] = True
     st.session_state["_intel_calibration_done"] = True
     st.session_state.pop("intel_last_profile", None)
-    st.toast("Profile reset to defaults.")
+    st.session_state.pop("_calibrated_conviction_series", None)
+    st.session_state.pop("_calibrated_conviction_last", None)
+    st.toast("Calibration disabled for this session.")
 
 
-def _render_intelligence_passport_body(
-    raw_df: pd.DataFrame | None = None,
-    active_predictors: tuple | None = None,
-) -> None:
+def _render_intelligence_passport_body(active_predictors: tuple | None = None) -> None:
     """Render the status card + mismatch warning + import/export/reset
     controls. Should be called AFTER the analysis pipeline completes so
     the rendered state reflects the just-saved profile.
@@ -2115,8 +2227,12 @@ def _active_ensemble_weights() -> dict | None:
     import intelligence as _intel
     if not st.session_state.get("intelligence_mode"):
         return None
+    if st.session_state.get("_intel_profile_disabled"):
+        return None
     profile = _intel.load_active_profile()
-    if profile is None or not profile.weights:
+    # Only a profile that cleared the holdout gate drives the UI. An
+    # "Overfit" profile is kept on disk for inspection but is not applied.
+    if profile is None or not profile.is_activatable:
         return None
     return dict(profile.weights)
 
@@ -2183,6 +2299,16 @@ def _compute_engine_output(
     _progress_bar(prog_slot, 80, "Computing MSF Spread", "Momentum · Structure · Regime · Flow")
     msf_df = calculate_msf_spread(mood_df)
     mood_df["MSF_Spread"] = msf_df["msf_spread"].values if not msf_df.empty else 0
+    # A component with no variance is excluded from the composite rather than
+    # capturing all of the inverse-variance weight. Record it so the view can
+    # tell the user their oscillator is running on fewer inputs.
+    _degenerate = list(msf_df.attrs.get("degenerate_components", []))
+    st.session_state["_msf_degenerate"] = _degenerate
+    if _degenerate:
+        console.warning(
+            f"MSF running on {4 - len(_degenerate)}/4 components — "
+            f"no signal in: {', '.join(_degenerate)}"
+        )
     latest_msf = float(mood_df["MSF_Spread"].iloc[-1]) if not mood_df.empty else 0.0
     console.success(f"MSF Spread computed: {latest_msf:+.2f}")
     console.end_phase("MSF Spread")
@@ -2196,6 +2322,7 @@ def _compute_engine_output(
     wt_df = calculate_wavetrend(mood_df)
     mood_df["WT1"] = wt_df["wt1"].values if not wt_df.empty else 0.0
     mood_df["WT2"] = wt_df["wt2"].values if not wt_df.empty else 0.0
+    st.session_state["_wt_bands"] = wavetrend_bands(mood_df["WT1"].to_numpy(dtype=float))
     if not wt_df.empty:
         latest_wt1 = float(mood_df["WT1"].iloc[-1])
         latest_wt2 = float(mood_df["WT2"].iloc[-1])
@@ -2217,8 +2344,27 @@ def _invalidate_engine_cache() -> None:
     """Drop session-cached engine frames + calibration. Call when inputs
     change (data refreshed, predictor set changed, profile imported)."""
     for k in ("_engine_fp", "_engine_mood_df", "_engine_msf_df",
-              "_intel_calibration_done"):
+              "_intel_calibration_done", "_msf_degenerate", "_wt_bands"):
         st.session_state.pop(k, None)
+
+
+def _clear_engine_caches() -> None:
+    """Clear this app's @st.cache_data entries — and only this app's.
+
+    ``st.cache_data.clear()`` is process-global. On a shared deployment one
+    user pressing Refresh Data used to flush every other user's cached
+    frames, forcing a full recompute in sessions that had changed nothing.
+    Clearing the specific wrapped functions keeps the blast radius local to
+    the data this app owns.
+    """
+    for fn in (load_data, calculate_anchor_correlations, calculate_historical_mood,
+               calculate_msf_spread, calculate_wavetrend, find_similar_periods):
+        try:
+            fn.clear()
+        except Exception:  # pragma: no cover — older Streamlit without .clear()
+            st.cache_data.clear()
+            break
+    _invalidate_engine_cache()
 
 
 def _auto_calibrate_if_needed(
@@ -2246,6 +2392,8 @@ def _auto_calibrate_if_needed(
 
     if not st.session_state.get("intelligence_mode"):
         return None
+    if st.session_state.get("_intel_profile_disabled"):
+        return None
 
     total_phases = int(st.session_state.get("_phase_total", 5))
 
@@ -2268,14 +2416,14 @@ def _auto_calibrate_if_needed(
     if fresh and existing is not None:
         console.section("Intelligence: Profile Fresh on Disk", phase="CACHE")
         console.item("Status",     reason)
-        console.item("Profile",    f"{existing.quality_check} · val IR {existing.val_ir:+.4f}")
+        console.item("Profile",    f"{existing.quality_check} · holdout IR {existing.holdout_ir:+.4f}")
         console.item("Fit on",     existing.data_end)
         console.item("Predictors", existing.n_predictors)
         console.success("Skipped calibration — disk profile reused")
         _progress_bar(
             prog_slot, 99,
             "Intelligence Mode · Profile Reused",
-            f"Cached val IR {existing.val_ir:+.3f}",
+            f"Cached holdout IR {existing.holdout_ir:+.3f}",
         )
         st.session_state["_intel_calibration_done"] = True
         st.session_state["intel_last_profile"] = existing
@@ -2291,11 +2439,13 @@ def _auto_calibrate_if_needed(
         5,
         "Post-engine ensemble · tuning weights on the engine output layer (Nishkarsh pattern)",
     )
-    console.item("Architecture",   f"F @ w  →  Calibrated Conviction (no engine re-run)")
+    console.item("Architecture",   "F @ w  →  Calibrated Conviction (no engine re-run)")
     console.item("Features",       f"{len(_intel.FEATURE_NAMES)} signals from engine output")
     console.item("Search",         f"Optuna TPE · {n_trials} trials · MedianPruner")
-    console.item("CV",             f"{n_folds}-fold walk-forward · {embargo}d embargo")
+    console.item("CV",             f"{n_folds}-fold walk-forward · {embargo}d embargo (= max horizon)")
     console.item("Horizons",       " · ".join(f"+{h}D" for h in _intel.DEFAULT_HORIZONS))
+    console.item("Holdout",        f"final {_intel.HOLDOUT_FRACTION:.0%} — withheld from the search")
+    console.item("Null",           f"{_intel.N_PERMUTATIONS} circular-shift permutations")
     console.item("Reason for run", reason)
 
     _progress_bar(
@@ -2339,29 +2489,58 @@ def _auto_calibrate_if_needed(
 
     st.session_state["intel_last_profile"] = profile
 
-    if profile.quality_check == "No Edge":
+    # The verdict comes from the HOLDOUT — data the optimiser never saw —
+    # and from the circular-shift null, not from the objective it maximised.
+    console.item(
+        "Search IR",
+        f"train {profile.train_ir:+.4f} · val {profile.val_ir:+.4f}  "
+        f"(optimised — diagnostic only)",
+    )
+    console.item(
+        "Holdout IR",
+        f"{profile.holdout_ir:+.4f}  ·  p={profile.holdout_p_value:.3f}  "
+        f"·  {profile.n_rows_holdout:,} rows from {profile.holdout_start}",
+    )
+
+    # Persist regardless of grade so a rejected run can be inspected; only an
+    # activatable profile is returned to the caller.
+    try:
+        _intel.save_active_profile(profile)
+        _intel.archive_profile(profile)
+    except OSError as exc:
+        console.error(f"Failed to persist profile: {exc}")
+
+    if not profile.is_activatable:
+        _indep = _intel.independent_windows(profile.n_rows_holdout, profile.horizons)
+        why = (
+            f"holdout spans only {_indep:.1f} independent {max(profile.horizons)}-day "
+            f"windows (need {_intel.GATE_MIN_INDEPENDENT_WINDOWS:.0f}) — "
+            f"not enough history to validate"
+            if profile.quality_check == _intel.QUALITY_INSUFFICIENT else
+            f"holdout IR {profile.holdout_ir:+.4f} below the "
+            f"{_intel.GATE_MIN_HOLDOUT_IR:.2f} minimum"
+            if profile.holdout_ir < _intel.GATE_MIN_HOLDOUT_IR else
+            f"indistinguishable from chance (p={profile.holdout_p_value:.3f})"
+            if profile.holdout_p_value > _intel.GATE_MAX_P_VALUE else
+            f"stability {profile.stability * 100:.0f}% below "
+            f"{_intel.GATE_OVERFIT_STABILITY:.0%}"
+        )
         console.warning(
-            f"Quality gate FAILED — val IR={profile.val_ir:+.4f} ≤ 0. "
-            f"Calibrated Conviction NOT activated (profile would mislead)."
+            f"Quality gate FAILED ({profile.quality_check}) — {why}. "
+            f"Calibrated Conviction NOT activated; raw Mood Score stands alone."
         )
         _progress_bar(
             prog_slot, 100,
-            "Intelligence Mode · No Edge",
-            f"Val IR {profile.val_ir:+.4f} ≤ 0 — overlay disabled",
+            f"Intelligence Mode · {profile.quality_check}",
+            f"{why} — overlay disabled",
         )
         console.end_phase("Intelligence Calibration")
         st.session_state["_intel_calibration_done"] = True
         return None
 
-    try:
-        _intel.save_active_profile(profile)
-        _intel.archive_profile(profile)
-    except Exception as exc:
-        console.error(f"Failed to persist profile: {exc}")
-
     console.success(
         f"Calibration {profile.quality_check} · "
-        f"train IR {profile.train_ir:+.4f} · val IR {profile.val_ir:+.4f} · "
+        f"holdout IR {profile.holdout_ir:+.4f} (p={profile.holdout_p_value:.3f}) · "
         f"stability {profile.stability * 100:.0f}%  ·  {elapsed:.2f}s"
     )
     if profile.importance:
@@ -2374,7 +2553,7 @@ def _auto_calibrate_if_needed(
     _progress_bar(
         prog_slot, 100,
         f"Calibrated · {profile.quality_check}",
-        f"Conviction layer active · val IR {profile.val_ir:+.3f}",
+        f"Conviction layer active · holdout IR {profile.holdout_ir:+.3f}",
     )
     console.end_phase("Intelligence Calibration")
     st.session_state["_intel_calibration_done"] = True
@@ -2461,7 +2640,7 @@ def main():
 
         sidebar_title("Controls", icon="settings")
         if st.button("Refresh Data", use_container_width=True):
-            st.cache_data.clear()
+            _clear_engine_caches()
             # Fresh data ⇒ any cached calibration + engine output is stale.
             st.session_state.pop("_intel_calibration_done", None)
             _invalidate_engine_cache()
@@ -2503,7 +2682,7 @@ def main():
             )
             if apply_clicked and has_changes:
                 st.session_state["active_predictors"] = tuple(staging_predictors)
-                st.cache_data.clear()
+                _clear_engine_caches()
                 # Different predictor set ⇒ the calibrated profile + engine
                 # output no longer apply; force a fresh run.
                 st.session_state.pop("_intel_calibration_done", None)
@@ -2532,7 +2711,7 @@ def main():
     ist_tz = pytz.timezone("Asia/Kolkata")
     today_ist = datetime.now(ist_tz).date()
     data_age_days = (pd.Timestamp(today_ist) - latest_date).days
-    if data_age_days > 3:
+    if data_age_days > STALE_DATA_DAYS:
         console.warning(
             f"Stale data — last point is {latest_date.date()} ({data_age_days}d old)"
         )
@@ -2587,16 +2766,12 @@ def main():
     # The toggle was rendered before analysis (drives the pipeline); the
     # status card + controls go here so the user sees the freshly-saved
     # profile on this very click — no need to switch views or click again.
-    try:
-        with _passport_body_slot.container():
-            _render_intelligence_passport_body(
-                raw_df=raw_df,
-                active_predictors=st.session_state.get(
-                    "active_predictors", tuple(available_predictors),
-                ),
-            )
-    except NameError:
-        pass  # Landing-page branch — no passport slot allocated
+    with _passport_body_slot.container():
+        _render_intelligence_passport_body(
+            active_predictors=st.session_state.get(
+                "active_predictors", tuple(available_predictors),
+            ),
+        )
 
     # ── Pipeline summary ──────────────────────────────────────────────────
     _last = mood_df.iloc[-1]
@@ -2778,11 +2953,8 @@ def main():
         import intelligence as _intel_mod
         # Default ensemble weights are zero (no calibration applied).
         # The dashboard shows Δ relative to this baseline.
-        _defaults = {name: 0.0 for name in _intel_mod.FEATURE_NAMES}
         render_intelligence_center(
-            raw_df,
-            st.session_state.get("active_predictors", tuple(available_predictors)),
-            defaults=_defaults,
+            defaults={name: 0.0 for name in _intel_mod.FEATURE_NAMES},
         )
     console.success(f"View rendered: {view_mode}")
     console.line("═", 70)
