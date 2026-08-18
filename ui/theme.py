@@ -68,6 +68,39 @@ PLOTLY_MARGIN = dict(t=20, l=50, r=20, b=40)
 PLOTLY_GRID = "rgba(255,255,255,0.035)"
 PLOTLY_GRID_ZERO = "rgba(255,255,255,0.06)"
 
+# ── Crosshair ────────────────────────────────────────────────────────────────
+# Full crosshair: the x-axis spike draws the vertical line, the y-axis spike
+# draws the horizontal one. Both are needed — enabling spikes on one axis only
+# gives half a crosshair, which is what this chart had.
+#
+# `spikesnap="cursor"` makes the lines track the pointer freely rather than
+# jumping to the nearest data point, matching how a TradingView crosshair
+# behaves. Pair it with `spikedistance=-1` in the layout so the spikes stay
+# visible anywhere in the plot area rather than only near a trace.
+#
+# Both spikes render under `hovermode="x unified"`, so the unified tooltip is
+# kept (verified against plotly.js 5.24: the y-axis spike is emitted as a
+# horizontal <line> in unified, closest and x hover modes alike).
+PLOTLY_SPIKE_COLOR = "rgba(148,163,184,0.18)"
+
+PLOTLY_SPIKE_X: dict = dict(
+    showspikes=True,
+    spikemode="across",     # spans every stacked pane, not just the hovered one
+    spikesnap="cursor",
+    spikethickness=0.5,
+    spikedash="dash",
+    spikecolor=PLOTLY_SPIKE_COLOR,
+)
+
+PLOTLY_SPIKE_Y: dict = dict(
+    showspikes=True,
+    spikemode="across",     # spans the width of the pane being hovered
+    spikesnap="cursor",
+    spikethickness=0.5,
+    spikedash="dash",
+    spikecolor=PLOTLY_SPIKE_COLOR,
+)
+
 # Shared base layout — paper/plot backgrounds are transparent so the page's
 # glass containers show through.
 PLOTLY_BASE: dict = dict(
@@ -96,7 +129,10 @@ def chart_layout(
         hovermode="x unified",
         hoverlabel=PLOTLY_HOVERLABEL,
         margin=margin or PLOTLY_MARGIN,
+        # -1 keeps the crosshair alive anywhere in the plot area rather than
+        # only when the pointer is near a trace.
         spikedistance=-1,
+        hoverdistance=-1,
     )
     if responsive:
         base["autosize"] = True
@@ -119,12 +155,7 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
         linecolor="rgba(255,255,255,0.04)",
         title_text=x_title,
         tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
-        showspikes=True,
-        spikemode="across",
-        spikesnap="cursor",
-        spikethickness=0.5,
-        spikedash="dash",
-        spikecolor="rgba(148,163,184,0.18)",
+        **PLOTLY_SPIKE_X,
         **kw,
     )
     fig.update_yaxes(
@@ -139,6 +170,7 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
         range=y_range,
         tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
         hoverformat=".2f",
+        **PLOTLY_SPIKE_Y,
         **kw,
     )
 
