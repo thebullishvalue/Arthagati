@@ -10,8 +10,7 @@ Pipeline (per Run Analysis):
     2. Correlation engine     — Decay-weighted Spearman vs PE & EY anchors
     3. Sentiment engine       — OU normalisation + Kalman smoothing
     4. MSF Spread             — Momentum · Structure · Regime · Flow oscillator
-    5. WaveTrend (LazyBear)   — Mood-Score-driven secondary oscillator
-    6. Intelligence Mode      — Optuna TPE ensemble calibration (post-engine)
+    5. WaveTrend              — Mood-Score-driven secondary oscillator
 
 Views:
     • Historical Mood       — 3-pane TradingView-style chart (Mood + MSF + WT)
@@ -19,7 +18,7 @@ Views:
                               forward-return tiles at 5D / 20D / 60D / 90D
     • Correlation Analysis  — PE / EY decay-Spearman + entropy-weighted
                               predictor quality assessment
-    • Intelligence Center   — Calibration diagnostics, ensemble weights, IR lift
+    • Signal Validation     — Holdout Spearman rho + permutation null
 """
 
 import logging
@@ -94,7 +93,7 @@ from ui.tabs.tab_landing import render_landing_page
 from ui.tabs.tab_historical_mood import render as render_historical_mood
 from ui.tabs.tab_similar_periods import render as render_similar_periods
 from ui.tabs.tab_correlation import render as render_correlation_analysis
-from ui.tabs.tab_intelligence import render as render_intelligence_center
+from ui.tabs.tab_validation import render as render_validation
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -124,6 +123,7 @@ from config import (  # noqa: E402
     EXPECTED_COLUMNS,
     DEPENDENT_VARS,
     NON_PREDICTOR_COLS,
+    CIRCULAR_COLUMNS,
     REQUIRED_COLUMNS,
     MSF_SOURCE_COLUMNS,
     TIMEFRAMES,
@@ -163,10 +163,6 @@ from config import (  # noqa: E402
     WT_OB_LEVEL_2,
     WT_OS_LEVEL_1,
     WT_OS_LEVEL_2,
-    CC_OB_LEVEL_1,
-    CC_OB_LEVEL_2,
-    CC_OS_LEVEL_1,
-    CC_OS_LEVEL_2,
     SIMILAR_W_MAHA,
     SIMILAR_W_TRAJ,
     SIMILAR_W_RECV,
@@ -176,6 +172,8 @@ from config import (  # noqa: E402
     BACKTEST_HORIZON,
     OU_PROJ_DAYS,
     STALE_DATA_DAYS,
+    MOOD_BAND_INNER,
+    MOOD_BAND_OUTER,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1216,7 +1214,7 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
         # Segment k now reads its weights from checkpoint k-1. The first
         # segment has no prior checkpoint, so it borrows the first one and
         # is flagged Is_Warmup; those rows are excluded from every
-        # evaluation path (calibration folds, backtest, IR scoring).
+        # evaluation path (validation blocks, backtest, rho scoring).
         cp_n = (checkpoints[cp_idx - 1] + 1) if cp_idx > 0 else (checkpoints[0] + 1)
         cp_half_life = min(CORR_HALF_LIFE, cp_n // 2) if cp_n > 20 else max(cp_n // 2, 5)
         cp_weights = exponential_decay_weights(cp_n, cp_half_life)
@@ -1391,10 +1389,24 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
     mood_volatility = pd.Series(mood_scores).rolling(window=30, min_periods=1).std().fillna(0)
 
     # ── Classification (fixed thresholds — see VISION.md §6 for why) ───
-    moods = np.where(mood_scores > 60, 'Very Bullish',
-            np.where(mood_scores > 20, 'Bullish',
-            np.where(mood_scores > -20, 'Neutral',
-            np.where(mood_scores > -60, 'Bearish', 'Very Bearish'))))
+    # Classification bands.
+    #
+    # Fixed, not adaptive — per VISION.md §6, "Bullish" must mean the same
+    # thing today as it did last year. But a fixed band still has to be
+    # reachable: at the previous +/-60 outer threshold, twenty years of real
+    # NIFTY data (2006-2026, spanning the GFC and the COVID crash) produced
+    # ZERO "Very Bearish" readings and only 29 "Very Bullish" days, because
+    # the score's actual 1st-99th percentile range is about -49 to +56, not
+    # -100 to +100. An extreme label that never fires is not a stable
+    # classification, it is a dead one.
+    #
+    # MOOD_BAND_OUTER sits near the 2nd/98th percentile of the long-run
+    # distribution, so all five classes are attainable while the extremes
+    # stay genuinely rare.
+    moods = np.where(mood_scores > MOOD_BAND_OUTER, 'Very Bullish',
+            np.where(mood_scores > MOOD_BAND_INNER, 'Bullish',
+            np.where(mood_scores > -MOOD_BAND_INNER, 'Neutral',
+            np.where(mood_scores > -MOOD_BAND_OUTER, 'Bearish', 'Very Bearish'))))
 
     # ── Diagnostics (output-only — do NOT modify scores) ───────────────
     # Mood-domain regime panel: Hurst, entropy, and OU half-life all describe
@@ -1402,7 +1414,23 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
     # readings stay internally consistent. Computing Hurst on price *levels*
     # produces H≈1.0 trivially (integrated random walk) — that's why this
     # operates on mood_scores, which are OU-normalized and stationary.
-    hurst_vals = rolling_hurst(mood_scores, window=REGIME_WINDOW, step=5)
+    # Hurst is measured on mood INCREMENTS, not on the level.
+    #
+    # DFA applied to a strongly persistent series returns H > 1, which the
+    # estimator clips to 0.99. The mood score is exactly that kind of series
+    # — a smoothed composite of slow-moving percentiles — so on real data the
+    # level-Hurst pinned to the clip on 87% of observations (p5/p50/p95 =
+    # 0.77/0.99/0.99) and carried no information at all. Every regime
+    # comparison then reduced to `0.99 > 0.99` = False, collapsing 90% of
+    # history into the two low-Hurst quadrants.
+    #
+    # For an integrated series, H(level) = H(increments) + 1, so the
+    # increments carry the same information in a range the estimator can
+    # actually resolve: on the same data, p5/p50/p95 = 0.24/0.48/0.78 with
+    # 0.3% at the clip. The 0.5 boundary recovers its textbook meaning —
+    # increments that persist (trending mood) versus increments that reverse.
+    mood_increments = np.diff(mood_scores, prepend=mood_scores[0])
+    hurst_vals = rolling_hurst(mood_increments, window=REGIME_WINDOW, step=5)
     entropy_vals = rolling_entropy(mood_scores, window=REGIME_WINDOW, n_bins=15)
 
     # ── Regime Detection ────────────────────────────────────────────────
@@ -1448,12 +1476,11 @@ def _calculate_historical_mood_impl(df, dependent_vars=None):
 
 @st.cache_data(max_entries=5, show_spinner=False)
 def calculate_historical_mood(df, dependent_vars=None):
-    """Cached public entry — uses the active module-level hyperparameters.
+    """Cached public entry — delegates to ``_calculate_historical_mood_impl``.
 
-    Intelligence Mode bypasses this cached path and calls
-    ``_calculate_historical_mood_impl`` directly inside a
-    ``hyperparam_overrides(...)`` block, since caching on a swapped-globals
-    function would silently return stale results for tuned configs.
+    The engine always runs on factory hyperparameters. Intelligence Mode
+    calibrates a small ensemble on TOP of this output rather than tuning the
+    engine's internals, so there is no swapped-globals path to invalidate.
     """
     return _calculate_historical_mood_impl(df, dependent_vars)
 
@@ -1964,277 +1991,14 @@ def _render_sidebar_passport() -> None:
     )
 
 
-def _render_intelligence_toggle() -> None:
-    """Render ONLY the Intelligence Mode toggle (+ settings expander).
-
-    Must run BEFORE the analysis pipeline because ``intelligence_mode``
-    drives whether calibration fires. The status card + import / export
-    / reset controls are rendered AFTER the pipeline by
-    ``_render_intelligence_passport_body()`` — that way the user sees
-    the freshly-calibrated profile state on the very click that produced
-    it, not on the next click.
-
-    Caller must be inside a ``with st.sidebar:`` context.
-    """
-    import intelligence as _intel
-
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-title">Model Passport</div>', unsafe_allow_html=True)
-
-    prev_on = bool(st.session_state.get("intelligence_mode", True))
-    intelligence_mode = st.toggle(
-        "Intelligence Mode",
-        value=prev_on,
-        help=(
-            "When ON, Arthagati auto-calibrates a post-engine ensemble "
-            "(walk-forward Bayesian search over engine-output features) on "
-            "every Run Analysis and surfaces a Calibrated Conviction metric. "
-            "When OFF, the engine runs on factory defaults and no calibration "
-            "signal is produced."
-        ),
-        key="passport_intel_toggle",
+def _dataset_fingerprint(raw_df: pd.DataFrame, predictors) -> tuple:
+    """Hashable fingerprint for the session engine cache."""
+    return (
+        int(len(raw_df)),
+        str(raw_df["DATE"].iloc[0].date()) if len(raw_df) else "",
+        str(raw_df["DATE"].iloc[-1].date()) if len(raw_df) else "",
+        tuple(sorted(predictors)),
     )
-    if intelligence_mode != prev_on:
-        st.session_state.pop("_intel_calibration_done", None)
-        _invalidate_engine_cache()
-    st.session_state["intelligence_mode"] = intelligence_mode
-
-    # Calibration tuning values stay at their factory defaults — the
-    # advanced settings expander was removed from the sidebar. If they
-    # need re-tuning later, set st.session_state['intel_n_trials'],
-    # ['intel_n_folds'], ['intel_embargo'] from elsewhere or expose a
-    # dedicated control. ``_auto_calibrate_if_needed`` reads these via
-    # session_state.get(..., default) so absent values just fall back to
-    # ``intelligence.DEFAULT_*``.
-    st.session_state.setdefault("intel_n_trials", _intel.DEFAULT_TRIALS)
-    st.session_state.setdefault("intel_n_folds",  _intel.DEFAULT_FOLDS)
-    st.session_state.setdefault("intel_embargo",  _intel.DEFAULT_EMBARGO_DAYS)
-
-
-def _reset_passport_to_defaults() -> None:
-    """on_click callback for the passport's Reset button.
-
-    Leaves Intelligence Mode visibly ON but prevents the auto-calibrator
-    from immediately re-fitting + re-saving a fresh profile (which would
-    flash the passport back to "Calibrated"). Trick: set
-    ``_intel_calibration_done=True`` after deleting the profile. On the
-    next rerun, ``_auto_calibrate_if_needed`` enters its cache-hit
-    branch, ``_active_ensemble_weights()`` returns None (no profile on
-    disk), the calibrator returns None *without re-fitting*, and the
-    passport renders the existing ``IM=True + saved_profile=None →
-    "Default"`` branch.
-
-    Stays in callback phase to satisfy Streamlit's rule that widget
-    keys can only be modified before widgets are re-instantiated next
-    run — even though we no longer touch the toggle's widget key here,
-    keeping it as a callback also fires the toast at the right moment
-    and avoids the inline-button + ``st.rerun()`` race.
-
-    Profile is reset for the session; toggling IM off→on or changing
-    the active predictor set re-arms the calibrator (those code paths
-    pop ``_intel_calibration_done``).
-    """
-    # Session-scoped. ``profiles/active.json`` is a single file shared by
-    # every session of a deployment, so deleting it here removed the
-    # calibrated profile for all concurrent users. Disabling it for this
-    # session leaves other sessions untouched; the file is reclaimed by the
-    # next successful calibration.
-    st.session_state["_intel_profile_disabled"] = True
-    st.session_state["_intel_calibration_done"] = True
-    st.session_state.pop("intel_last_profile", None)
-    st.session_state.pop("_calibrated_conviction_series", None)
-    st.session_state.pop("_calibrated_conviction_last", None)
-    st.toast("Calibration disabled for this session.")
-
-
-def _render_intelligence_passport_body(active_predictors: tuple | None = None) -> None:
-    """Render the status card + mismatch warning + import/export/reset
-    controls. Should be called AFTER the analysis pipeline completes so
-    the rendered state reflects the just-saved profile.
-
-    Caller must already be inside a ``with st.sidebar:`` context (or a
-    sidebar-scoped placeholder container).
-    """
-    import json as _json
-    import intelligence as _intel
-    import html as _html
-
-    intelligence_mode = bool(st.session_state.get("intelligence_mode", True))
-    saved_profile = _intel.load_active_profile()
-
-    # ── Determine display state + colour class (Nishkarsh semantics) ──
-    if intelligence_mode and saved_profile is not None:
-        # Predictor-count mismatch is the Arthagati analogue of Nishkarsh's
-        # universe-mismatch warning.
-        active_n = len(active_predictors) if active_predictors is not None else None
-        mismatch = (
-            active_n is not None
-            and saved_profile.n_predictors != active_n
-        )
-
-        train_v = float(saved_profile.train_ir or 0.0)
-        val_v   = float(saved_profile.val_ir or 0.0)
-        train_str = f"{train_v:+.3f}"
-        val_str   = f"{val_v:+.3f}"
-        updated   = (saved_profile.timestamp or "—")
-        if "T" in updated:
-            updated = updated.replace("T", " ").rstrip("Z")[:16]
-        cal_label = (
-            f"{saved_profile.n_predictors} preds · {saved_profile.data_end}"
-            if saved_profile.n_predictors else (saved_profile.data_end or "—")
-        )
-        train_color = "var(--emerald)" if train_v > 0 else "var(--rose)"
-        val_color   = "var(--emerald)" if val_v   > 0 else "var(--rose)"
-        if mismatch:
-            profile_label = "Calibrated · ⚠"
-            card_class    = "warning"
-        else:
-            profile_label = "Calibrated"
-            card_class    = "success" if (val_v > 0 and train_v > 0) else "warning"
-    elif not intelligence_mode:
-        mismatch = False
-        cal_label   = "—"
-        profile_label = "Default · Off"
-        train_str = val_str = updated = "—"
-        train_color = val_color = "var(--ink-secondary)"
-        card_class  = "neutral"
-    else:
-        mismatch = False
-        cal_label   = "—"
-        profile_label = "Default"
-        train_str = val_str = updated = "—"
-        train_color = val_color = "var(--ink-secondary)"
-        card_class  = "neutral"
-
-    def _trim(s: str, n: int = 22) -> str:
-        s = str(s)
-        return s if len(s) <= n else s[: n - 1] + "…"
-
-    cal_label_disp = _trim(cal_label)
-
-    # ── Passport card (Nishkarsh-fidelity HTML) ───────────────────────
-    st.markdown(
-        f"""
-    <div class="metric-card {card_class}" style="
-            min-height:auto;
-            padding:0.85rem 0.95rem;
-            margin-bottom:0.7rem;
-            animation:none;">
-        <h4 style="margin:0 0 0.3rem 0;">Profile</h4>
-        <h2 style="font-size:1.05rem; margin:0 0 0.7rem 0; letter-spacing:-0.01em;">{_html.escape(profile_label)}</h2>
-        <div style="display:flex; flex-direction:column; gap:0.32rem;
-                    padding-top:0.55rem;
-                    border-top:1px solid rgba(255,255,255,0.06);">
-            <div style="display:flex; justify-content:space-between; align-items:baseline; font-family:var(--data); font-size:0.62rem;">
-                <span style="color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:0.1em; font-size:0.58rem;">Trained on</span>
-                <span style="color:var(--ink-secondary); font-weight:500; max-width:62%; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{_html.escape(cal_label_disp)}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; font-family:var(--data); font-size:0.65rem;">
-                <span style="color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:0.1em; font-size:0.58rem;">Train IR</span>
-                <span style="color:{train_color}; font-weight:600;">{train_str}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; font-family:var(--data); font-size:0.65rem;">
-                <span style="color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:0.1em; font-size:0.58rem;">Val IR</span>
-                <span style="color:{val_color}; font-weight:600;">{val_str}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; font-family:var(--data); font-size:0.6rem;">
-                <span style="color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:0.1em; font-size:0.58rem;">Updated</span>
-                <span style="color:var(--ink-secondary);">{_html.escape(str(updated))}</span>
-            </div>
-        </div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # ── Mismatch warning (predictor count drift) ──────────────────────
-    if mismatch and saved_profile is not None:
-        st.markdown(
-            f"""
-        <div style="font-family:var(--data); font-size:0.62rem; color:var(--amber);
-                    background:rgba(212,168,83,0.08);
-                    border:1px solid rgba(212,168,83,0.22);
-                    border-radius:6px; padding:0.55rem 0.65rem;
-                    margin-bottom:0.7rem; line-height:1.45;">
-            <span style="font-weight:700;">Profile mismatch — calibrated weights still active.</span><br>
-            Profile fit on <b>{saved_profile.n_predictors} predictors</b><br>
-            Active set has <b>{len(active_predictors) if active_predictors else 0} predictors</b><br>
-            <span style="color:var(--ink-tertiary);">Weights learned on a different predictor set may not generalise.
-            Reset to defaults or click Run Analysis to recalibrate.</span>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-    # ── Import / Export / Reset controls ──────────────────────────────
-    with st.expander("↑ Import Profile", expanded=False):
-        uploaded = st.file_uploader(
-            " ", type=["json"], label_visibility="collapsed", key="passport_uploader",
-        )
-        if uploaded is not None:
-            try:
-                payload = _json.load(uploaded)
-                if isinstance(payload, dict) and "weights" in payload:
-                    imported = _intel.CalibrationProfile.from_dict(payload)
-                    _intel.save_active_profile(imported)
-                    st.session_state["intel_last_profile"] = imported
-                    st.session_state.pop("_intel_calibration_done", None)
-                    _invalidate_engine_cache()
-                    st.toast("Profile imported.", icon="✅")
-                    st.success(f"Profile imported · {imported.n_predictors} preds")
-                    st.rerun()
-                else:
-                    st.error("Import failed: file is not a valid profile (missing 'weights').")
-            except Exception as e:
-                st.error(f"Import failed: {e}")
-
-    if saved_profile is not None:
-        export_payload = saved_profile.to_json()
-        ts_slug = (saved_profile.timestamp or "").split("T")[0] or "snapshot"
-        fname = f"arthagati_profile_{saved_profile.n_predictors}preds_{ts_slug}.json"
-        st.download_button(
-            "↓ Export Profile",
-            data=export_payload,
-            file_name=fname,
-            mime="application/json",
-            use_container_width=True,
-            key="passport_export",
-        )
-        # Reset must run inside an on_click callback, NOT in an inline
-        # button-clicked branch. Reason: the IM toggle widget at
-        # _render_sidebar_passport() has already been instantiated earlier
-        # in this same script run, and Streamlit forbids modifying a
-        # widget's session_state key after instantiation. Callbacks run
-        # in a dedicated phase BEFORE widgets are re-created on the next
-        # run, so they can freely touch both the public flag and the
-        # toggle's widget key — preventing the auto-calibrator from
-        # immediately re-saving a fresh profile on the rerun.
-        st.button(
-            "↺ Reset to Defaults",
-            use_container_width=True,
-            key="passport_reset",
-            on_click=_reset_passport_to_defaults,
-        )
-
-
-def _active_ensemble_weights() -> dict | None:
-    """Return the calibrated ensemble weights for this run, or None.
-
-    Returns the saved profile's feature-weight dict when IM is ON and a
-    profile exists. Returns None when IM is OFF or no profile is saved —
-    the UI then just doesn't show the Calibrated Conviction metric card.
-    """
-    import intelligence as _intel
-    if not st.session_state.get("intelligence_mode"):
-        return None
-    if st.session_state.get("_intel_profile_disabled"):
-        return None
-    profile = _intel.load_active_profile()
-    # Only a profile that cleared the holdout gate drives the UI. An
-    # "Overfit" profile is kept on disk for inspection but is not applied.
-    if profile is None or not profile.is_activatable:
-        return None
-    return dict(profile.weights)
 
 
 def _compute_engine_output(
@@ -2253,9 +2017,7 @@ def _compute_engine_output(
     The cache lives in ``st.session_state`` so view/timeframe switches
     return in ~150ms instead of re-running the 30-second engine.
     """
-    import intelligence as _intel
-
-    fp = _intel.dataset_fingerprint(raw_df, selected_preds)
+    fp = _dataset_fingerprint(raw_df, selected_preds)
     total_phases = int(st.session_state.get("_phase_total", 4))
     cached_fp = st.session_state.get("_engine_fp")
     if cached_fp == fp:
@@ -2341,10 +2103,10 @@ def _compute_engine_output(
 
 
 def _invalidate_engine_cache() -> None:
-    """Drop session-cached engine frames + calibration. Call when inputs
-    change (data refreshed, predictor set changed, profile imported)."""
+    """Drop session-cached engine frames. Call when inputs change
+    (data refreshed, predictor set changed)."""
     for k in ("_engine_fp", "_engine_mood_df", "_engine_msf_df",
-              "_intel_calibration_done", "_msf_degenerate", "_wt_bands"):
+              "_validation", "_msf_degenerate", "_wt_bands"):
         st.session_state.pop(k, None)
 
 
@@ -2367,207 +2129,10 @@ def _clear_engine_caches() -> None:
     _invalidate_engine_cache()
 
 
-def _auto_calibrate_if_needed(
-    mood_df: pd.DataFrame,
-    msf_df: pd.DataFrame,
-    active_predictors,
-    prog_slot,
-) -> dict | None:
-    """Run post-engine ensemble calibration on the precomputed mood + MSF
-    frames. Returns the calibrated weight dict, or None if IM is off /
-    calibration was skipped / the quality gate failed.
-
-    Cost: ~200-400 ms for 40 trials (microsecond per Optuna trial because
-    each trial is a single matrix-vector multiply + Spearman). Compare
-    to the v1 structural-hyperparam tuner which re-ran the FULL mood
-    engine per trial (~30-60s × 40 trials = unusable on Streamlit Cloud).
-
-    Decision matrix:
-      • IM OFF                       → None
-      • IM ON · session flag set     → reuse weights already loaded
-      • IM ON · disk profile fresh   → reuse disk profile
-      • IM ON · stale or missing     → run full calibration on engine output
-    """
-    import intelligence as _intel
-
-    if not st.session_state.get("intelligence_mode"):
-        return None
-    if st.session_state.get("_intel_profile_disabled"):
-        return None
-
-    total_phases = int(st.session_state.get("_phase_total", 5))
-
-    # Same-session: don't re-calibrate even if user clicks another button.
-    if st.session_state.get("_intel_calibration_done"):
-        weights = _active_ensemble_weights()
-        if weights:
-            console.section("Intelligence: Calibration Cached (same session)", phase="CACHE")
-            console.item("Status", "Reusing ensemble weights from this session")
-            console.item("Cost",   "0 ms — no Optuna trials run")
-        else:
-            console.section("Intelligence: Overlay Disabled (same session)", phase="CACHE")
-            console.item("Status", "Earlier calibration this session failed the quality gate")
-            console.item("Action", "Calibrated Conviction inactive · raw Mood Score is the source of truth")
-        return weights
-
-    # Cross-session: profile may be fresh on disk
-    existing = _intel.load_active_profile()
-    fresh, reason = _intel.is_profile_fresh(existing, mood_df, active_predictors)
-    if fresh and existing is not None:
-        console.section("Intelligence: Profile Fresh on Disk", phase="CACHE")
-        console.item("Status",     reason)
-        console.item("Profile",    f"{existing.quality_check} · holdout IR {existing.holdout_ir:+.4f}")
-        console.item("Fit on",     existing.data_end)
-        console.item("Predictors", existing.n_predictors)
-        console.success("Skipped calibration — disk profile reused")
-        _progress_bar(
-            prog_slot, 99,
-            "Intelligence Mode · Profile Reused",
-            f"Cached holdout IR {existing.holdout_ir:+.3f}",
-        )
-        st.session_state["_intel_calibration_done"] = True
-        st.session_state["intel_last_profile"] = existing
-        return dict(existing.weights)
-
-    # Run the (cheap) post-engine ensemble calibration.
-    n_trials = int(st.session_state.get("intel_n_trials", _intel.DEFAULT_TRIALS))
-    n_folds  = int(st.session_state.get("intel_n_folds",  _intel.DEFAULT_FOLDS))
-    embargo  = int(st.session_state.get("intel_embargo",  _intel.DEFAULT_EMBARGO_DAYS))
-
-    console.start_phase("Intelligence Calibration", num=5, total=total_phases)
-    console.step(
-        5,
-        "Post-engine ensemble · tuning weights on the engine output layer (Nishkarsh pattern)",
-    )
-    console.item("Architecture",   "F @ w  →  Calibrated Conviction (no engine re-run)")
-    console.item("Features",       f"{len(_intel.FEATURE_NAMES)} signals from engine output")
-    console.item("Search",         f"Optuna TPE · {n_trials} trials · MedianPruner")
-    console.item("CV",             f"{n_folds}-fold walk-forward · {embargo}d embargo (= max horizon)")
-    console.item("Horizons",       " · ".join(f"+{h}D" for h in _intel.DEFAULT_HORIZONS))
-    console.item("Holdout",        f"final {_intel.HOLDOUT_FRACTION:.0%} — withheld from the search")
-    console.item("Null",           f"{_intel.N_PERMUTATIONS} circular-shift permutations")
-    console.item("Reason for run", reason)
-
-    _progress_bar(
-        prog_slot, 92,
-        "Calibrating Ensemble",
-        f"Tuning {len(_intel.FEATURE_NAMES)} feature weights on engine output · {n_trials} trials",
-    )
-
-    try:
-        tuner = _intel.IntelligenceTuner(
-            mood_df, msf_df, n_active_predictors=len(active_predictors),
-            n_folds=n_folds, embargo_days=embargo,
-        )
-    except ValueError as exc:
-        console.warning(f"Calibration skipped: {exc}")
-        console.end_phase("Intelligence Calibration")
-        st.session_state["_intel_calibration_done"] = True
-        return None
-
-    import time as _t
-    _t0 = _t.time()
-
-    def _cb(done: int, total: int, score: float) -> None:
-        pct = int(92 + (done / max(total, 1)) * 7)
-        _progress_bar(
-            prog_slot, pct,
-            f"Calibrating Ensemble · Trial {done}/{total}",
-            f"Optuna TPE · Spearman IR across folds × horizons · Best {score:+.4f}",
-        )
-
-    try:
-        profile = tuner.optimize(n_trials=n_trials, progress_callback=_cb)
-    except Exception as exc:
-        console.failure("Calibration", f"{type(exc).__name__}: {exc}")
-        console.end_phase("Intelligence Calibration")
-        st.session_state["_intel_calibration_done"] = True
-        return None
-
-    elapsed = _t.time() - _t0
-    console.item("Wall time", f"{elapsed:.2f}s · ({elapsed / n_trials * 1000:.0f}ms per trial)")
-
-    st.session_state["intel_last_profile"] = profile
-
-    # The verdict comes from the HOLDOUT — data the optimiser never saw —
-    # and from the circular-shift null, not from the objective it maximised.
-    console.item(
-        "Search IR",
-        f"train {profile.train_ir:+.4f} · val {profile.val_ir:+.4f}  "
-        f"(optimised — diagnostic only)",
-    )
-    console.item(
-        "Holdout IR",
-        f"{profile.holdout_ir:+.4f}  ·  p={profile.holdout_p_value:.3f}  "
-        f"·  {profile.n_rows_holdout:,} rows from {profile.holdout_start}",
-    )
-
-    # Persist regardless of grade so a rejected run can be inspected; only an
-    # activatable profile is returned to the caller.
-    try:
-        _intel.save_active_profile(profile)
-        _intel.archive_profile(profile)
-    except OSError as exc:
-        console.error(f"Failed to persist profile: {exc}")
-
-    if not profile.is_activatable:
-        _indep = _intel.independent_windows(profile.n_rows_holdout, profile.horizons)
-        why = (
-            f"holdout spans only {_indep:.1f} independent {max(profile.horizons)}-day "
-            f"windows (need {_intel.GATE_MIN_INDEPENDENT_WINDOWS:.0f}) — "
-            f"not enough history to validate"
-            if profile.quality_check == _intel.QUALITY_INSUFFICIENT else
-            f"holdout IR {profile.holdout_ir:+.4f} below the "
-            f"{_intel.GATE_MIN_HOLDOUT_IR:.2f} minimum"
-            if profile.holdout_ir < _intel.GATE_MIN_HOLDOUT_IR else
-            f"indistinguishable from chance (p={profile.holdout_p_value:.3f})"
-            if profile.holdout_p_value > _intel.GATE_MAX_P_VALUE else
-            f"stability {profile.stability * 100:.0f}% below "
-            f"{_intel.GATE_OVERFIT_STABILITY:.0%}"
-        )
-        console.warning(
-            f"Quality gate FAILED ({profile.quality_check}) — {why}. "
-            f"Calibrated Conviction NOT activated; raw Mood Score stands alone."
-        )
-        _progress_bar(
-            prog_slot, 100,
-            f"Intelligence Mode · {profile.quality_check}",
-            f"{why} — overlay disabled",
-        )
-        console.end_phase("Intelligence Calibration")
-        st.session_state["_intel_calibration_done"] = True
-        return None
-
-    console.success(
-        f"Calibration {profile.quality_check} · "
-        f"holdout IR {profile.holdout_ir:+.4f} (p={profile.holdout_p_value:.3f}) · "
-        f"stability {profile.stability * 100:.0f}%  ·  {elapsed:.2f}s"
-    )
-    if profile.importance:
-        _top3 = sorted(profile.importance.items(), key=lambda kv: -kv[1])[:3]
-        console.item("Top drivers", " · ".join(f"{k} {v:.0f}%" for k, v in _top3))
-    console.summary(
-        "Calibrated Ensemble Weights (post-engine layer)",
-        {k: f"{profile.weights.get(k, 0.0):+.3f}" for k in _intel.FEATURE_NAMES},
-    )
-    _progress_bar(
-        prog_slot, 100,
-        f"Calibrated · {profile.quality_check}",
-        f"Conviction layer active · holdout IR {profile.holdout_ir:+.3f}",
-    )
-    console.end_phase("Intelligence Calibration")
-    st.session_state["_intel_calibration_done"] = True
-
-    return dict(profile.weights)
-
-
 def main():
     # ── Session state ──────────────────────────────────────────────────────
     st.session_state.setdefault("analysis_started", False)
     st.session_state.setdefault("active_predictors", None)
-    # Intelligence Mode defaults ON — calibration runs once per Run-Analysis
-    # cycle, results persist in session + on disk.
-    st.session_state.setdefault("intelligence_mode", True)
     analysis_started = st.session_state["analysis_started"]
 
     # ── Landing state: masthead + Run Analysis button only ────────────────
@@ -2596,7 +2161,7 @@ def main():
         },
     )
     # Phase 1/N · Data Ingestion (N = 4 normally, 5 when Intelligence Mode is ON)
-    _total = 5 if st.session_state.get("intelligence_mode") else 4
+    _total = 4
     st.session_state["_phase_total"] = _total
     console.start_phase("Data Ingestion", num=1, total=_total)
     console.step(1, "Fetching market data from Google Sheets (GViz API)")
@@ -2614,9 +2179,17 @@ def main():
     console.item("Date range", f"{raw_df['DATE'].min().date()} → {raw_df['DATE'].max().date()}")
     console.end_phase("Data Ingestion")
 
+    # Columns derived from NIFTY are withheld from the multiselect. Selecting
+    # one makes the valuation score partly a function of the price it is then
+    # evaluated against, and any measured edge would be partly price
+    # predicting itself. The real sheet carries 26 such columns (RSI, the MA
+    # family, SPREAD90/200, OSC, the precomputed COR./DEV pairs).
     available_predictors = [
         col for col in raw_df.columns
-        if col not in NON_PREDICTOR_COLS and pd.api.types.is_numeric_dtype(raw_df[col])
+        if col not in NON_PREDICTOR_COLS
+        and col not in CIRCULAR_COLUMNS
+        and pd.api.types.is_numeric_dtype(raw_df[col])
+        and raw_df[col].notna().any()
     ]
     current_preds = st.session_state.get("active_predictors")
     if not current_preds:
@@ -2633,7 +2206,7 @@ def main():
         sidebar_title("View Mode", icon="grid")
         view_mode = st.radio(
             "View Mode",
-            ["Historical Mood", "Similar Periods", "Correlation Analysis", "Intelligence Center"],
+            ["Historical Mood", "Similar Periods", "Correlation Analysis", "Signal Validation"],
             label_visibility="collapsed",
         )
         section_divider()
@@ -2641,8 +2214,6 @@ def main():
         sidebar_title("Controls", icon="settings")
         if st.button("Refresh Data", use_container_width=True):
             _clear_engine_caches()
-            # Fresh data ⇒ any cached calibration + engine output is stale.
-            st.session_state.pop("_intel_calibration_done", None)
             _invalidate_engine_cache()
             st.rerun()
         section_divider()
@@ -2683,9 +2254,7 @@ def main():
             if apply_clicked and has_changes:
                 st.session_state["active_predictors"] = tuple(staging_predictors)
                 _clear_engine_caches()
-                # Different predictor set ⇒ the calibrated profile + engine
-                # output no longer apply; force a fresh run.
-                st.session_state.pop("_intel_calibration_done", None)
+                # Different predictor set ⇒ engine output no longer applies.
                 _invalidate_engine_cache()
                 st.rerun()
 
@@ -2694,13 +2263,6 @@ def main():
             if active_count != total_count:
                 st.info(f"Active: {active_count}/{total_count} predictors")
 
-        # Intelligence passport — split into two phases:
-        #   1. Toggle + settings rendered NOW (drives whether calibration runs)
-        #   2. Status card + import/export/reset rendered AFTER analysis
-        #      via the placeholder, so the user sees the freshly-saved
-        #      profile state on the very click that produced it.
-        _render_intelligence_toggle()
-        _passport_body_slot = st.empty()
         _render_sidebar_passport()
 
     # Masthead is intentionally landing-page-only — once Run Analysis is pressed
@@ -2743,54 +2305,19 @@ def main():
     latest_mood = float(mood_df["Mood_Score"].iloc[-1])
     latest_msf  = float(mood_df["MSF_Spread"].iloc[-1])
 
-    # ── Phase 5 · Intelligence Mode calibration (post-engine, microseconds)
-    # Runs Optuna on a small feature matrix derived from the engine output.
-    # 40 trials complete in ~1-2 seconds total.
-    active_weights = _auto_calibrate_if_needed(mood_df, msf_df, selected_preds, _prog)
-    if active_weights:
-        # Compute the calibrated conviction series from the cached engine
-        # output. Cheap — one matrix-vector multiply + tanh.
-        import intelligence as _intel
-        calibrated_series = _intel.apply_calibration(mood_df, msf_df, active_weights)
-        st.session_state["_calibrated_conviction_series"] = calibrated_series
-        st.session_state["_calibrated_conviction_last"]   = float(calibrated_series[-1])
-    else:
-        st.session_state.pop("_calibrated_conviction_series", None)
-        st.session_state.pop("_calibrated_conviction_last", None)
-
     _progress_bar(_prog, 100, "Ready", "All Systems Nominal")
     time.sleep(0.15)
     _prog.empty()
 
-    # ── Fill the sidebar passport body now that calibration is done ────
-    # The toggle was rendered before analysis (drives the pipeline); the
-    # status card + controls go here so the user sees the freshly-saved
-    # profile on this very click — no need to switch views or click again.
-    with _passport_body_slot.container():
-        _render_intelligence_passport_body(
-            active_predictors=st.session_state.get(
-                "active_predictors", tuple(available_predictors),
-            ),
-        )
-
     # ── Pipeline summary ──────────────────────────────────────────────────
     _last = mood_df.iloc[-1]
-    _cal_last = st.session_state.get("_calibrated_conviction_last")
-    _im_on    = bool(st.session_state.get("intelligence_mode"))
     _summary: dict = {
         "View Mode":      view_mode,
-        "Intelligence":   "ON" if _im_on else "OFF",
         "Predictors":     f"{len(selected_preds)} active",
         "Rows":           f"{len(mood_df):,}",
         "Mood Score":     f"{_last['Mood_Score']:+.2f} ({_last.get('Mood', '—')})",
         "MSF Spread":     f"{_last['MSF_Spread']:+.2f}",
     }
-    if _cal_last is not None:
-        _summary["Calibrated Conviction"] = (
-            f"{_cal_last:+.2f}  ·  post-engine ensemble"
-        )
-    elif _im_on:
-        _summary["Calibrated Conviction"] = "— (quality gate failed or dataset too small)"
     _summary.update({
         "Regime":         str(_last.get("Regime", "Unknown")),
         "OU Half-Life":   f"{_last.get('OU_Half_Life', 0):.0f}d",
@@ -2804,14 +2331,16 @@ def main():
     mood_score  = latest["Mood_Score"]
     msf_spread  = latest["MSF_Spread"]
 
-    if mood_score > 60:
+    # Colour follows the same bands as the label, so the card and the text
+    # cannot disagree. High score = cheap = constructive, hence success.
+    if mood_score > MOOD_BAND_OUTER:
         mood_class = "success"
-    elif mood_score > 20:
-        mood_class = "warning"
-    elif mood_score < -60:
+    elif mood_score > MOOD_BAND_INNER:
+        mood_class = "success"
+    elif mood_score < -MOOD_BAND_OUTER:
         mood_class = "danger"
-    elif mood_score < -20:
-        mood_class = "info"
+    elif mood_score < -MOOD_BAND_INNER:
+        mood_class = "warning"
     else:
         mood_class = "neutral"
 
@@ -2832,9 +2361,14 @@ def main():
         render_metric_card(
             label="Mood Score",
             value=f"{mood_score:.2f}",
-            subtext=str(latest.get("Mood", "—")),
+            subtext=f"{latest.get('Mood', '—')} · valuation vs recent history",
             color_class=mood_class,
             icon="activity",
+            tooltip=(
+                "Anchored to PE and Earnings Yield: cheap scores high, expensive scores "
+                "low. It moves against recent price action by design (rho -0.54 vs the "
+                "trailing 60d return) and is not a momentum indicator."
+            ),
         )
     with col2:
         render_metric_card(
@@ -2863,13 +2397,10 @@ def main():
 
     section_gap()
 
-    # ── Diagnostics strip (+ Calibrated Conviction when IM is ON) ─────────
+    # ── Diagnostics strip ─────────────────────────────────────────────────
     current_regime = latest.get("Regime", "Unknown")
     _reg_color, reg_class = REGIME_STYLES.get(current_regime, (C_MUTED, "neutral"))
-    calibrated_last = st.session_state.get("_calibrated_conviction_last")
-    show_cal = calibrated_last is not None
-
-    cols = st.columns(5 if show_cal else 4, gap="small")
+    cols = st.columns(4, gap="small")
     with cols[0]:
         render_metric_card(
             label="Mood Regime",
@@ -2909,21 +2440,6 @@ def main():
             color_class=s_class,
             icon="zap",
         )
-    if show_cal:
-        with cols[4]:
-            cv = float(calibrated_last)
-            cv_label = ("Bullish+" if cv > 60 else "Bullish" if cv > 20
-                        else "Bearish+" if cv < -60 else "Bearish" if cv < -20
-                        else "Neutral")
-            cv_cls   = ("success" if cv > 20 else "danger" if cv < -20 else "info")
-            render_metric_card(
-                label="Calibrated Conviction",
-                value=f"{cv:+.1f}",
-                subtext=f"{cv_label} · post-engine ensemble",
-                color_class=cv_cls,
-                icon="target",
-            )
-
     section_gap()
 
     # ── View dispatch ─────────────────────────────────────────────────────
@@ -2949,13 +2465,8 @@ def main():
             calculate_anchor_correlations=calculate_anchor_correlations,
             shannon_entropy=shannon_entropy,
         )
-    else:  # Intelligence Center
-        import intelligence as _intel_mod
-        # Default ensemble weights are zero (no calibration applied).
-        # The dashboard shows Δ relative to this baseline.
-        render_intelligence_center(
-            defaults={name: 0.0 for name in _intel_mod.FEATURE_NAMES},
-        )
+    else:  # Signal Validation
+        render_validation(mood_df, raw_df)
     console.success(f"View rendered: {view_mode}")
     console.line("═", 70)
 

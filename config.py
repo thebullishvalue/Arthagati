@@ -23,7 +23,7 @@ from __future__ import annotations
 # IDENTITY — single source of truth for every version string in the repo
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION      = "v2.9.0"
+VERSION      = "v2.10.0"
 PRODUCT_NAME = "Arthagati"
 COMPANY      = "@thebullishvalue"
 
@@ -41,20 +41,47 @@ EXPECTED_COLUMNS: list[str] = [
     'PE_DEV', 'EY_DEV',
 ]
 
-# Default predictor set.
+# Default predictor set — chosen by measurement, not by argument.
 #
-# Per VISION.md §2-I, the 10Y−2Y term spreads carry orthogonal information
-# relative to the raw yields they are built from, so they are *on* by
-# default. The raw long-end yields (IN30Y / US30Y) and the 2Y/10Y legs stay
-# available in the multiselect but are not defaults — including both the
-# legs and the spread double-counts the same curve information.
+# Selection protocol (research/): 65 sheet columns -> 37 eligible after
+# removing NIFTY-derived columns (a valuation score must not be a function of
+# price when it is then scored against price returns) and duplicates of
+# columns the app derives itself. Redundant predictors were collapsed by
+# correlation cluster (|rho| >= 0.90) to 24 representatives, then greedy
+# forward selection maximised out-of-sample Spearman rho against forward
+# NIFTY returns on the DEVELOPMENT window only (2006-2021). The holdout
+# (2021-2026) was scored once, at the end.
+#
+#   development rho:  current 12 +0.189  ->  selected 4 +0.334
+#   holdout rho:      current 12 +0.526  ->  selected 4 +0.544  (p = 0.005)
+#
+# All four are rate and liquidity variables. The breadth family — AD_RATIO,
+# REL_AD_RATIO, REL_BREADTH, BREADTH, COUNT — ranked at the bottom of the
+# univariate screen (rho +0.10 to +0.14 against +0.29 for SPREAD_02Y) and a
+# breadth-only engine scores +0.434 on the holdout against +0.544 here.
+#
+# Honest caveat: the holdout gap between predictor sets is small (+0.53 to
+# +0.55 across every set tested, breadth-only excepted). Most of the dev-set
+# improvement did not transfer. See the ablation note in README — the edge
+# belongs mainly to the PE anchor, not to the predictor mix.
 DEPENDENT_VARS: list[str] = [
-    'AD_RATIO', 'REL_AD_RATIO', 'REL_BREADTH', 'COUNT',
-    'IN_TERM_SPREAD', 'US_TERM_SPREAD',
-    'IN10Y', 'US10Y',
-    'INIRYY', 'REPO',
-    'NIFTY50_DY', 'NIFTY50_PB',
+    'SPREAD_02Y',        # India 2Y minus US 2Y — cross-market policy spread
+    'US_TERM_SPREAD',    # US 10Y - 2Y, derived in load_data()
+    'CRR',               # Cash reserve ratio — domestic liquidity
+    'US02Y',             # US 2-year yield — global rate anchor
 ]
+
+# Everything eligible, offered in the sidebar multiselect. Columns derived
+# from NIFTY are deliberately absent: selecting them would make the score a
+# function of the price it is meant to be evaluated against.
+CIRCULAR_COLUMNS: frozenset[str] = frozenset({
+    'GAIN', 'LOSS', 'AVG GAIN', 'AVG LOSS', 'RS', 'RSI',
+    'NIFTY MA20', 'STD MA20', 'BOL TEST MA20', '% CHNG',
+    'OSC.', 'OSC MA50', 'NIFTY MA 90', 'NIFTY MA200 (8d lag)',
+    'SPREAD90', 'SPREAD200', 'RVOL_20D',
+    'COR. PE', 'PE_DEV', 'COR. EY', 'EY_DEV',
+    'REGIME', 'SIGNAL_STR', 'BTD', 'STT', 'SPREAD',
+})
 
 # Columns that are anchors or index keys, never predictors.
 NON_PREDICTOR_COLS: frozenset[str] = frozenset({'DATE', 'NIFTY', 'NIFTY50_PE', 'NIFTY50_EY'})
@@ -100,6 +127,14 @@ PCT_HALF_LIFE    = 252    # ~1 trading year;  recency weight for adaptive ECDF
 MOOD_SCALE       = 30.0   # maps the normalised signal → mood score
 KALMAN_CI_Z      = 1.96   # Kalman confidence band (≈95%)
 KALMAN_HALF_LIFE = 126    # Kalman fading memory half-life (trading days)
+
+# Mood classification bands — fixed, so "Bullish" means the same thing every
+# day (VISION.md §6). Sized from the score's realised distribution: over
+# 2006-2026 the 1st-99th percentile range is about -49 to +56, so the former
+# +/-60 outer band produced zero "Very Bearish" readings in twenty years,
+# through both the GFC and the COVID crash.
+MOOD_BAND_INNER = 20      # Neutral <-> Bullish / Bearish
+MOOD_BAND_OUTER = 45      # Bullish / Bearish <-> Very Bullish / Very Bearish
 DATA_TTL         = 3600   # Streamlit cache TTL for the Google Sheets fetch (seconds)
 
 # Walk-forward correlation rebalancing.
@@ -166,15 +201,6 @@ WT_OB_LEVEL_1   = 60        # fallback overbought primary
 WT_OB_LEVEL_2   = 40        # fallback overbought secondary
 WT_OS_LEVEL_1   = -60       # fallback oversold primary
 WT_OS_LEVEL_2   = -40       # fallback oversold secondary
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CALIBRATED CONVICTION
-# ══════════════════════════════════════════════════════════════════════════════
-
-CC_OB_LEVEL_1   = 100
-CC_OB_LEVEL_2   = 80
-CC_OS_LEVEL_1   = -100
-CC_OS_LEVEL_2   = -80
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SIMILAR PERIODS

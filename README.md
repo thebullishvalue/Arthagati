@@ -1,4 +1,4 @@
-# ARTHAGATI (अर्थगति) · v2.9.0
+# ARTHAGATI (अर्थगति) · v2.10.0
 
 **Market Sentiment Analysis Engine** — An @thebullishvalue Product
 
@@ -17,7 +17,7 @@
   - [Mood Score Pipeline](#mood-score-pipeline)
   - [MSF Spread Oscillator](#msf-spread-oscillator)
   - [WaveTrend (LazyBear · Mood-driven)](#wavetrend-lazybear--mood-driven)
-  - [Intelligence Mode — Post-Engine Ensemble](#intelligence-mode--post-engine-ensemble)
+  - [Signal Validation](#signal-validation)
   - [Similar Periods Engine](#similar-periods-engine)
   - [Regime Detection](#regime-detection)
 - [Mathematical Primitives](#mathematical-primitives)
@@ -37,14 +37,13 @@ walk-forward-calibrated ensemble of the engine's signals say about its
 predictive worth?"**
 
 It ingests macro, breadth, and valuation data from a Google Sheet and
-produces six outputs:
+produces five outputs:
 
 | Output | Range | Description |
 |--------|-------|-------------|
 | **Mood Score** | −100 to +100 | Correlation-weighted composite anchored to PE and Earnings Yield |
 | **MSF Spread** | −10 to +10 | Momentum / Structure / Flow / Regime confirmation oscillator |
 | **WaveTrend** | (unbounded) | LazyBear oscillator on Mood Score with WT1/WT2 crossover signals |
-| **Calibrated Conviction** | −100 to +100 | Optuna-tuned linear ensemble of engine-output features (Intelligence Mode) |
 | **Similar Periods** | — | Historical analogs matched by Mahalanobis distance + trajectory shape, with forward returns at 5D / 20D / 60D / 90D |
 | **Predictor Assessment** | — | Transparency into which variables drive the score and which are noise |
 
@@ -222,106 +221,77 @@ arrives. `WT_OB_LEVEL_1 / _2` remain as fallbacks for short series.
 
 The first `n1 + n2 = 31` bars are masked while the EMA chain stabilises.
 
-### Intelligence Mode — Post-Engine Ensemble
+### Signal Validation
 
-A calibrator that runs **on the engine's output** (not on its internal
-hyperparameters), keeping per-trial cost in the millisecond range while
-preserving the engine's mathematical guarantees.
+Measures whether the Mood Score carries out-of-sample predictive power.
+Nothing is fitted, so there is nothing to overfit.
 
-**Feature matrix** (7 columns, causally standardised, built once per Run Analysis):
-
-| Feature | Meaning |
+| Element | Detail |
 |---|---|
-| `mood`           | Raw Mood Score |
-| `mood_diverge`   | `mood − Kalman(mood)` — short-vs-long sentiment gap |
-| `msf_spread`     | MSF Spread composite |
-| `msf_momentum`   | MSF momentum component |
-| `msf_structure`  | MSF structure component |
-| `msf_regime`     | MSF regime component |
-| `msf_flow`       | MSF flow component |
+| **Holdout** | final 25% of history, scored once |
+| **Statistic** | mean Spearman rho over 6 contiguous blocks x horizons |
+| **Null** | 200 circular shifts of the signal against the same returns |
+| **Baseline** | `−PE` — "cheap is good", no engine at all |
+| **Power floor** | verdict only at horizons with ≥10 independent forward windows |
 
-> The matrix previously carried five near-collinear transforms of the mood
-> score (`mood`, `mood_smooth`, `mood_diverge`, `mood_squared`, `mood_sqrt`;
-> pairwise |ρ| 0.91–0.97, condition number 1.2 × 10¹⁷). Linear weights over a
-> singular design are not identifiable, so the per-feature coefficients and
-> the Bullish/Bearish badges derived from them were reading noise. The
-> reduced set has a condition number around 10⁴.
+Horizons longer than the holdout can support are reported as **descriptive**
+and marked `*` in the view — never folded into the verdict. On 20 years of
+NIFTY, a 1,246-row holdout supports +20D and +60D; +125D and +250D are shown
+but not validated.
 
-**Optimiser**: Optuna TPE with `MedianPruner`.
-**Objective**: `0.65 × Val IR + 0.35 × Train IR − L2(w)`.
-**Horizons**: 5D, 20D, 60D, 90D.
-
-#### How a calibration is validated
-
-This is the part to read carefully, because it is where a calibrated model
-is most likely to lie to you.
-
-**1 · Holdout.** The final **25%** of the series is removed before the search
-begins. Optuna never sees it, the CV folds never touch it, and the feature
-standardisation is computed causally so its distribution does not leak
-backwards. It is scored exactly once, afterwards. **The holdout IR — not the
-optimised validation IR — is the number the gate and the UI report.**
-
-**2 · Embargo = max(horizon) = 90 days.** The purge gap between a training
-fold and the validation fold that follows it must exceed the longest
-forward-return horizon, or the training labels are drawn from inside the
-validation window.
-
-**3 · Permutation null.** The holdout statistic is compared against a
-distribution built by circularly shifting the signal against the same
-returns — 200 draws. Circular shifts preserve the autocorrelation of both
-series and destroy only their alignment, which is the relationship under
-test. The reported `p` is the share of shifted draws matching or beating the
-observed statistic.
-
-**4 · Power check.** Forward windows overlap: at a 90-day horizon a 600-row
-holdout carries roughly **six** independent observations, and an information
-ratio built on six effective points accepts noise regardless of the nominal
-threshold. When the holdout spans fewer than
-`GATE_MIN_INDEPENDENT_WINDOWS` (10) non-overlapping windows, the calibrator
-returns **Insufficient Data** and declines to grade. Roughly ten years of
-daily history is needed before the 90-day horizon can be validated at all.
-
-#### Quality gate
-
-Checked in this order. Only **Quality OK** activates the overlay; the others
-are saved to disk for inspection but never drive the UI.
-
-| Grade | Condition |
-|---|---|
-| **Insufficient Data** | holdout spans < 10 independent forward windows |
-| **No Edge** | holdout IR < 0.25, or `p` > 0.05 |
-| **Overfit** | holdout / train < 30% |
-| **Quality OK** | clears all of the above |
-
-> **What this replaced.** Optuna maximised `0.65·val_IR + 0.35·train_IR` and
-> the gate then asked whether `val_IR > 0` — testing the objective against
-> itself. On a dataset whose forward returns were an independent random walk
-> it reported train IR 1.56, val IR 0.71, stability 45% and a **Quality OK**
-> badge, on five seeds out of five. The current gate grades the same data
-> *No Edge* or *Insufficient Data*, and the regression is pinned in
-> `tests/test_calibration.py`.
-
-**Calibrated Conviction**:
+**Result on the reference sheet** (NIFTY, 2006–2026, holdout 2021–2026):
 
 ```
-calibrated_conviction = tanh( (F @ w) / 3 ) · 100   ∈ [−100, +100]
+verdict        Edge Confirmed
+holdout rho    +0.538   (p = 0.005, 200 permutations)
+−PE baseline   +0.532   margin +0.006
+by horizon     +20D +0.42   +60D +0.66   +125D +0.47*  +250D +0.64*
 ```
 
-It is a **forward-return overlay**, not a second opinion on the current
-state. It is fitted to predict NIFTY returns at 5–90 days and is free to
-disagree with the Mood Score — on typical data the two differ in sign on
-roughly 46% of days. **When they conflict, the Mood Score is the primary
-reading**: it describes where the market *is*. The conviction score is a bet
-about where it goes next and carries the wider error bars.
+**Read the margin.** The edge is real and significant, and it is almost
+entirely the PE anchor. An ablation across the whole pipeline:
 
-**Persistence**: `profiles/active.json` (atomic write via `tempfile + os.replace`),
-plus a timestamped archive pruned to the most recent 20. Set
-`ARTHAGATI_PROFILE_DIR` to relocate the store — the default lives beside the
-code, which on Streamlit Cloud is ephemeral and shared across sessions.
-Imported profiles are validated against `FEATURE_NAMES` and `WEIGHT_BOUNDS`,
-and their grade is **recomputed** rather than trusted, so a hand-edited file
-cannot smuggle weights past the gate.
+| Signal | dev rho | holdout rho |
+|---|---|---|
+| `−PE` level, no engine | +0.467 | **+0.549** |
+| PE percentile only (L3) | +0.326 | +0.543 |
+| PE+EY percentile base, no predictors | +0.327 | +0.543 |
+| Full engine, selected 4 predictors | +0.334 | +0.544 |
+| Full engine, all 37 eligible | +0.238 | +0.555 |
+| Full engine, breadth only | +0.141 | +0.434 |
+
+Every configuration lands between +0.53 and +0.55. The five layers do not add
+rank information over inverting the PE ratio. What they do add is a bounded,
+comparable score, a confidence band, an equilibrium and half-life, and regime
+context — which is a reasonable product, stated honestly.
+
+---
+
+### Why Intelligence Mode was removed
+
+v2.8.0 shipped a post-engine ensemble: Optuna tuned a linear combination of
+engine outputs into a "Calibrated Conviction" signal. It was removed in
+v2.10.0 because measurement showed it **reduces** the signal's out-of-sample
+power, on every configuration tested:
+
+| Predictor set | raw Mood Score | fitted ensemble | margin |
+|---|---|---|---|
+| selected 4 | +1.674 | +1.239 | **−0.436** |
+| current 12 | +1.893 | −0.444 | **−2.337** |
+| all 37 | +1.753 | +1.363 | **−0.390** |
+
+The mechanism is visible in the weights. Only `mood` carries forward
+information (holdout rho +0.31 at 90d); the four MSF components sit between
+−0.03 and +0.01. Maximising an information ratio across CV folds rewards
+whatever fits in-sample, so the search loaded on the technicals — in the
+12-predictor run it assigned `mood` a weight of **−0.37**, inverting its one
+useful input.
+
+The quality gate rebuilt in v2.9.0 caught this every time and refused to
+activate. A component whose own gate rejects it on every real configuration
+is not a feature. The measurement apparatus it was built on — holdout,
+embargo, permutation null — survives as `validation.py`, pointed at the
+question the product actually needs answered.
 
 ### Similar Periods Engine
 
@@ -607,6 +577,7 @@ streamlit run arthagati.py
 
 | Version | Date | Summary |
 |---------|------|---------|
+| **v2.10.0** | 2026-08-18 | **Measured predictor selection; Intelligence Mode removed.** 65 columns → 4 by development-only selection with a single holdout scoring; the Optuna ensemble deleted after it reduced out-of-sample power on every configuration; `validation.py` + Signal Validation view; mood-score semantics corrected (valuation-contrarian, not sentiment); Hurst on increments; reachable classification bands. Verdict on the reference sheet: **Edge Confirmed, holdout rho +0.538, p = 0.005** |
 | **v2.9.0** | 2026-08-18 | **Audit remediation.** Eliminated look-ahead in the mood, MSF and regime series; rebuilt the Intelligence Mode quality gate around a 25% holdout, a 90-day embargo and a permutation null (it previously graded pure noise "Quality OK"); O(N log N) percentiles; MSF degenerate-component guard; analog separation; `config.py` extraction; first test suite |
 | **v2.8.0** | 2026-05-28 | WaveTrend Oscillator (LazyBear · Mood-driven), Intelligence Mode (post-engine ensemble calibration via Optuna TPE + walk-forward CV), Calibrated Conviction metric, granular forward horizons (5D / 20D / 60D / 90D), MSF Spread reference bands at ±5/±3, structured run-summary console log |
 | **v2.7.0** | 2026-04-15 | Obsidian Quant UI port: modular `ui/` package with `theme.css`, components, tabs; Sanskrit serif masthead; section headers with icon badges; analog/correlation/quality cards |

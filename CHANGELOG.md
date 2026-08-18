@@ -6,6 +6,127 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
 
 ---
 
+## [v2.10.0] — 2026-08-18
+
+### Measured Predictor Selection · Intelligence Mode Removed
+
+Everything in this release is a consequence of pointing the v2.9.0 measurement
+apparatus at the real sheet (NIFTY, 4,985 rows, 2006–2026) instead of at
+synthetic data.
+
+#### Removed — Intelligence Mode
+
+The post-engine Optuna ensemble is gone. It **reduced** the signal's
+out-of-sample power on every configuration tested:
+
+| Predictor set | raw Mood Score | fitted ensemble | margin |
+|---|---|---|---|
+| selected 4 | +1.674 | +1.239 | −0.436 |
+| current 12 | +1.893 | −0.444 | −2.337 |
+| all 37 | +1.753 | +1.363 | −0.390 |
+
+Only `mood` carries forward information (holdout rho +0.31 at 90d); the four
+MSF components sit between −0.03 and +0.01. Maximising an information ratio
+across CV folds rewards in-sample fit, so the search loaded on the technicals —
+in the 12-predictor run it weighted `mood` at **−0.37**, inverting its one
+useful input. The v2.9.0 quality gate caught this every time and refused to
+activate; a component whose own gate rejects it on every real configuration is
+not a feature.
+
+Deleted: `intelligence.py`, `ui/tabs/tab_intelligence.py`, the sidebar Model
+Passport, the Calibrated Conviction card, `profiles/`, the `optuna` dependency,
+and `tests/test_calibration.py`.
+
+#### Added — `validation.py` + Signal Validation view
+
+The measurement apparatus was the good part and survives, repointed from
+"tune an ensemble" to "does this signal work". Holdout, embargo, permutation
+null, power floor — no fitting.
+
+- Horizons the holdout cannot support are reported as **descriptive** and
+  excluded from the verdict, rather than the whole verdict being withheld.
+  A 1,246-row holdout supports +20D/+60D; +125D/+250D are shown marked `*`.
+- Baseline is `−PE` — the engine must beat "cheap is good with no engine".
+
+**Result on the reference sheet**: `Edge Confirmed`, holdout rho **+0.538**,
+**p = 0.005**. The margin over the `−PE` baseline is **+0.006**.
+
+#### Changed — default predictors, by measurement
+
+65 sheet columns → 37 eligible (dropping 26 NIFTY-derived columns and 2
+duplicates) → 24 cluster representatives (|rho| ≥ 0.90) → greedy forward
+selection on the **development window only**, holdout scored once at the end.
+
+New defaults: **`SPREAD_02Y`, `US_TERM_SPREAD`, `CRR`, `US02Y`** — all rate
+and liquidity variables.
+
+```
+development rho   current 12 +0.189  ->  selected 4 +0.334   (+77%)
+holdout rho       current 12 +0.526  ->  selected 4 +0.544   (+3%)
+```
+
+Reported honestly: **most of the development gain did not transfer.** The
+holdout spread across every set tested is +0.53 to +0.55 (breadth-only
+excepted at +0.43), which is within noise for this sample.
+
+- The breadth family ranked last in the univariate screen (+0.10 to +0.14
+  against +0.29 for `SPREAD_02Y`) and is no longer a default.
+- `IN_TERM_SPREAD`, promoted to a default in v2.9.0 on the strength of
+  VISION §2-I, ranked **last of 37** at +0.094 and has been dropped. The
+  design document's argument did not survive measurement.
+- NIFTY-derived columns are withheld from the predictor multiselect entirely —
+  selecting one makes the valuation score a function of the price it is then
+  scored against.
+
+#### Added — the ablation, in the README
+
+| Signal | dev rho | holdout rho |
+|---|---|---|
+| `−PE`, no engine | +0.467 | **+0.549** |
+| PE percentile only | +0.326 | +0.543 |
+| PE+EY base, no predictors | +0.327 | +0.543 |
+| Full engine, selected 4 | +0.334 | +0.544 |
+| Full engine, all 37 | +0.238 | +0.555 |
+
+The five-layer pipeline adds no rank information over inverting PE. It
+contributes a bounded comparable score, a confidence band, an equilibrium and
+half-life, and regime context. That is a reasonable product; it is now stated
+rather than implied.
+
+#### Fixed — from the real-data walkthrough
+
+- **The interpretive layer was inverted.** The Mood Score correlates **−0.54**
+  with the trailing 60-day return and **+0.22** with the forward 250-day
+  return: it is a valuation-contrarian gauge. The UI called it sentiment and
+  advised trend-following. In October 2008 it read **+21 to +39 ("Bullish")**
+  while NIFTY fell 25%; through the 2020–21 melt-up it read **−36 to −15**.
+  Both readings were correct; the guidance was backwards. Rewritten with the
+  historical evidence stated inline.
+- **Hurst was pinned at its clip** — 87.3% of rows at 0.99, because DFA on an
+  integrated series returns H>1. Regime had collapsed to two quadrants
+  (45%/45%). Now measured on mood *increments*: p5/p50/p95 0.23/0.48/0.79, and
+  all four quadrants are populated (28/25/23/19%).
+- **"Very Bearish" had never fired in twenty years** — not in the GFC, not in
+  COVID. The score's realised 1st–99th percentile range is −49 to +56, so the
+  ±60 outer band was unreachable. Bands are now ±20/±45 and all five classes
+  occur (Very Bearish 2.8%, Very Bullish 3.4%).
+- Per-horizon cells in the old lift table always rendered 0.000 — the IR floor
+  of 4 samples exceeded the 3 blocks a single horizon has.
+
+#### Known limitations
+
+- The holdout is five years. Differences between predictor sets are within its
+  resolution; treat the selected four as "no worse, much simpler", not as
+  established superiority.
+- The engine's strongest relationship is at 250 days, which 20 years of history
+  cannot validate to this standard (5 independent windows against a floor of
+  10). It is reported as descriptive.
+- The sheet stores `NIFTY50_EY`, `COR. EY` and `EY_DEV` as percent strings
+  (`"6.48%"`), which parse to all-NaN. EY is silently re-derived as `1/PE`;
+  the other two are excluded.
+
+---
+
 ## [v2.9.0] — 2026-08-18
 
 ### Audit Remediation
