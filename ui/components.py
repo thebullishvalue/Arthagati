@@ -314,3 +314,68 @@ def render_footer(product: str, company: str, version: str, timestamp: str) -> N
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_profile_card(
+    label: str,
+    blurb: str,
+    n_predictors: int,
+    holdout_rho: float,
+    p_value: float,
+    baseline_rho: float,
+    context: str,
+    missing: list[str] | None = None,
+) -> None:
+    """Sidebar card for the selected predictor profile.
+
+    Shows the recorded measurement alongside the null model it has to beat,
+    so the choice is made against evidence rather than a name. The figures are
+    a record from the reference sheet, not a live claim about the loaded data —
+    the Signal Validation view re-measures whatever is actually active.
+    """
+    margin = holdout_rho - baseline_rho
+    tone = "var(--emerald)" if margin > 0.02 else "var(--amber)" if margin > -0.02 else "var(--rose)"
+    miss_html = ""
+    if missing:
+        miss_html = (
+            f'<div style="margin-top:0.5rem; padding-top:0.5rem;'
+            f'border-top:1px solid rgba(255,255,255,0.06); color:var(--amber);'
+            f'font-size:0.58rem; line-height:1.4;">'
+            f'{len(missing)} not in this sheet, skipped: '
+            f'{html_mod.escape(", ".join(missing[:4]))}'
+            f'{"…" if len(missing) > 4 else ""}</div>'
+        )
+    st.markdown(
+        f"""
+    <div class="metric-card neutral" style="min-height:auto; padding:0.8rem 0.9rem;
+            margin-bottom:0.7rem; animation:none;">
+        <h4 style="margin:0 0 0.25rem 0;">{html_mod.escape(label)}</h4>
+        <div style="font-family:var(--data); font-size:0.6rem; color:var(--ink-tertiary);
+                    line-height:1.5; margin-bottom:0.6rem;">{html_mod.escape(blurb)}</div>
+        <div style="display:flex; flex-direction:column; gap:0.3rem; padding-top:0.5rem;
+                    border-top:1px solid rgba(255,255,255,0.06);
+                    font-family:var(--data); font-size:0.62rem;">
+            <div style="display:flex; justify-content:space-between;">
+                <span style="color:var(--ink-tertiary);">Predictors</span>
+                <span style="color:var(--ink-secondary); font-weight:600;">{n_predictors}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+                <span style="color:var(--ink-tertiary);">Holdout &rho;</span>
+                <span style="color:var(--ink-primary); font-weight:700;">{holdout_rho:+.3f}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+                <span style="color:var(--ink-tertiary);">vs &minus;PE baseline</span>
+                <span style="color:{tone}; font-weight:600;">{margin:+.3f}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+                <span style="color:var(--ink-tertiary);">Significance</span>
+                <span style="color:var(--ink-secondary);">p = {p_value:.3f}</span>
+            </div>
+        </div>
+        <div style="margin-top:0.5rem; font-size:0.55rem; color:var(--ink-tertiary);
+                    line-height:1.4;">{html_mod.escape(context)}</div>
+        {miss_html}
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
