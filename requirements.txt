@@ -7,8 +7,18 @@
 # Python:   >= 3.10  (required for built-in type hints: dict[...], int | None)
 #
 
-# Web application framework
-streamlit       >= 1.32.0
+# Web application framework.
+#
+# Lower bound is 1.50, set by what the UI actually calls:
+#   st.navigation / st.Page      (1.36) — the nav rail
+#   st.container(key=...)        (1.40) — the panel primitive theme.css hooks
+#                                          via `.st-key-panel-*`
+#   st.segmented_control         (1.40) — the window and appearance controls
+#   width="stretch"              (1.50) — replaces use_container_width, which
+#                                          is removed after 2025-12-31
+# 1.52 is what the design system was measured against; the Streamlit-wrapper
+# notes in theme.css name 1.51/1.52 DOM differences explicitly.
+streamlit       >= 1.50.0
 
 # Data manipulation
 pandas          >= 2.1.0

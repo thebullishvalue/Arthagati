@@ -57,10 +57,10 @@ for _noisy in ("urllib3", "requests", "streamlit", "matplotlib"):
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(
-    page_title="ARTHAGATI | Market Sentiment Analysis",
+    page_title="ARTHAGATI | Market Sentiment",
+    page_icon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzRDN0RGMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTggMTRsMy01IDIgMyAzLTQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzRDN0RGMCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=",
     layout="wide",
-    page_icon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0Q0QTg1MyIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTggMTRsMy01IDIgMyAzLTQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0Q0QTg1MyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -70,32 +70,38 @@ st.set_page_config(
 from ui.theme import (
     inject_css,
     progress_bar,
+    chart_color,
     VERSION,
     PRODUCT_NAME,
     COMPANY,
-    C_AMBER,
-    C_CYAN,
-    C_EMERALD,
-    C_ROSE,
-    C_MUTED,
+    SANSKRIT,
 )
 from ui.components import (
+    render_ticker,
+    render_top_bar,
+    render_nav_brand,
+    render_notice_rail,
+    render_rail_readout,
+    render_section_header,
     render_metric_card,
-    render_warning_box,
-    sidebar_title,
-    sidebar_masthead,
-    sidebar_passport,
-    render_profile_card,
-    section_gap,
-    section_divider,
-    render_footer,
+    render_kpi_strip,
+    render_chip,
+    render_empty_state,
+    render_note,
+    render_hero_card,
+    build_hero_verdict,
+    warmup_note,
+    panel,
 )
-from ui.charts import register_theme as _register_chart_theme
+from ui import format as fmt
+from ui import signals as sig
 from ui.tabs.tab_landing import render_landing_page
-from ui.tabs.tab_historical_mood import render as render_historical_mood
-from ui.tabs.tab_similar_periods import render as render_similar_periods
-from ui.tabs.tab_correlation import render as render_correlation_analysis
+from ui.tabs.tab_overview import render as render_overview
+from ui.tabs.tab_mood import render as render_mood
+from ui.tabs.tab_analogs import render as render_analogs
+from ui.tabs.tab_drivers import render as render_drivers
 from ui.tabs.tab_validation import render as render_validation
+from ui.tabs.tab_config import render as render_config
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -188,16 +194,19 @@ from config import (  # noqa: E402
 # DOMAIN LOOK-UP TABLES
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Maps regime label → (hex colour, CSS card class)
-REGIME_STYLES: dict[str, tuple[str, str]] = {
-    'Trending':       (C_EMERALD,      'success'),
-    'Volatile Trend': (C_AMBER,        'warning'),
-    'Mean-Reverting': (C_CYAN,         'info'),
-    'Choppy':         (C_ROSE,         'danger'),
-    'Unknown':        (C_MUTED,        'neutral'),
+# Regime label → chip tone. One table, read by every surface that shows a
+# regime, so the colour and the word cannot disagree between views. Colour
+# itself is resolved per render through ui.theme.chart_color so it follows
+# the appearance; only the SEMANTIC name is fixed here.
+REGIME_TONE: dict[str, tuple[str, str]] = {
+    "Trending":       ("emerald", "success"),
+    "Volatile Trend": ("amber",   "warning"),
+    "Mean-Reverting": ("cyan",    "info"),
+    "Choppy":         ("rose",    "danger"),
+    "Unknown":        ("slate",   "neutral"),
 }
+REGIME_STYLES = REGIME_TONE
 
-# PLOTLY_BASE imported from ui.theme (transparent paper/plot + JetBrains Mono).
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ENGINE LOG VERBOSITY
@@ -223,13 +232,11 @@ def quiet_engine_logs():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DESIGN SYSTEM — injected from ui/theme.css (Obsidian Quant)
+# DESIGN SYSTEM — ui/theme.css + ui/theme.py
 # ══════════════════════════════════════════════════════════════════════════════
-
-inject_css()
-# Registers the `arthagati` Plotly template as the default, so every figure
-# inherits font, margin, grid, hover, legend and crosshair without asking.
-_register_chart_theme()
+# inject_css() is called from main(), AFTER the appearance is resolved: the
+# stylesheet and the charts must agree on one theme for the whole run, and the
+# appearance control lives in the rail, i.e. further down the script.
 
 # ── Boot banner (printed once per Streamlit process) ─────────────────────────
 if not st.session_state.get("_arthagati_banner_printed"):
@@ -245,8 +252,9 @@ if not st.session_state.get("_arthagati_banner_printed"):
 # HELPER FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Legacy alias — engine code below calls _progress_bar(); route to the new
-# Obsidian Quant progress-card renderer from ui.theme.
+# The engine paths below call _progress_bar(); route it to the themed
+# progress card, which derives its phase number from the percentage
+# (see RUN_PHASES in ui/theme.py).
 _progress_bar = progress_bar
 
 
@@ -1982,82 +1990,6 @@ def find_similar_periods(
 # APPLICATION ENTRYPOINT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _render_sidebar_masthead() -> None:
-    """Top-of-sidebar product brand block."""
-    sidebar_masthead(
-        product="ARTHAGATI",
-        sanskrit="अर्थगति",
-        subtitle="Market Sentiment",
-    )
-    section_divider()
-
-
-def _render_sidebar_passport() -> None:
-    """Bottom-of-sidebar terminal spec card."""
-    section_divider()
-    sidebar_passport(
-        version=VERSION,
-        engine="OU · Kalman · Spearman",
-        data_label=COMPANY,
-    )
-
-
-def _render_custom_predictor_picker(available_predictors: list[str]) -> None:
-    """Hand-picked predictor set.
-
-    Staging + Apply rather than immediate commit: the multiselect fires on
-    every checkbox, and each change would otherwise trigger a full engine
-    recompute. The preset dropdown applies immediately because it is one
-    discrete choice.
-    """
-    with st.expander("Choose Columns", expanded=True):
-        st.caption("Select predictors, then click Apply to recompute.")
-        staging_predictors = st.multiselect(
-            "Predictor Columns",
-            options=available_predictors,
-            default=list(st.session_state["active_predictors"]),
-            label_visibility="collapsed",
-            help=(
-                "Columns used as dependent variables for the PE & EY "
-                "correlation-weighted mood score. NIFTY-derived columns are "
-                "withheld — using them would make the score a function of the "
-                "price it is scored against."
-            ),
-        )
-        if not staging_predictors:
-            st.warning("Select at least one predictor.")
-            staging_predictors = list(st.session_state["active_predictors"])
-
-        staging_set = set(staging_predictors)
-        active_set = set(st.session_state["active_predictors"])
-        has_changes = staging_set != active_set
-        if has_changes:
-            added = staging_set - active_set
-            removed = active_set - staging_set
-            changes = []
-            if added:
-                changes.append(f"+{len(added)} added")
-            if removed:
-                changes.append(f"\u2212{len(removed)} removed")
-            st.caption(f"Pending: {', '.join(changes)}")
-
-        apply_clicked = st.button(
-            "Apply Configuration" if has_changes else "No changes",
-            use_container_width=True,
-            disabled=not has_changes,
-            type="primary" if has_changes else "secondary",
-        )
-        if apply_clicked and has_changes:
-            st.session_state["active_predictors"] = tuple(staging_predictors)
-            # Different predictor set ⇒ engine output no longer applies.
-            _clear_engine_caches()
-            st.rerun()
-
-        active_count = len(st.session_state["active_predictors"])
-        total_count = len(available_predictors)
-        st.info(f"Active: {active_count}/{total_count} available columns")
-
-
 def resolve_profile(key: str, available: list[str]) -> tuple[list[str], list[str]]:
     """Return (predictors present in this sheet, names that were missing).
 
@@ -2230,28 +2162,136 @@ def _clear_engine_caches() -> None:
     _invalidate_engine_cache()
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# APPLICATION SHELL
+# ══════════════════════════════════════════════════════════════════════════════
+
+#: The two appearances, in order. PAPER LEADS, and the order IS the default:
+#: `theme_choice()` falls back to APPEARANCES[0] for any unset or unrecognised
+#: value, so first-in-tuple is first-run. Kept as one fact rather than a
+#: separate DEFAULT_ constant, so the toggle's left-to-right order and the
+#: default can never disagree.
+APPEARANCES = ("Paper", "Slate")
+
+#: The appearance is stored under a DURABLE key rather than read back off the
+#: widget. Streamlit discards a widget's state on any run that does not reach
+#: it — and the rail is not reached on the cold-start branch — so reading the
+#: widget key directly loses the choice the first time a run short-circuits.
+_THEME_CHOICE = "appearance_choice"
+
+#: The forward window the conviction chain is stated over. The analog engine
+#: reports +5/20/60/90D; 90 is the horizon at which validation finds the
+#: signal strongest, so it is the one the verdict is framed on.
+HERO_HORIZON = 90
+
+
+def theme_choice() -> str:
+    """The appearance the user last chose, always one of ``APPEARANCES``.
+
+    A value not in the list is treated as unset. That matters across a rename:
+    a session opened before this list changed still holds the old string, and
+    handing an unknown option to the segmented control as its default is an
+    error rather than a fallback.
+    """
+    choice = st.session_state.get(_THEME_CHOICE)
+    return choice if choice in APPEARANCES else APPEARANCES[0]
+
+
+def _render_appearance_control() -> None:
+    """The theme switch — LAST control in the rail, deliberately.
+
+    It is the least consequential switch in the application, so it does not
+    get the most valuable position in the rail. Slate is the working theme;
+    Paper is for reading a result and for print.
+    """
+    with st.container(key="appearance"):
+        st.markdown('<div class="sidebar-title">Appearance</div>', unsafe_allow_html=True)
+        mode = st.segmented_control(
+            "Appearance", list(APPEARANCES), key="theme_mode",
+            default=theme_choice(), label_visibility="collapsed",
+            help="Slate — dark, for working. Paper — light, for reading and print.",
+        )
+        # Mirror into the DURABLE key and rerun, so the stylesheet at the top
+        # of main() is re-injected with the new value. Without the rerun the
+        # change lands half-way down the page and the run renders as a mix of
+        # both themes.
+        if mode is not None and mode != theme_choice():
+            st.session_state[_THEME_CHOICE] = mode
+            st.rerun()
+
+
+def _render_footer() -> None:
+    ist_now = datetime.now(pytz.UTC).astimezone(pytz.timezone("Asia/Kolkata"))
+    st.markdown(
+        f'<div class="app-footer"><div class="content">'
+        f'\u00a9 {ist_now.year} <strong>{PRODUCT_NAME}</strong> &nbsp;\u00b7&nbsp; {COMPANY}'
+        f' &nbsp;\u00b7&nbsp; {VERSION} &nbsp;\u00b7&nbsp; '
+        f'{ist_now.strftime("%Y-%m-%d %H:%M:%S IST")}'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _apply_profile(key: str, preds: tuple) -> None:
+    """Commit a preset. Predictor set changed ⇒ engine output no longer applies."""
+    st.session_state["active_predictors"] = preds
+    st.session_state["predictor_profile"] = key
+    _clear_engine_caches()
+    st.rerun()
+
+
+def _apply_predictors(preds: tuple) -> None:
+    st.session_state["active_predictors"] = preds
+    st.session_state["predictor_profile"] = "custom"
+    _clear_engine_caches()
+    st.rerun()
+
+
 def main():
-    # ── Session state ──────────────────────────────────────────────────────
+    # ─── Resolve the appearance BEFORE anything is styled ──────────────────
+    # This must run first. `theme` is written by the appearance control, which
+    # renders deep in the rail — i.e. AFTER this line. On the rerun following a
+    # click, inject_css() would otherwise still see the PREVIOUS appearance
+    # while every chart, which resolves its palette at render time further down
+    # the script, already saw the new one: a page whose chrome and whose plots
+    # disagree about which theme is active. Deriving it here, from the durable
+    # choice, makes the whole run agree on one value.
+    st.session_state["theme"] = "light" if theme_choice() == "Paper" else "dark"
+    inject_css(theme=st.session_state["theme"])
+
     st.session_state.setdefault("analysis_started", False)
     st.session_state.setdefault("active_predictors", None)
-    analysis_started = st.session_state["analysis_started"]
+    st.session_state.setdefault("active_instrument", "NIFTY 50")
 
-    # ── Landing state: masthead + Run Analysis button only ────────────────
-    if not analysis_started:
+    # One main-area progress slot, created up front so the same themed bar
+    # drives the fetch, the correlations, the engine and the oscillators
+    # rather than a spinner handing off to a bar with a gap between them.
+    progress_slot = st.empty()
+
+    # ─── Cold start ────────────────────────────────────────────────────────
+    if not st.session_state["analysis_started"]:
         with st.sidebar:
-            _render_sidebar_masthead()
-            sidebar_title("Start", icon="play-circle")
-            if st.button("Run Analysis", use_container_width=True, type="primary"):
+            render_nav_brand()
+            st.markdown('<div class="sidebar-title">Session</div>', unsafe_allow_html=True)
+            if st.button("Run analysis", width="stretch", type="primary"):
                 st.session_state["analysis_started"] = True
                 st.rerun()
-            _render_sidebar_passport()
-
-        # ─ Main pane landing
-        n_predictors = len(DEPENDENT_VARS)
-        render_landing_page(version=VERSION, n_predictors=n_predictors)
+            render_rail_readout([
+                ("Status", "Idle", "caution"),
+                ("Source", "Sheets" if (SHEET_ID and SHEET_GID) else "Not set",
+                 "" if (SHEET_ID and SHEET_GID) else "short"),
+                ("Version", VERSION, ""),
+            ])
+            _render_appearance_control()
+        render_landing_page(
+            version=VERSION,
+            n_predictors=len(DEPENDENT_VARS),
+            sheet_configured=bool(SHEET_ID and SHEET_GID),
+        )
+        _render_footer()
         return
 
-    # ── Analysis state: load data and populate predictor options first ─────
+    # ─── Ingestion ─────────────────────────────────────────────────────────
     run_id = generate_run_id()
     console.main_header(
         f"Analysis Run · {run_id}",
@@ -2261,37 +2301,33 @@ def main():
             "Sheet":   f"…{SHEET_ID[-8:]}" if SHEET_ID else "(env not set)",
         },
     )
-    # Phase 1/N · Data Ingestion (N = 4 normally, 5 when Intelligence Mode is ON)
     _total = 4
     st.session_state["_phase_total"] = _total
     console.start_phase("Data Ingestion", num=1, total=_total)
     console.step(1, "Fetching market data from Google Sheets (GViz API)")
-
-    _prog = st.empty()
-    _progress_bar(_prog, 5, "Fetching Market Data", "Google Sheets · GViz API · CSV Decode")
+    _progress_bar(progress_slot, 5, "Fetching market data", "Google Sheets · gviz API · CSV decode")
     raw_df = load_data()
 
     if raw_df is None:
-        _prog.empty()
+        progress_slot.empty()
         console.error("Data fetch returned None — aborting run.")
         console.end_phase("Data Ingestion")
+        render_empty_state(
+            "Data source unreachable",
+            "The Google Sheets gviz endpoint returned no usable CSV after the configured "
+            "retries, so there is nothing to score. Check ARTHAGATI_SHEET_ID and "
+            "ARTHAGATI_SHEET_GID, and that the sheet is shared as readable by link.",
+            eyebrow="Ingestion failed",
+            action_label="Press Refresh data in the rail to retry",
+        )
         st.stop()
     console.success(f"Loaded {len(raw_df):,} rows × {len(raw_df.columns)} columns")
     console.item("Date range", f"{raw_df['DATE'].min().date()} → {raw_df['DATE'].max().date()}")
     console.end_phase("Data Ingestion")
 
-    # Columns derived from NIFTY are withheld from the multiselect. Selecting
-    # one makes the valuation score partly a function of the price it is then
-    # evaluated against, and any measured edge would be partly price
-    # predicting itself. The real sheet carries 26 such columns (RSI, the MA
-    # family, SPREAD90/200, OSC, the precomputed COR./DEV pairs).
-    # Eligibility, in one place, matching the rule the profile measurements
-    # were recorded under:
-    #   * not an anchor or index key
-    #   * not derived from NIFTY — using such a column would make the
-    #     valuation score a function of the price it is scored against
-    #   * not a duplicate of a column load_data() derives itself
-    #   * enough real data to estimate a correlation from
+    # Columns derived from NIFTY are withheld from selection: using one makes
+    # the valuation score partly a function of the price it is then evaluated
+    # against, and any measured edge would be partly price predicting itself.
     available_predictors = [
         col for col in raw_df.columns
         if col not in NON_PREDICTOR_COLS
@@ -2303,8 +2339,6 @@ def main():
     ]
     current_preds = st.session_state.get("active_predictors")
     if not current_preds:
-        # First run seeds from the default profile, so the dropdown and the
-        # active set agree from the outset.
         default_preds, _ = resolve_profile(DEFAULT_PROFILE, available_predictors)
         if not default_preds:
             default_preds = [p for p in DEPENDENT_VARS if p in available_predictors]
@@ -2316,300 +2350,271 @@ def main():
         valid = tuple(p for p in current_preds if p in available_predictors)
         st.session_state["active_predictors"] = valid if valid else tuple(available_predictors)
 
-    # ── Sidebar — view mode + controls + model config ─────────────────────
+    selected_preds = st.session_state["active_predictors"]
+
+    # ─── Engine ────────────────────────────────────────────────────────────
+    console.start_phase("Correlation Engine", num=2, total=_total)
+    console.step(2, "Computing decay-weighted Spearman vs PE & EY anchors")
+    console.item("Active predictors", f"{len(selected_preds)}/{len(available_predictors)}")
+    _progress_bar(progress_slot, 30, "Computing correlations",
+                  "Decay-weighted Spearman · PE & EY anchors")
+    console.success("Correlations computed")
+    console.end_phase("Correlation Engine")
+
+    mood_df, msf_df = _compute_engine_output(raw_df, selected_preds, progress_slot)
+    _progress_bar(progress_slot, 100, "Ready", "All stages complete")
+    time.sleep(0.12)
+    progress_slot.empty()
+
+    latest = mood_df.iloc[-1]
+    latest_date = raw_df["DATE"].max()
+    today_ist = datetime.now(pytz.timezone("Asia/Kolkata")).date()
+    data_age = (pd.Timestamp(today_ist) - latest_date).days
+    selected_tf = st.session_state.get("tf_selected", "1Y")
+
+    console.summary(f"Run {run_id} · Pipeline Summary", {
+        "Predictors":     f"{len(selected_preds)} active",
+        "Rows":           f"{len(mood_df):,}",
+        "Mood Score":     f"{latest['Mood_Score']:+.2f} ({latest.get('Mood', '—')})",
+        "MSF Spread":     f"{latest['MSF_Spread']:+.2f}",
+        "Regime":         str(latest.get("Regime", "Unknown")),
+        "OU Half-Life":   f"{latest.get('OU_Half_Life', 0):.0f}d",
+        "Hurst":          f"{latest.get('Hurst', 0.5):.2f}",
+        "Market Entropy": f"{latest.get('Market_Entropy', 0.5):.2f}",
+    })
+
+    # ─── The control rail ──────────────────────────────────────────────────
+    # Everything GLOBAL lives here — which model, what to do with the session,
+    # how the app looks. Everything LOCAL to a page (the chart window) lives on
+    # that page, in the panel header of the chart it reframes. A control's
+    # position is the only reliable statement of its scope, so the two are
+    # never mixed.
+    #
+    # Rail order is by frequency of use: Model (every few visits) → Session
+    # (occasionally) → Readout (read-only) → Appearance (almost never).
+    #
+    # st.navigation pins its page-nav to the TOP of the sidebar by design, so
+    # this content renders below it and `.nav-brand` is lifted above the nav
+    # by CSS.
     with st.sidebar:
-        _render_sidebar_masthead()
+        render_nav_brand()
 
-        sidebar_title("View Mode", icon="grid")
-        view_mode = st.radio(
-            "View Mode",
-            ["Historical Mood", "Similar Periods", "Correlation Analysis", "Signal Validation"],
-            label_visibility="collapsed",
-        )
-        section_divider()
-
-        sidebar_title("Controls", icon="settings")
-        if st.button("Refresh Data", use_container_width=True):
-            _clear_engine_caches()
-            _invalidate_engine_cache()
-            st.rerun()
-        section_divider()
-
-        sidebar_title("Model Configuration", icon="cpu")
-
-        # ── Predictor profile ────────────────────────────────────────────
-        # Presets carry the measurement that justifies them (see
-        # config.PREDICTOR_PROFILES). Picking one applies immediately —
-        # it is a single discrete choice, unlike the multiselect below
-        # where staging avoids recomputing on every checkbox.
+        st.markdown('<div class="sidebar-title">Model</div>', unsafe_allow_html=True)
         _active = tuple(st.session_state["active_predictors"])
         _detected = detect_profile(_active, available_predictors)
         _keys = list(PREDICTOR_PROFILES) + ["custom"]
         _labels = {k: PREDICTOR_PROFILES[k]["label"] for k in PREDICTOR_PROFILES}
-        _labels["custom"] = "Custom…"
-
+        _labels["custom"] = "Custom"
         _chosen = st.selectbox(
-            "Predictor Profile",
-            options=_keys,
+            "Predictor profile", options=_keys,
             index=_keys.index(_detected) if _detected in _keys else len(_keys) - 1,
             format_func=lambda k: (
                 _labels[k] if k == "custom"
                 else f"{_labels[k]} · {len(resolve_profile(k, available_predictors)[0])}"
             ),
-            help=(
-                "Preset predictor mixes, each labelled with the out-of-sample "
-                "correlation it achieved on the reference sheet. Choose Custom to "
-                "pick columns yourself."
-            ),
+            label_visibility="collapsed",
+            help="Preset predictor mixes. Model Configuration carries each one's "
+                 "recorded measurement and the custom column picker.",
         )
-
         if _chosen != "custom":
-            _preds, _missing = resolve_profile(_chosen, available_predictors)
+            _preds, _ = resolve_profile(_chosen, available_predictors)
             if _preds and set(_preds) != set(_active):
-                st.session_state["active_predictors"] = tuple(_preds)
-                st.session_state["predictor_profile"] = _chosen
-                _clear_engine_caches()
-                st.rerun()
-            _m = PREDICTOR_PROFILES[_chosen]["measured"]
-            _ctx = PROFILE_MEASUREMENT_CONTEXT
-            render_profile_card(
-                label=PREDICTOR_PROFILES[_chosen]["label"],
-                blurb=PREDICTOR_PROFILES[_chosen]["blurb"],
-                n_predictors=len(_preds),
-                holdout_rho=_m["holdout_rho"],
-                p_value=_m["p_value"],
-                baseline_rho=_ctx["baseline_rho"],
-                context=(
-                    f"Recorded {_ctx['measured_date']} on {_ctx['rows']:,} rows "
-                    f"({_ctx['span']}), holdout {_ctx['holdout']}, validated on "
-                    f"{_ctx['validated_on']}. Open Signal Validation to re-measure "
-                    f"the active set on this data."
-                ),
-                missing=_missing,
+                _apply_profile(_chosen, tuple(_preds))
+
+        st.markdown('<div class="sidebar-title">Session</div>', unsafe_allow_html=True)
+        if st.button("Refresh data", width="stretch"):
+            _clear_engine_caches()
+            _invalidate_engine_cache()
+            st.rerun()
+
+        _status_label, _status_tone = fmt.age_label(data_age)
+        render_rail_readout([
+            ("Predictors", f"{len(selected_preds)}/{len(available_predictors)}", "accent"),
+            ("Rows", f"{len(mood_df):,}", ""),
+            ("As of", fmt.when(latest_date, "%d %b %y"), ""),
+            ("Freshness", _status_label,
+             {"pos": "long", "warn": "caution", "neg": "short"}.get(_status_tone, "")),
+            ("Version", VERSION, ""),
+        ])
+        _render_appearance_control()
+
+    # ─── Notices: computed once, rendered under the command bar ────────────
+    # These used to render as full-width boxes at the very top of the page,
+    # which put the reading itself below the fold on exactly the days the data
+    # most needed scrutiny. One row each, severity on the left rule, and now
+    # BELOW the thing they qualify rather than above it.
+    notices: list[dict] = []
+    if data_age > STALE_DATA_DAYS:
+        console.warning(f"Stale data — last point is {latest_date.date()} ({data_age}d old)")
+        notices.append({
+            "kind": "warning", "title": "Stale data",
+            "body": f"The last observation is {fmt.when(latest_date)} — {data_age} days old. "
+                    "Every reading on this screen describes that date, not the current "
+                    "market. Update the source sheet, then press Refresh data.",
+        })
+    _degenerate = st.session_state.get("_msf_degenerate") or []
+    if _degenerate:
+        notices.append({
+            "kind": "warning", "title": "Degraded oscillator",
+            "body": f"MSF Spread is running on {4 - len(_degenerate)} of 4 components — no "
+                    f"signal in {', '.join(_degenerate)}. Check that NIFTY and AD_RATIO are "
+                    "populated in the source sheet.",
+        })
+    _warm = warmup_note(mood_df)
+    if _warm:
+        notices.append({"kind": "info", "title": "Warm-up rows present", "body": _warm})
+
+    # ─── The conviction chain, built once and shared ───────────────────────
+    # Built here rather than inside a page so the Overview's verdict and any
+    # other surface that shows a gate read the same object. Pure data in, pure
+    # data out — see ui.components.build_hero_verdict.
+    try:
+        _periods = find_similar_periods(mood_df)
+    except Exception:                    # engine unavailable — a gate, not a crash
+        _periods = []
+    _fwd = [p.get("fwd_90d") for p in _periods if p.get("fwd_90d") is not None]
+    _precedent = ({"n": len(_fwd),
+                   "positive_pct": sum(1 for v in _fwd if v > 0) / len(_fwd) * 100}
+                  if _fwd else None)
+    _validation = st.session_state.get("_validation_summary")
+
+    verdict = build_hero_verdict(
+        mood=float(latest["Mood_Score"]),
+        msf=float(latest["MSF_Spread"]),
+        regime=str(latest.get("Regime", "Unknown")),
+        entropy=float(latest.get("Market_Entropy", 0.5)),
+        hurst=float(latest.get("Hurst", 0.5)),
+        ou_half_life=float(latest.get("OU_Half_Life", 0.0)),
+        precedent=_precedent,
+        validation=_validation,
+        data_age_days=int(data_age),
+        is_warmup=bool(latest.get("Is_Warmup", False)),
+        horizon_days=HERO_HORIZON,
+        bands=(float(MOOD_BAND_INNER), float(MOOD_BAND_OUTER), float(MSF_OB_LEVEL_1)),
+    )
+
+    # ─── Page shell ────────────────────────────────────────────────────────
+    def _shell() -> None:
+        """The page chrome, identical on every page.
+
+        Order is fixed and means something: the TAPE (the world) sits above the
+        COMMAND BAR (this reading), which sits above the NOTICE RAIL (the
+        caveats on it). Page content follows.
+        """
+        render_ticker(raw_df)
+        _mood = float(latest["Mood_Score"])
+        _band, _ = sig.mood_state(_mood)
+        render_top_bar(
+            target=f"NIFTY 50 · {_band}",
+            price=float(latest["NIFTY"]),
+            change_pct=_nifty_change(mood_df),
+            status_label=_status_label,
+            status_tone={"pos": "success", "warn": "warning",
+                         "neg": "danger"}.get(_status_tone, "neutral"),
+            meta_items=[
+                ("Mood", f"{_mood:+.1f}"),
+                ("MSF", f"{float(latest['MSF_Spread']):+.2f}"),
+                ("Regime", str(latest.get("Regime", "Unknown"))),
+                ("Window", selected_tf),
+                ("As of", fmt.when(latest_date, "%d %b %Y")),
+            ],
+        )
+        render_notice_rail(notices)
+
+    def _safe(name: str, fn) -> None:
+        """Render a page's content with graceful error handling.
+
+        A page that raises must not take the shell with it — the command bar
+        and the tape carry state the reader needs in order to understand that
+        something failed at all.
+        """
+        try:
+            fn()
+        except Exception as exc:                       # noqa: BLE001 — boundary
+            console.error(f"{name} raised: {exc}")
+            render_empty_state(
+                f"{name} could not be rendered",
+                str(exc),
+                eyebrow="Page error",
+                action_label="Try Refresh data, or a different predictor profile",
             )
-            with st.expander("Columns in this profile", expanded=False):
-                st.caption(" · ".join(_preds) if _preds else "none available in this sheet")
-        else:
-            st.session_state["predictor_profile"] = "custom"
-            _render_custom_predictor_picker(available_predictors)
 
-        _render_sidebar_passport()
+    # ─── Pages — thin wrappers. None recomputes the pipeline above. ────────
+    def _page_overview() -> None:
+        _shell()
+        _safe("Overview", lambda: render_overview(
+            mood_df, msf_df, verdict=verdict, timeframes=TIMEFRAMES,
+            tf=st.session_state.get("tf_selected", "1Y"),
+            periods=_periods, data_age=data_age))
+        _render_footer()
 
-    # Masthead is intentionally landing-page-only — once Run Analysis is pressed
-    # the results UI (metric strips + view) is the primary visual.
+    def _page_mood() -> None:
+        _shell()
+        _safe("Mood Engine", lambda: render_mood(
+            mood_df, msf_df, timeframes=TIMEFRAMES, mood_scale=MOOD_SCALE,
+            ou_proj_days=OU_PROJ_DAYS))
+        _render_footer()
 
-    # ── Stale-data warning ────────────────────────────────────────────────
-    latest_date = raw_df["DATE"].max()
-    ist_tz = pytz.timezone("Asia/Kolkata")
-    today_ist = datetime.now(ist_tz).date()
-    data_age_days = (pd.Timestamp(today_ist) - latest_date).days
-    if data_age_days > STALE_DATA_DAYS:
-        console.warning(
-            f"Stale data — last point is {latest_date.date()} ({data_age_days}d old)"
-        )
-        render_warning_box(
-            title="Stale Data",
-            content=(
-                f"Last data point is {latest_date.strftime('%d %b %Y')} "
-                f"({data_age_days} days ago). Scores reflect the last available data, "
-                "not current market state. Update your Google Sheet."
-            ),
-        )
+    def _page_analogs() -> None:
+        _shell()
+        _safe("Analogs", lambda: render_analogs(
+            mood_df, periods=_periods, backtest_horizon=BACKTEST_HORIZON))
+        _render_footer()
 
-    # ── Run engine ────────────────────────────────────────────────────────
-    selected_preds = st.session_state.get("active_predictors", tuple(available_predictors))
-
-    # ── Phase 2 · Correlations (cheap, just here for the progress beat) ───
-    console.start_phase("Correlation Engine", num=2, total=_total)
-    console.step(2, "Computing decay-weighted Spearman vs PE & EY anchors")
-    console.item("Active predictors", f"{len(selected_preds)}/{len(available_predictors)}")
-    _progress_bar(_prog, 30, "Computing Correlations", "Decay-Weighted Spearman · PE & EY Anchors")
-    console.success("Correlations computed")
-    console.end_phase("Correlation Engine")
-
-    # ── Phases 3-4 · Sentiment engine + MSF Spread (session-cached) ───────
-    # _compute_engine_output is the smart fast-path: on view/timeframe
-    # switches it returns the cached frames in ~150ms; only true input
-    # changes (new data / new predictor set) trigger the 30s recompute.
-    mood_df, msf_df = _compute_engine_output(raw_df, selected_preds, _prog)
-    latest_mood = float(mood_df["Mood_Score"].iloc[-1])
-    latest_msf  = float(mood_df["MSF_Spread"].iloc[-1])
-
-    _progress_bar(_prog, 100, "Ready", "All Systems Nominal")
-    time.sleep(0.15)
-    _prog.empty()
-
-    # ── Pipeline summary ──────────────────────────────────────────────────
-    _last = mood_df.iloc[-1]
-    _summary: dict = {
-        "View Mode":      view_mode,
-        "Predictors":     f"{len(selected_preds)} active",
-        "Rows":           f"{len(mood_df):,}",
-        "Mood Score":     f"{_last['Mood_Score']:+.2f} ({_last.get('Mood', '—')})",
-        "MSF Spread":     f"{_last['MSF_Spread']:+.2f}",
-    }
-    _summary.update({
-        "Regime":         str(_last.get("Regime", "Unknown")),
-        "OU Half-Life":   f"{_last.get('OU_Half_Life', 0):.0f}d",
-        "Hurst":          f"{_last.get('Hurst', 0.5):.2f}",
-        "Market Entropy": f"{_last.get('Market_Entropy', 0.5):.2f}",
-    })
-    console.summary(f"Run {run_id} · Pipeline Summary", _summary)
-
-    # ── Top metric strip ──────────────────────────────────────────────────
-    latest      = mood_df.iloc[-1]
-    mood_score  = latest["Mood_Score"]
-    msf_spread  = latest["MSF_Spread"]
-
-    # Colour follows the same bands as the label, so the card and the text
-    # cannot disagree. High score = cheap = constructive, hence success.
-    if mood_score > MOOD_BAND_OUTER:
-        mood_class = "success"
-    elif mood_score > MOOD_BAND_INNER:
-        mood_class = "success"
-    elif mood_score < -MOOD_BAND_OUTER:
-        mood_class = "danger"
-    elif mood_score < -MOOD_BAND_INNER:
-        mood_class = "warning"
-    else:
-        mood_class = "neutral"
-
-    if msf_spread > 4:
-        msf_class, msf_label = "danger", "Overbought"
-    elif msf_spread > 2:
-        msf_class, msf_label = "warning", "Bullish"
-    elif msf_spread < -4:
-        msf_class, msf_label = "success", "Oversold"
-    elif msf_spread < -2:
-        msf_class, msf_label = "info", "Bearish"
-    else:
-        msf_class, msf_label = "neutral", "Neutral"
-
-    section_gap()
-    col1, col2, col3, col4 = st.columns(4, gap="small")
-    with col1:
-        render_metric_card(
-            label="Mood Score",
-            value=f"{mood_score:.2f}",
-            subtext=f"{latest.get('Mood', '—')} · valuation vs recent history",
-            color_class=mood_class,
-            icon="activity",
-            tooltip=(
-                "Anchored to PE and Earnings Yield: cheap scores high, expensive scores "
-                "low. It moves against recent price action by design (rho -0.54 vs the "
-                "trailing 60d return) and is not a momentum indicator."
-            ),
-        )
-    with col2:
-        render_metric_card(
-            label="MSF Spread",
-            value=f"{msf_spread:+.2f}",
-            subtext=msf_label,
-            color_class=msf_class,
-            icon="chart",
-        )
-    with col3:
-        render_metric_card(
-            label="NIFTY 50",
-            value=f"{latest['NIFTY']:,.0f}",
-            subtext="Index level",
-            color_class="warning",
-            icon="trending-up",
-        )
-    with col4:
-        render_metric_card(
-            label="Analysis Date",
-            value=latest["DATE"].strftime("%d %b"),
-            subtext=latest["DATE"].strftime("%Y"),
-            color_class="neutral",
-            icon="globe",
-        )
-
-    section_gap()
-
-    # ── Diagnostics strip ─────────────────────────────────────────────────
-    current_regime = latest.get("Regime", "Unknown")
-    _reg_color, reg_class = REGIME_STYLES.get(current_regime, (C_MUTED, "neutral"))
-    cols = st.columns(4, gap="small")
-    with cols[0]:
-        render_metric_card(
-            label="Mood Regime",
-            value=str(current_regime),
-            subtext="Hurst + Entropy · 90d",
-            color_class=reg_class,
-            icon="compass",
-        )
-    with cols[1]:
-        ou_hl = latest.get("OU_Half_Life", 0)
-        render_metric_card(
-            label="OU Half-Life",
-            value=f"{ou_hl:.0f}d",
-            subtext="Expected reversion time",
-            color_class="warning",
-            icon="cpu",
-        )
-    with cols[2]:
-        h_val = latest.get("Hurst", 0.5)
-        h_label = "Trending" if h_val > 0.55 else "Random" if h_val > 0.45 else "Reverting"
-        h_class = "success" if h_val > 0.55 else "neutral" if h_val > 0.45 else "info"
-        render_metric_card(
-            label="Hurst Exponent",
-            value=f"{h_val:.2f}",
-            subtext=h_label,
-            color_class=h_class,
-            icon="trending-up",
-        )
-    with cols[3]:
-        s_val = latest.get("Market_Entropy", 0.5)
-        s_label = "Disordered" if s_val > 0.6 else "Ordered" if s_val < 0.4 else "Mixed"
-        s_class = "danger" if s_val > 0.6 else "success" if s_val < 0.4 else "neutral"
-        render_metric_card(
-            label="Market Entropy",
-            value=f"{s_val:.2f}",
-            subtext=s_label,
-            color_class=s_class,
-            icon="zap",
-        )
-    section_gap()
-
-    # ── View dispatch ─────────────────────────────────────────────────────
-    console.section(f"Rendering view: {view_mode}", phase="UI")
-    if view_mode == "Historical Mood":
-        render_historical_mood(
-            mood_df, msf_df,
-            timeframes=TIMEFRAMES,
-            mood_scale=MOOD_SCALE,
-            ou_proj_days=OU_PROJ_DAYS,
-        )
-    elif view_mode == "Similar Periods":
-        render_similar_periods(
-            mood_df,
-            find_similar_periods=find_similar_periods,
-            backtest_horizon=BACKTEST_HORIZON,
-        )
-    elif view_mode == "Correlation Analysis":
-        render_correlation_analysis(
-            raw_df,
-            active_preds=st.session_state.get("active_predictors", tuple(available_predictors)),
-            non_predictor_cols=NON_PREDICTOR_COLS,
+    def _page_drivers() -> None:
+        _shell()
+        _safe("Drivers", lambda: render_drivers(
+            raw_df, active_preds=selected_preds, non_predictor_cols=NON_PREDICTOR_COLS,
             calculate_anchor_correlations=calculate_anchor_correlations,
-            shannon_entropy=shannon_entropy,
-        )
-    else:  # Signal Validation
-        render_validation(mood_df, raw_df)
-    console.success(f"View rendered: {view_mode}")
-    console.line("═", 70)
+            shannon_entropy=shannon_entropy))
+        _render_footer()
 
-    # ── Footer ────────────────────────────────────────────────────────────
-    utc_now = datetime.now(pytz.UTC)
-    ist_now = utc_now.astimezone(pytz.timezone("Asia/Kolkata"))
-    current_time_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
-    render_footer(PRODUCT_NAME, COMPANY, VERSION, current_time_ist)
+    def _page_validation() -> None:
+        _shell()
+        _safe("Validation", lambda: render_validation(mood_df, raw_df))
+        _render_footer()
+
+    def _page_config() -> None:
+        _shell()
+        _safe("Configuration", lambda: render_config(
+            available_predictors=available_predictors,
+            resolve_profile=resolve_profile, detect_profile=detect_profile,
+            on_profile_change=_apply_profile, on_predictors_change=_apply_predictors))
+        _render_footer()
+
+    # Overview leads: it is the read that combines everything else, so it is
+    # the page a returning user opens first. The engine surfaces follow as its
+    # inputs, Validation as the independent check on all of them.
+    pages = {
+        "": [st.Page(_page_overview, title="Overview",
+                     icon=":material/dashboard:", default=True)],
+        "Engine": [
+            st.Page(_page_mood, title="Mood Engine", icon=":material/monitoring:"),
+            st.Page(_page_analogs, title="Analogs", icon=":material/history:"),
+            st.Page(_page_drivers, title="Drivers", icon=":material/hub:"),
+        ],
+        "System": [
+            st.Page(_page_validation, title="Validation", icon=":material/verified:"),
+            st.Page(_page_config, title="Configuration", icon=":material/tune:"),
+        ],
+    }
+    st.navigation(pages, position="sidebar").run()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# RUN APPLICATION
-# ══════════════════════════════════════════════════════════════════════════════
+def _nifty_change(mood_df) -> float | None:
+    """Session change in the index, in PERCENT POINTS.
+
+    Percent points, not a fraction: the command bar prints it with "%.2f%%",
+    and handing it a fraction is how a sub-1% session — i.e. most of them —
+    ends up printing as "0.00%".
+    """
+    if mood_df is None or len(mood_df) < 2 or "NIFTY" not in mood_df.columns:
+        return None
+    tail = mood_df["NIFTY"].to_numpy(dtype=float)[-2:]
+    if not np.isfinite(tail).all() or tail[0] == 0:
+        return None
+    return float((tail[1] / tail[0] - 1.0) * 100.0)
+
 
 if __name__ == "__main__":
     main()
