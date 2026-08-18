@@ -4,9 +4,15 @@ own parts.
 
 Every block here uses the same components the analysis pages use — a section
 header for each division, ``render_kpi_strip`` for the coverage numbers, and
-``panel()`` for each system — so the landing page sits on the same
-section-rhythm contract as everything else and cannot drift into reading like
-a different product's marketing page bolted to the front of this one.
+the shared panel anatomy for each system — so the landing page sits on the
+same section-rhythm contract as everything else and cannot drift into reading
+like a different product's marketing page bolted to the front of this one.
+
+The two grids on this page are plain divs rather than Streamlit containers,
+because everything on them is static text. That is not a shortcut: a container
+here is actively worse, since the wrappers Streamlit puts between a column and
+its content shrink to their own content and will not grow, which is what left
+the three system panels at three different heights.
 
 The claim leads, because a reader who has not run anything needs to know what
 the thing IS before they are shown what it covers.
@@ -33,7 +39,6 @@ from config import (
     SIMILAR_W_TRAJ,
 )
 from ui.components import (
-    panel,
     render_header,
     render_kpi_strip,
     render_notice_rail,
@@ -48,6 +53,15 @@ from ui.components import (
 #: The order is the order of the argument: MOOD makes the claim, MSF says
 #: whether to believe it, PRECEDENT checks both against history without
 #: depending on either being right.
+#:
+#: Rendered as ONE grid of plain divs, not three ``panel()`` containers. These
+#: are static text: they gain nothing from a Streamlit container and lose
+#: something real to it, since the wrappers between a column and its content
+#: each shrink to their own content — so the panel with the longest copy stood
+#: taller than the other two and the three spec blocks started at three
+#: different heights. A CSS grid with ``grid-template-rows: auto 1fr auto``
+#: makes the set uniform by construction: equal heights, and the spec rows on
+#: one baseline. Same call ``_OUTCOMES`` below already makes.
 _SYSTEM_PANELS = (
     ("mood", "MOOD", "The claim · valuation",
      "Scores where the market sits against its own recent history, anchored to the PE "
@@ -161,21 +175,28 @@ def render_landing_page(version: str, n_predictors: int, sheet_configured: bool)
         "Three readings of the same market, in the order the argument runs.",
         icon="cpu",
     )
-    cols = st.columns(3, gap="small")
-    for col, (cls, name, kicker, body, specs) in zip(cols, _SYSTEM_PANELS):
-        with col:
-            with panel(f"landing-{cls}", name, context=kicker):
-                st.markdown(
-                    f'<div class="panel-copy">{html_mod.escape(body)}</div>'
-                    '<div class="panel-specs">'
-                    + "".join(
-                        f'<div class="lookback-row"><span class="lbl">{html_mod.escape(k)}</span>'
-                        f'<span class="val">{html_mod.escape(v)}</span></div>'
-                        for k, v in specs
-                    )
-                    + "</div>",
-                    unsafe_allow_html=True,
-                )
+    st.markdown(
+        '<div class="system-grid">'
+        + "".join(
+            f'<div class="system-panel">'
+            f'<div class="panel-hdr"><div class="ph-left">'
+            f'<span class="ph-title">{html_mod.escape(name)}</span>'
+            f'<span class="ph-context">{html_mod.escape(kicker)}</span>'
+            f'</div></div>'
+            f'<div class="panel-copy">{html_mod.escape(body)}</div>'
+            f'<div class="panel-specs">'
+            + "".join(
+                f'<div class="lookback-row">'
+                f'<span class="lbl">{html_mod.escape(k)}</span>'
+                f'<span class="val">{html_mod.escape(v)}</span></div>'
+                for k, v in specs
+            )
+            + "</div></div>"
+            for _cls, name, kicker, body, specs in _SYSTEM_PANELS
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
 
     # ── What a run returns ────────────────────────────────────────────────
     render_section_header(
