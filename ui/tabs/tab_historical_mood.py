@@ -29,6 +29,7 @@ from ui.components import (
     render_metric_card,
     section_divider,
 )
+from ui.panel import alert
 from config import (
     MSF_OB_LEVEL_1,
     MSF_OB_LEVEL_2,
@@ -45,14 +46,12 @@ from ui.theme import (
     C_EMERALD,
     C_ROSE,
     C_MUTED,
-    PLOTLY_BASE,
     PLOTLY_GRID,
     PLOTLY_GRID_ZERO,
-    PLOTLY_HOVERLABEL,
-    PLOTLY_LEGEND,
     PLOTLY_SPIKE_X,
     PLOTLY_SPIKE_Y,
 )
+from ui.charts import PLOT_CONFIG, CHART_H, FONT_STACK
 
 
 def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
@@ -166,7 +165,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         showarrow=True, arrowhead=2, arrowcolor=C_AMBER,
         ax=40, ay=0,
         bgcolor="rgba(14,19,31,0.92)", bordercolor=C_AMBER, borderwidth=1,
-        font=dict(color=C_AMBER_BRIGHT, size=11, family="JetBrains Mono, monospace"),
+        font=dict(color=C_AMBER_BRIGHT, size=11, family=FONT_STACK),
         row=1, col=1,
     )
 
@@ -196,7 +195,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         x=proj_dates[-1], y=0.0,
         text=f"EQ ({last_point.get('OU_Half_Life', 0):.0f}d t½)",
         showarrow=False,
-        font=dict(color="#9BAABF", size=10, family="JetBrains Mono, monospace"),
+        font=dict(color="#9BAABF", size=10, family=FONT_STACK),
         # Nudged off the zero line, which it previously sat on top of.
         xanchor="left", xshift=6, yshift=-12, row=1, col=1,
     )
@@ -221,11 +220,12 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     # from the composite rather than silently capturing all of the weight.
     _degenerate = st.session_state.get("_msf_degenerate") or []
     if _degenerate:
-        st.warning(
+        alert(
+            "warning",
+            "Degraded input",
             f"MSF Spread is running on {4 - len(_degenerate)} of 4 components. "
-            f"No signal in: {', '.join(_degenerate)}. "
-            "Check that the source columns (NIFTY, AD_RATIO) are populated in the sheet.",
-            icon="⚠️",
+            f"No signal in: {', '.join(_degenerate)}.",
+            hint="Check that NIFTY and AD_RATIO are populated in the sheet.",
         )
 
     # ── Row 2: MSF Spread ─────────────────────────────────────────────────
@@ -414,7 +414,6 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     # Calibrated Conviction pane removed — see header comment at top of render().
 
     # ── Layout — Obsidian Quant ───────────────────────────────────────────
-    _shared_tick = dict(size=10, family="JetBrains Mono, monospace", color="#9BAABF")
     # Vertical line from the x-axis spike, horizontal from the y-axis spike.
     # Both are required for a full crosshair; the chart previously set only
     # the x-axis, which is why the horizontal line was missing.
@@ -430,61 +429,41 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     _msf_pad = max((_msf_max - _msf_min) * 0.05, 0.5)
     _msf_range = [_msf_min - _msf_pad, _msf_max + _msf_pad]
 
-    # Chart height grows with pane count: 2 panes = 750, 3 = 880
+    # Height comes from the shared scale, not a literal. Everything cosmetic —
+    # font, margin, grid, hover, legend, crosshair — is inherited from the
+    # registered `arthagati` template.
     _pane_count = 2 + int(show_wt_pane)
-    _heights = {2: 750, 3: 880}
+    _heights = {2: int(CHART_H["lg"] * 1.25), 3: CHART_H["stack3"]}
     layout_kwargs = dict(
-        **PLOTLY_BASE,
         height=_heights[_pane_count],
-        hovermode="x unified",
         showlegend=True,
-        legend=dict(
-            orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1,
-            font=dict(size=10, family="JetBrains Mono, monospace"),
-            bgcolor="rgba(0,0,0,0)",
-        ),
-        margin=dict(l=60, r=20, t=60, b=40),
-        # Keep the crosshair alive anywhere in the plot area, not just near a trace.
-        spikedistance=-1,
-        hoverdistance=-1,
+        # Legend clears the taller 3-pane stack's top edge.
+        legend=dict(y=1.04),
         yaxis=dict(
-            title=dict(text="Mood Score", font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace")),
+            title=dict(text="Mood Score"),
             showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
-            zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
-            linecolor="rgba(255,255,255,0.04)",
-            tickfont=_shared_tick,
-            range=[mood_y_hi, mood_y_lo],
+            range=[mood_y_hi, mood_y_lo],          # reversed: bearish on top
             **PLOTLY_SPIKE_Y,
         ),
         yaxis2=dict(
-            title=dict(text="MSF Spread", font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace")),
+            title=dict(text="MSF Spread"),
             showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
-            zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
-            linecolor="rgba(255,255,255,0.04)",
-            tickfont=_shared_tick,
-            # Lock the y-range wide enough to always show the OB/OS bands
+            zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO,
+            # Locked wide enough that the OB/OS bands are always in view
             range=_msf_range,
             **PLOTLY_SPIKE_Y,
         ),
-        xaxis=dict(
-            showgrid=False, linecolor="rgba(255,255,255,0.04)",
-            **_shared_spike,
-        ),
+        xaxis=dict(showgrid=False, **_shared_spike),
     )
 
     # WaveTrend pane (row 3 when present) — y-axis reversed: negative
     # on top, positive on bottom (matches mood pane convention).
     if show_wt_pane:
         layout_kwargs["yaxis3"] = dict(
-            title=dict(
-                text="WaveTrend",
-                font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace"),
-            ),
+            title=dict(text="WaveTrend"),
             showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
             zeroline=False,
-            linecolor="rgba(255,255,255,0.04)",
-            tickfont=_shared_tick,
-            range=[wt_y_hi, wt_y_lo],  # reversed
+            range=[wt_y_hi, wt_y_lo],              # reversed, matches pane 1
             **PLOTLY_SPIKE_Y,
         )
 
@@ -494,16 +473,11 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         key = f"xaxis{i}"
         if key == bottom_row_axis:
             layout_kwargs[key] = dict(
-                showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5, type="date",
-                linecolor="rgba(255,255,255,0.04)",
-                tickfont=_shared_tick,
-                **_shared_spike,
+                showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
+                type="date", **_shared_spike,
             )
         else:
-            layout_kwargs[key] = dict(
-                showgrid=False, linecolor="rgba(255,255,255,0.04)",
-                **_shared_spike,
-            )
+            layout_kwargs[key] = dict(showgrid=False, **_shared_spike)
 
     fig.update_layout(**layout_kwargs)
 
@@ -526,12 +500,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     st.plotly_chart(
         fig,
         use_container_width=True,
-        config={
-            "displayModeBar": True,
-            "scrollZoom": True,
-            "displaylogo": False,
-            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-        },
+        config={**PLOT_CONFIG, "displayModeBar": True, "scrollZoom": True},
     )
     st.markdown("</div>", unsafe_allow_html=True)
 

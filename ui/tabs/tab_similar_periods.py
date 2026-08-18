@@ -16,18 +16,8 @@ from ui.components import (
     render_interpretation_card,
     section_divider,
 )
-from ui.theme import (
-    C_AMBER,
-    C_CYAN,
-    C_EMERALD,
-    C_ROSE,
-    C_MUTED,
-    PLOTLY_BASE,
-    PLOTLY_GRID,
-    PLOTLY_GRID_ZERO,
-    PLOTLY_SPIKE_X,
-    PLOTLY_SPIKE_Y,
-)
+from ui.theme import C_AMBER, C_CYAN, C_EMERALD, C_ROSE, C_MUTED
+from ui.charts import PLOT_CONFIG, chart_height
 
 
 def _classify_mood(mood_val: float) -> tuple[str, str, str, str]:
@@ -303,40 +293,22 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
     fig_bt.add_hline(y=0, line_color="rgba(155,170,191,0.5)", line_width=1, line_dash="dot")
     fig_bt.add_vline(x=0, line_color="rgba(155,170,191,0.5)", line_width=1, line_dash="dot")
 
+    # Template owns styling; this declares structure only.
     fig_bt.update_layout(
-        **PLOTLY_BASE,
-        height=420,
-        hovermode="closest",
-        spikedistance=-1,
-        hoverdistance=-1,
+        height=chart_height("md"),
+        hovermode="closest",          # scatter — nearest point, not an x slice
         showlegend=True,
-        margin=dict(l=60, r=20, t=20, b=50),
-        xaxis=dict(
-            title=dict(text="Mood Score at T",
-                       font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace")),
-            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
-            zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO,
-            tickfont=dict(size=10, family="JetBrains Mono, monospace", color="#9BAABF"),
-            **PLOTLY_SPIKE_X,
-        ),
-        yaxis=dict(
-            title=dict(text=f"NIFTY Return T+{horizon}d (%)",
-                       font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace")),
-            showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
-            zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO,
-            tickfont=dict(size=10, family="JetBrains Mono, monospace", color="#9BAABF"),
-            **PLOTLY_SPIKE_Y,
-        ),
+        xaxis=dict(title=dict(text="Mood Score at T"), showgrid=True),
+        yaxis=dict(title=dict(text=f"NIFTY Return T+{horizon}d (%)")),
         legend=dict(
-            x=0.02, y=0.98,
-            bgcolor="rgba(14,19,31,0.92)",
-            bordercolor="rgba(255,255,255,0.06)", borderwidth=1,
-            font=dict(size=10, family="JetBrains Mono, monospace"),
+            x=0.02, y=0.98, xanchor="left", yanchor="top",
+            bgcolor="rgba(20,26,40,0.85)",
+            bordercolor="rgba(255,255,255,0.08)", borderwidth=1,
         ),
     )
 
     st.markdown('<div class="chart-container similar">', unsafe_allow_html=True)
-    st.plotly_chart(fig_bt, use_container_width=True, config={"displayModeBar": False, "displaylogo": False})
+    st.plotly_chart(fig_bt, use_container_width=True, config=PLOT_CONFIG)
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Interpretation — driven by OOS results

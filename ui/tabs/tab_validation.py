@@ -28,7 +28,8 @@ from ui.components import (
     section_divider,
     section_gap,
 )
-from ui.theme import C_AMBER, C_CYAN, C_EMERALD, C_ROSE, C_MUTED, PLOTLY_BASE, PLOTLY_GRID
+from ui.theme import C_EMERALD, C_ROSE, C_MUTED
+from ui.charts import PLOT_CONFIG, chart_height
 import validation as val
 
 
@@ -130,16 +131,17 @@ def render(mood_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
         hovertemplate="%{x}<br>rho %{y:.3f}<extra></extra>",
     ))
     fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1)
+    # Font, margin, grid, hover, legend and crosshair all come from the
+    # registered template. Only the structural bits are declared here.
     fig.update_layout(
-        **PLOTLY_BASE, height=300, showlegend=False,
-        margin=dict(l=50, r=20, t=30, b=40),
-        xaxis=dict(showgrid=False, tickfont=dict(size=10, family="JetBrains Mono, monospace")),
-        yaxis=dict(title=dict(text="Spearman rho", font=dict(size=11, color=C_MUTED)),
-                   showgrid=True, gridcolor=PLOTLY_GRID, zeroline=False,
-                   tickfont=dict(size=9, family="JetBrains Mono, monospace")),
+        height=chart_height("sm"),
+        showlegend=False,
+        hovermode="closest",          # categorical bars, not a time series
+        xaxis=dict(showgrid=False),
+        yaxis=dict(title=dict(text="Spearman rho")),
     )
     st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG)
     st.markdown("</div>", unsafe_allow_html=True)
 
     section_divider()
