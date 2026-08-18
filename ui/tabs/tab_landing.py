@@ -24,7 +24,7 @@ def render_landing_page(version: str, n_predictors: int) -> None:
     # ── Masthead ────────────────────────────────────────────────────
     render_header(
         title="Arthagati",
-        tagline="Ornstein-Uhlenbeck  ·  Kalman  ·  Decay-Spearman  ·  Adaptive Percentiles  |  Quantitative Market Physics",
+        tagline="Ornstein-Uhlenbeck  ·  Kalman  ·  Decay-Spearman  ·  Adaptive Percentiles  |  Valuation-Anchored Market Positioning",
     )
 
     section_gap()
@@ -65,8 +65,8 @@ def render_landing_page(version: str, n_predictors: int) -> None:
         render_system_card(
             title="Correlation Analysis",
             description=(
-                "Full transparency into which variables drive the mood score and which "
-                "are noise, ranked by the engine's own quality formula."
+                "Full transparency into which variables drive the score and which are "
+                "noise, ranked by the engine's own quality formula."
             ),
             specs=[
                 ("Anchors:", "PE  &  Earnings Yield"),
@@ -135,18 +135,42 @@ def render_landing_page(version: str, n_predictors: int) -> None:
     # ── Mood score interpretation zones ─────────────────────────────
     render_section_header(
         title="Mood Score Interpretation",
-        description="Score thresholds and operating regimes",
+        description="What the score measures, and which way to read it",
         icon="target",
         accent="cyan",
     )
 
+    render_interpretation_card(
+        title="Read this first — the score is a valuation gauge, not a sentiment gauge",
+        body=(
+            "The Mood Score is anchored to <strong>PE and Earnings Yield</strong>. A cheap "
+            "market scores <strong>high</strong>; an expensive one scores <strong>low</strong>. "
+            "It therefore moves <em>against</em> recent price action — measured on NIFTY "
+            "2006–2026, the score correlates <strong>−0.54</strong> with the trailing 60-day "
+            "return.<br><br>"
+            "That is the intended behaviour, and it is where the score's value lies: over the "
+            "same twenty years the mean forward 250-day NIFTY return was "
+            "<strong>+19.7%</strong> following readings above +20, against <strong>+5.9%</strong> "
+            "following readings below −20 (Spearman +0.22).<br><br>"
+            "The practical consequence: a high score during a sell-off is the signal working, "
+            "not a contradiction. In October 2008 the score read <strong>+21 to +39</strong> "
+            "while NIFTY fell 25%; through the 2020–21 melt-up it read <strong>−36 to −15</strong>. "
+            "Do not read it as a momentum or trend-following indicator."
+        ),
+        color="warning",
+    )
+
+    section_gap()
+
     z1, z2, z3 = st.columns(3, gap="small")
     with z1:
         render_interpretation_card(
-            title="Bullish Zone (> +20)",
+            title="Constructive Zone (> +20)",
             body=(
-                "Positive sentiment. Trend-following strategies favoured. "
-                "At extremes (&gt; +60, <strong>Euphoric</strong>) mean-reversion risk rises sharply."
+                "Valuation is cheap against its own recent history — forward returns have "
+                "historically been strongest here. Favours <strong>accumulation</strong>. "
+                "At extremes (&gt; +45, <strong>Very Bullish</strong>) the market is usually "
+                "in or just past a drawdown."
             ),
             color="success",
         )
@@ -154,17 +178,20 @@ def render_landing_page(version: str, n_predictors: int) -> None:
         render_interpretation_card(
             title="Neutral Zone (−20 to +20)",
             body=(
-                "No strong directional bias. Await macro confirmation or use "
-                "MSF Spread and Similar Periods for additional context."
+                "Valuation is near its recent norm and carries little directional "
+                "information. Use the MSF Spread, WaveTrend and Similar Periods for "
+                "context rather than leaning on the score alone."
             ),
             color="info",
         )
     with z3:
         render_interpretation_card(
-            title="Bearish Zone (&lt; −20)",
+            title="Expensive Zone (&lt; −20)",
             body=(
-                "Negative sentiment. Defensive positioning warranted. "
-                "At extremes (&lt; −60, <strong>Capitulation</strong>) contrarian signals may emerge."
+                "Valuation is stretched against its own recent history — forward returns "
+                "have historically been weakest here. Favours <strong>defensive</strong> "
+                "positioning. At extremes (&lt; −45, <strong>Very Bearish</strong>) the "
+                "market has usually just run hard."
             ),
             color="danger",
         )
@@ -194,13 +221,32 @@ def render_landing_page(version: str, n_predictors: int) -> None:
     section_gap()
 
     # ── Awaiting-data prompt ────────────────────────────────────────
+    render_interpretation_card(
+        title="What has been measured",
+        body=(
+            "On this sheet — NIFTY, 2006–2026 — the Mood Score ranks forward returns on a "
+            "held-out window (2021–2026, never used to build or select anything) with mean "
+            "Spearman <strong>rho +0.54</strong>, <strong>p = 0.005</strong> against 200 "
+            "circularly shifted copies of itself. The edge is real and it is measured, not "
+            "asserted.<br><br>"
+            "<strong>Where it comes from.</strong> The negated PE ratio alone — no engine at "
+            "all — scores <strong>+0.53</strong> on the same window. Most of the edge belongs "
+            "to the valuation anchor. The five-layer pipeline contributes a bounded, "
+            "comparable score and its diagnostics rather than additional forecasting power. "
+            "Read the Signal Validation view for the full measurement."
+        ),
+        color="info",
+    )
+
+    section_gap()
+
     render_landing_prompt(
         title="Awaiting Run",
         body_html=(
             "Click <strong>Run Analysis</strong> in the sidebar to fetch live data from Google Sheets "
             "and execute the full 5-layer sentiment pipeline. Once loaded, switch between "
             "<strong>Historical Mood</strong>, <strong>Similar Periods</strong>, "
-            "<strong>Correlation Analysis</strong>, and <strong>Intelligence Center</strong> "
+            "<strong>Correlation Analysis</strong>, and <strong>Signal Validation</strong> "
             "views — or tune the active predictor set in <strong>Model Configuration</strong>."
         ),
     )
