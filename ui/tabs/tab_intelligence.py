@@ -2,7 +2,7 @@
 Arthagati — Intelligence Center (read-only dashboard).
 
 Three sections, all using the Obsidian Quant card system:
-  1. Calibration Diagnostics (4 metric cards: Train IR · Val IR · Stability · Quality)
+  1. Calibration Diagnostics (Holdout IR · Significance · Stability · Quality)
   2. Calibration Impact (4-card strip: Raw Mood · Calibrated · Shift · Direction)
   3. Feature Analysis grid (left)  │  Predictive Power Lift + Profile (right)
 
@@ -36,24 +36,25 @@ import intelligence as intel
 
 def _quality_severity(label: str) -> str:
     return {
-        "Quality OK": "success",
-        "Overfit":    "warning",
-        "No Edge":    "danger",
+        intel.QUALITY_OK:           "success",
+        intel.QUALITY_OVERFIT:      "warning",
+        intel.QUALITY_NO_EDGE:      "danger",
+        intel.QUALITY_INSUFFICIENT: "neutral",
     }.get(label, "neutral")
 
 
 def _stability_severity(stability: float, train_ir: float) -> str:
     if train_ir <= 0:
         return "neutral"
-    if 0.30 <= stability <= 1.30:
+    if stability >= intel.GATE_OVERFIT_STABILITY:
         return "info"
     return "warning"
 
 
-def _val_ir_severity(val_ir: float) -> str:
-    if val_ir > 0.05:
+def _holdout_severity(holdout_ir: float, p_value: float) -> str:
+    if holdout_ir > 0 and p_value <= intel.GATE_MAX_P_VALUE:
         return "success"
-    if val_ir > 0:
+    if holdout_ir > 0:
         return "warning"
     return "danger"
 
@@ -67,10 +68,7 @@ def _val_ir_severity(val_ir: float) -> str:
 # Human-readable labels for the engine-output features
 _FEATURE_LABELS = {
     "mood":          "Mood Score (raw)",
-    "mood_smooth":   "Smoothed Mood",
     "mood_diverge":  "Mood Divergence",
-    "mood_squared":  "Mood² (amplified)",
-    "mood_sqrt":     "√Mood (damped)",
     "msf_spread":    "MSF Spread",
     "msf_momentum":  "MSF · Momentum",
     "msf_structure": "MSF · Structure",
@@ -92,8 +90,8 @@ def _feature_card(
     Bars:
       • Weight bar  — directional (emerald/rose) showing magnitude of
         the linear coefficient relative to the largest |weight|
-      • Importance bar — neutral violet→amber gradient showing fANOVA %
-        relative to the most-explanatory feature
+      • Contribution bar — share of total |weight| carried by this
+        feature, relative to the largest contributor
     """
     if weight >= 0.15:
         tier, badge_cls, badge_label = "tier-strong-buy", "badge-strong-buy", "Bullish+"
@@ -128,7 +126,7 @@ def _feature_card(
     <span class="feature-card-bar-pct">{w_bar_pct:.0f}%</span>
   </div>
   <div class="feature-card-bar-row">
-    <span class="feature-card-bar-label">Importance</span>
+    <span class="feature-card-bar-label">Share</span>
     <div class="feature-card-bar"><div class="feature-card-bar-fill importance" style="width:{i_bar_pct:.0f}%;"></div></div>
     <span class="feature-card-bar-pct">{importance:.1f}%</span>
   </div>
@@ -139,7 +137,7 @@ def _feature_card(
 def _render_feature_grid(weights: dict, importance: dict, defaults: dict) -> None:
     """Render all features as a single CSS-grid of consolidated cards.
 
-    Cards are ranked by importance (descending). All cards in the same
+    Cards are ranked by contribution share (descending). All cards in the same
     grid row have equal height — that's what makes the layout feel
     cohesive instead of looking like 'things thrown on the page'.
     """
@@ -177,53 +175,6 @@ def _render_feature_grid(weights: dict, importance: dict, defaults: dict) -> Non
 # ════════════════════════════════════════════════════════════════════════════
 # Profile metadata — stat-card grid
 # ════════════════════════════════════════════════════════════════════════════
-
-def _stat_card(label: str, value: str, sub: str = "") -> str:
-    sub_html = (
-        f'<div class="profile-stat-sub">{html_mod.escape(sub)}</div>'
-        if sub else ""
-    )
-    return f"""\
-<div class="profile-stat">
-  <div class="profile-stat-label">{html_mod.escape(label)}</div>
-  <div class="profile-stat-value">{html_mod.escape(value)}</div>
-  {sub_html}
-</div>
-"""
-
-
-def _render_profile_grid(profile: intel.CalibrationProfile) -> None:
-    """Profile metadata as a 3-column grid of stat-cards."""
-    age = intel.profile_age_days(profile)
-    if age < 1.0:
-        age_str = "today"
-    elif age < 2.0:
-        age_str = "yesterday"
-    elif age < 30:
-        age_str = f"{age:.0f}d ago"
-    else:
-        age_str = f"{age / 30:.1f}mo ago"
-
-    horizons_str = " · ".join(f"+{h}D" for h in profile.horizons)
-    pieces = [
-        ("Last Calibration",  profile.timestamp.replace("T", " ").rstrip("Z")[:16],
-         f"Fit {age_str}"),
-        ("Engine Version",    profile.arthagati_version, "Arthagati build"),
-        ("Profile Schema",    f"v{profile.schema_version}", "JSON envelope"),
-        ("Predictors",        f"{profile.n_predictors}", "active in calibration"),
-        ("Data Window",       profile.data_end, f"from {profile.data_start}"),
-        ("Trials Run",        f"{profile.n_trials}",    "Optuna TPE"),
-        ("CV Folds",          f"{profile.n_folds}",     f"embargo {profile.embargo_days}d"),
-        ("Train Rows",        f"{profile.n_dates_train:,}", "expanding windows"),
-        ("Val Rows",          f"{profile.n_dates_val:,}",   "purged validation"),
-        ("Horizons",          horizons_str, "forward NIFTY return"),
-    ]
-    rows_html = "".join(_stat_card(lbl, val, sub) for lbl, val, sub in pieces)
-    st.markdown(
-        f'<div class="profile-stat-grid">{rows_html}</div>',
-        unsafe_allow_html=True,
-    )
-
 
 # ════════════════════════════════════════════════════════════════════════════
 # Calibration Impact — split into composable helpers
@@ -294,6 +245,18 @@ def _render_impact_strip(
             "Signal Direction", dir_label, dir_sub, dir_cls, icon="compass",
         )
 
+    # The two numbers answer different questions and routinely disagree —
+    # they are 46% sign-discordant on typical data. Say which one governs
+    # rather than leaving the reader to guess.
+    st.caption(
+        "**Mood Score is the primary reading** — it describes the market's current "
+        "sentiment state. **Calibrated Conviction is a forward-return overlay**: it is "
+        "fitted to predict NIFTY returns at 5–90 days and is deliberately allowed to "
+        "disagree with the state reading. When they conflict, the Mood Score describes "
+        "where the market *is*; the conviction score is a bet about where it goes next, "
+        "and carries the wider error bars."
+    )
+
     return calibrated_series
 
 
@@ -302,20 +265,33 @@ def _render_predictive_power_table(
     mood_df: pd.DataFrame,
     calibrated_series: np.ndarray,
 ) -> None:
-    """Per-horizon Spearman IR: raw Mood vs Calibrated · with lift column."""
-    raw_train_ir, raw_val_ir, raw_per_h = intel.score_series_ir(
-        mood_df["Mood_Score"].to_numpy(dtype=np.float64),
-        mood_df,
-        horizons=profile.horizons,
-        n_folds=profile.n_folds,
-        embargo_days=profile.embargo_days,
+    """Per-horizon Spearman IR on HELD-OUT data: raw Mood vs Calibrated.
+
+    Both series are scored over the same window — the holdout the optimiser
+    never saw — so the comparison can come out either way.
+
+    This table previously scored both signals on the very CV folds the
+    ensemble weights had been fitted to. The calibrated signal was chosen to
+    maximise that quantity and raw Mood was not, so a positive "lift" was
+    guaranteed by construction: on data whose forward returns were an
+    independent random walk it still reported +0.92 overall.
+    """
+    n = len(mood_df)
+    holdout_start = _holdout_index(profile, mood_df)
+    if holdout_start is None or holdout_start >= n - intel.MIN_SPEARMAN_OBS:
+        st.caption(
+            "Not enough held-out data to compare predictive power. "
+            "Re-run the calibration once the sheet has more history."
+        )
+        return
+
+    window = slice(holdout_start, n)
+    raw_ir, raw_per_h = intel.score_series_ir(
+        mood_df["Mood_Score"].to_numpy(dtype=np.float64), mood_df,
+        horizons=profile.horizons, window=window,
     )
-    cal_train_ir, cal_val_ir, cal_per_h = intel.score_series_ir(
-        calibrated_series,
-        mood_df,
-        horizons=profile.horizons,
-        n_folds=profile.n_folds,
-        embargo_days=profile.embargo_days,
+    cal_ir, cal_per_h = intel.score_series_ir(
+        calibrated_series, mood_df, horizons=profile.horizons, window=window,
     )
 
     rows_html = []
@@ -323,29 +299,30 @@ def _render_predictive_power_table(
         h = int(h)
         raw_v = raw_per_h.get(h, 0.0)
         cal_v = cal_per_h.get(h, 0.0)
-        lift  = cal_v - raw_v
+        lift = cal_v - raw_v
         lift_cls = "pos" if lift > 0 else "neg" if lift < 0 else "neutral"
-        lift_pct = (lift / abs(raw_v) * 100.0) if abs(raw_v) > 1e-6 else 0.0
-        lift_str = f"{lift:+.3f}  ({lift_pct:+.0f}%)" if abs(raw_v) > 1e-6 else f"{lift:+.3f}"
+        lift_str = (
+            f"{lift:+.3f}  ({lift / abs(raw_v) * 100.0:+.0f}%)"
+            if abs(raw_v) > 1e-6 else f"{lift:+.3f}"
+        )
         rows_html.append(
-            f"<tr>"
-            f"<td class='key'>+{h}D</td>"
+            f"<tr><td class='key'>+{h}D</td>"
             f"<td class='value'>{raw_v:+.3f}</td>"
             f"<td class='value'>{cal_v:+.3f}</td>"
-            f"<td class='value delta {lift_cls}'>{lift_str}</td>"
-            f"</tr>"
+            f"<td class='value delta {lift_cls}'>{lift_str}</td></tr>"
         )
-    ov_lift = cal_val_ir - raw_val_ir
-    ov_cls  = "pos" if ov_lift > 0 else "neg" if ov_lift < 0 else "neutral"
-    ov_pct  = (ov_lift / abs(raw_val_ir) * 100.0) if abs(raw_val_ir) > 1e-6 else 0.0
-    ov_str  = f"{ov_lift:+.3f}  ({ov_pct:+.0f}%)" if abs(raw_val_ir) > 1e-6 else f"{ov_lift:+.3f}"
+
+    ov_lift = cal_ir - raw_ir
+    ov_cls = "pos" if ov_lift > 0 else "neg" if ov_lift < 0 else "neutral"
+    ov_str = (
+        f"{ov_lift:+.3f}  ({ov_lift / abs(raw_ir) * 100.0:+.0f}%)"
+        if abs(raw_ir) > 1e-6 else f"{ov_lift:+.3f}"
+    )
     rows_html.append(
-        f"<tr class='total'>"
-        f"<td class='key'>Overall IR</td>"
-        f"<td class='value'>{raw_val_ir:+.3f}</td>"
-        f"<td class='value'>{cal_val_ir:+.3f}</td>"
-        f"<td class='value delta {ov_cls}'>{ov_str}</td>"
-        f"</tr>"
+        f"<tr class='total'><td class='key'>Overall IR</td>"
+        f"<td class='value'>{raw_ir:+.3f}</td>"
+        f"<td class='value'>{cal_ir:+.3f}</td>"
+        f"<td class='value delta {ov_cls}'>{ov_str}</td></tr>"
     )
 
     st.markdown(
@@ -359,6 +336,23 @@ def _render_predictive_power_table(
 """,
         unsafe_allow_html=True,
     )
+    st.caption(
+        f"Scored on {profile.n_rows_holdout:,} held-out rows from "
+        f"{profile.holdout_start} — data the optimiser never saw. "
+        "A negative lift is a real possible outcome here."
+    )
+
+
+def _holdout_index(profile: intel.CalibrationProfile, mood_df: pd.DataFrame) -> int | None:
+    """Row index where the profile's holdout begins, matched by date."""
+    if not profile.holdout_start:
+        return None
+    try:
+        cutoff = pd.Timestamp(profile.holdout_start)
+    except (ValueError, TypeError):
+        return None
+    pos = int((mood_df["DATE"] < cutoff).sum())
+    return pos if 0 < pos < len(mood_df) else None
 
 
 def _render_profile_table(profile: intel.CalibrationProfile) -> None:
@@ -382,9 +376,12 @@ def _render_profile_table(profile: intel.CalibrationProfile) -> None:
         ("Predictors",        f"{profile.n_predictors}", "active in calibration"),
         ("Data Window End",   profile.data_end, f"from {profile.data_start}"),
         ("Trials Run",        f"{profile.n_trials}", "Optuna TPE"),
-        ("CV Folds",          f"{profile.n_folds}", f"embargo {profile.embargo_days}d"),
-        ("Train Rows",        f"{profile.n_dates_train:,}", "expanding"),
-        ("Val Rows",          f"{profile.n_dates_val:,}",   "purged"),
+        ("CV Folds",          f"{profile.n_folds}", f"embargo {profile.embargo_days}d = max horizon"),
+        # Unique rows, not the sum over overlapping expanding folds — that
+        # used to report more "train rows" than the dataset contained.
+        ("Search Rows",       f"{profile.n_rows_train:,}", "unique, expanding folds"),
+        ("Holdout Rows",      f"{profile.n_rows_holdout:,}", f"from {profile.holdout_start}"),
+        ("Holdout IR",        f"{profile.holdout_ir:+.3f}", f"p = {profile.holdout_p_value:.3f}"),
         ("Horizons",          horizons_str, "forward NIFTY return"),
     ]
     rows_html = "".join(
@@ -417,23 +414,26 @@ def _render_profile_table(profile: intel.CalibrationProfile) -> None:
 # Main view
 # ════════════════════════════════════════════════════════════════════════════
 
-def render(
-    raw_df: pd.DataFrame,
-    active_predictors,
-    *,
-    defaults: dict,
-) -> None:
+def render(*, defaults: dict) -> None:
     """Intelligence Center: read-only dashboard.
 
     Calibration is fired automatically by ``arthagati.main`` when the user
     clicks **Run Analysis**. Import/Export/Reset live in the sidebar
     Model Passport — this view is purely diagnostic.
     """
-    intel_on   = bool(st.session_state.get("intelligence_mode"))
-    profile    = intel.load_active_profile()
-    last_run   = st.session_state.get("intel_last_profile")
-    if profile is None and last_run is not None:
-        profile = last_run
+    intel_on = bool(st.session_state.get("intelligence_mode"))
+    disabled = bool(st.session_state.get("_intel_profile_disabled"))
+
+    # Show the profile from THIS run when there is one. Falling back to
+    # whatever sits on disk used to mean that a run rejected by the quality
+    # gate left the previous profile on screen — the top metric strip hid the
+    # Calibrated Conviction card while this view kept rendering the old
+    # profile's conviction as though it were current.
+    last_run = st.session_state.get("intel_last_profile")
+    profile = last_run if last_run is not None else intel.load_active_profile()
+    is_live = (
+        profile is not None and profile.is_activatable and intel_on and not disabled
+    )
 
     # Need the engine output for the impact section
     mood_df = st.session_state.get("_engine_mood_df")
@@ -465,6 +465,29 @@ def render(
             )
         return
 
+    # A profile that did not clear the gate is shown for diagnosis only.
+    if not is_live:
+        if disabled:
+            body = (
+                "Calibration is <strong>disabled for this session</strong> "
+                "(Reset to Defaults). The figures below are the last run's, kept "
+                "for reference. Click <strong>Run Analysis</strong> to recalibrate."
+            )
+        elif not intel_on:
+            body = (
+                "Intelligence Mode is <strong>off</strong>. The figures below are "
+                "from the last saved calibration and are not being applied."
+            )
+        else:
+            body = (
+                f"This calibration was graded <strong>{html_mod.escape(profile.quality_check)}</strong> "
+                "and is <strong>not applied</strong>. The Calibrated Conviction card is hidden "
+                "everywhere else in the app; the diagnostics below are shown so you can see "
+                "why it was rejected. The raw Mood Score is the operative signal."
+            )
+        render_interpretation_card("Calibration Not Active", body, color="warning")
+        section_gap()
+
     # ── Calibration Diagnostics strip ───────────────────────────────────
     render_section_header(
         title="Calibration Diagnostics",
@@ -480,22 +503,22 @@ def render(
     m1, m2, m3, m4 = st.columns(4, gap="small")
     with m1:
         render_metric_card(
-            "Train IR", f"{profile.train_ir:+.4f}",
-            "In-sample Spearman IR",
-            "success" if profile.train_ir > 0 else "danger",
-            icon="trending-up",
+            "Holdout IR", f"{profile.holdout_ir:+.4f}",
+            f"{profile.n_rows_holdout:,} rows never seen by the search",
+            _holdout_severity(profile.holdout_ir, profile.holdout_p_value),
+            icon="target",
         )
     with m2:
         render_metric_card(
-            "Validation IR", f"{profile.val_ir:+.4f}",
-            "OOS Spearman IR · all folds × horizons",
-            _val_ir_severity(profile.val_ir),
-            icon="target",
+            "Significance", f"p = {profile.holdout_p_value:.3f}",
+            f"vs {intel.N_PERMUTATIONS} circular-shift permutations",
+            "success" if profile.holdout_p_value <= intel.GATE_MAX_P_VALUE else "danger",
+            icon="shield",
         )
     with m3:
         render_metric_card(
             "Stability", f"{profile.stability * 100:.0f}%",
-            "Val / Train ratio",
+            "Holdout / Train ratio",
             _stability_severity(profile.stability, profile.train_ir),
             icon="zap",
         )
@@ -506,6 +529,11 @@ def render(
             _quality_severity(profile.quality_check),
             icon="shield",
         )
+    st.caption(
+        f"Search diagnostics (not a performance claim): train IR {profile.train_ir:+.3f} · "
+        f"optimised validation IR {profile.val_ir:+.3f}. The optimiser maximised the "
+        "validation figure, so only the holdout above is evidence of generalisation."
+    )
 
     section_divider()
 
@@ -529,7 +557,7 @@ def render(
     with left:
         render_section_header(
             title="Feature Analysis",
-            description="Per-feature weight + fANOVA importance · ranked by explanatory power",
+            description="Per-feature weight + share of total |weight| · ranked by contribution",
             icon="layers",
             accent="amber",
         )
@@ -563,8 +591,10 @@ def render(
 
 
 def _quality_subtext(profile: intel.CalibrationProfile) -> str:
-    if profile.quality_check == "No Edge":
-        return "Val IR ≤ 0 — profile not auto-activated"
-    if profile.quality_check == "Overfit":
-        return "Train ≫ Val — fewer trials or broader window"
-    return "No overfit / no-edge issues detected"
+    if profile.quality_check == intel.QUALITY_INSUFFICIENT:
+        return "Holdout too short to validate — not activated"
+    if profile.quality_check == intel.QUALITY_NO_EDGE:
+        return "Failed the holdout test — not activated"
+    if profile.quality_check == intel.QUALITY_OVERFIT:
+        return "Generalises weakly — not activated"
+    return "Cleared the holdout and the permutation null"

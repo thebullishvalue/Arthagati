@@ -166,10 +166,19 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
                 render_metric_card(
                     label=f"+{horizon}D Median Return",
                     value=f"{median_ret:+.1f}%",
-                    subtext=f"{positive_pct:.0f}% positive ({len(values)} analogs)",
+                    subtext=f"{positive_pct:.0f}% positive · {len(values)} separated analogs",
                     color_class="success" if median_ret > 0 else "danger",
                     icon="trending-up" if median_ret > 0 else "trending-down",
                 )
+
+        sep = similar_periods[0].get("separation_days", 0)
+        st.caption(
+            f"Analogs are selected with a minimum separation of {sep} trading days, so "
+            "each one represents a distinct episode rather than a run of consecutive "
+            f"days from the same event. Even so, {len(similar_periods)} episodes is a small "
+            "sample and the forward windows overlap the rest of the history — read these "
+            "as context, not as a probability."
+        )
 
     section_divider()
 
@@ -200,11 +209,16 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
     )
 
     render_interpretation_card(
-        title="Hindsight Regime Fit",
+        title="How to read this scatter",
         body=(
-            "Historical points are evaluated using parameters learned from today's active "
-            "correlation regime — treat the relationship as <strong>descriptive</strong>, "
-            "not <strong>predictive</strong>."
+            "Each dot is one trading day, and consecutive days share almost all of their "
+            f"forward window — a {backtest_horizon}-day return overlaps the next "
+            f"{backtest_horizon - 1} days' returns. The effective number of independent "
+            "observations is therefore far smaller than the dot count, and the correlation "
+            "coefficients below are correspondingly <strong>more certain-looking than they "
+            "are</strong>. The train/test split is chronological with a one-horizon embargo, "
+            "but no correction is applied for the overlap. Treat this as "
+            "<strong>descriptive</strong>."
         ),
         color="warning",
     )
@@ -220,6 +234,9 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
     bt_fwd   = (bt_nifty[horizon:] / bt_nifty[: n - horizon] - 1) * 100
 
     valid = np.isfinite(bt_mood) & np.isfinite(bt_fwd)
+    # Warm-up rows carry borrowed correlation statistics — exclude them.
+    if "Is_Warmup" in mood_df.columns:
+        valid &= ~mood_df["Is_Warmup"].to_numpy(dtype=bool)[: n - horizon]
     bt_mood_clean = bt_mood[valid]
     bt_fwd_clean  = bt_fwd[valid]
 
@@ -229,9 +246,18 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
 
     from scipy.stats import spearmanr as _spearmanr
 
+    # 70/30 chronological split with an embargo of one full horizon between
+    # the halves. Without it the last `horizon` training points draw their
+    # labels from inside the test window, so the "out-of-sample" figure was
+    # partly in-sample.
     split_idx = int(len(bt_mood_clean) * 0.7)
     train_m, train_r = bt_mood_clean[:split_idx], bt_fwd_clean[:split_idx]
-    test_m,  test_r  = bt_mood_clean[split_idx:], bt_fwd_clean[split_idx:]
+    test_start = min(split_idx + horizon, len(bt_mood_clean))
+    test_m,  test_r  = bt_mood_clean[test_start:], bt_fwd_clean[test_start:]
+
+    if len(test_m) < 20:
+        st.caption("Insufficient out-of-sample points after the embargo.")
+        return
 
     bt_pearson  = np.corrcoef(train_m, train_r)[0, 1] if len(train_m) > 2 else 0
     bt_spearman, _ = _spearmanr(train_m, train_r)
@@ -246,14 +272,14 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
     fig_bt.add_trace(go.Scattergl(
         x=train_m, y=train_r, mode="markers",
         marker=dict(size=4, color=np.where(train_m > 0, C_EMERALD, C_ROSE), opacity=0.4),
-        hovertemplate="Mood: %{x:.1f}<br>+30d Return: %{y:.1f}%<extra></extra>",
+        hovertemplate="Mood: %{x:.1f}<br>Forward return: %{y:.1f}%<extra></extra>",
         name=f"Train (70%, n={len(train_m)})",
     ))
     fig_bt.add_trace(go.Scattergl(
         x=test_m, y=test_r, mode="markers",
         marker=dict(size=6, color=np.where(test_m > 0, C_EMERALD, C_ROSE),
                     opacity=0.85, symbol="diamond"),
-        hovertemplate="Mood: %{x:.1f}<br>+30d Return: %{y:.1f}%<extra></extra>",
+        hovertemplate="Mood: %{x:.1f}<br>Forward return: %{y:.1f}%<extra></extra>",
         name=f"Test (30%, n={len(test_m)})",
     ))
 
@@ -289,7 +315,7 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
             tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
         ),
         yaxis=dict(
-            title=dict(text="NIFTY Return T+30d (%)",
+            title=dict(text=f"NIFTY Return T+{horizon}d (%)",
                        font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace")),
             showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
             zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO,
@@ -309,12 +335,15 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
 
     # Interpretation — driven by OOS results
     oos_stronger = oos_spearman if abs(oos_spearman) > abs(oos_pearson) else oos_pearson
+    # The threshold is deliberately high. With overlapping forward windows the
+    # effective sample is a small multiple of n/horizon, not n, so a coefficient
+    # that would be decisive on independent data is not decisive here.
     if abs(oos_stronger) > 0.3:
         strength  = "strong" if abs(oos_stronger) > 0.5 else "moderate"
         direction = "positive" if oos_stronger > 0 else "negative"
         body = (
             f"<strong>Out-of-sample (30%):</strong> Pearson {oos_pearson:.2f} · Spearman {oos_spearman:.2f} — "
-            f"{strength} {direction} relationship holds on unseen data.<br>"
+            f"{strength} {direction} association on the held-out window.<br>"
             f"<span style='color:var(--ink-tertiary);'>In-sample (70%): Pearson {bt_pearson:.2f} · "
             f"Spearman {bt_spearman:.2f}</span><br><br>"
             + (
@@ -324,11 +353,11 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
                 "(contrarian signal)."
             )
         )
-        render_interpretation_card("Predictive Relationship Holds", body, color="success")
+        render_interpretation_card("Association Persists Out-of-Sample", body, color="success")
     else:
         body = (
             f"<strong>Out-of-sample (30%):</strong> Pearson {oos_pearson:.2f} · Spearman {oos_spearman:.2f} — "
-            f"weak out-of-sample relationship at 30-day horizon.<br>"
+            f"weak out-of-sample relationship at the {horizon}-day horizon.<br>"
             f"<span style='color:var(--ink-tertiary);'>In-sample (70%): Pearson {bt_pearson:.2f} · "
             f"Spearman {bt_spearman:.2f}</span><br><br>"
             "The mood score's predictive power may be non-linear (check the quadratic curve) "

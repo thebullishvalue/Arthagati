@@ -29,6 +29,15 @@ from ui.components import (
     render_metric_card,
     section_divider,
 )
+from config import (
+    MSF_OB_LEVEL_1,
+    MSF_OB_LEVEL_2,
+    MSF_OS_LEVEL_1,
+    MSF_OS_LEVEL_2,
+    MSF_SIGNAL_Y,
+    WT_OB_LEVEL_1,
+    WT_OB_LEVEL_2,
+)
 from ui.theme import (
     C_AMBER,
     C_AMBER_BRIGHT,
@@ -66,18 +75,34 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
                 st.rerun()
 
     selected_tf = st.session_state.tf_selected
-    if selected_tf == "YTD":
-        today = datetime.now()
-        days_back = (today - datetime(today.year, 1, 1)).days + 1
-    else:
-        days_back = timeframes[selected_tf]
 
-    if days_back and days_back < len(mood_df):
-        df = mood_df.tail(days_back).copy()
-        msf_filtered = msf_df.tail(days_back).copy()
+    # Windows are selected by DATE, not by row count.
+    #
+    # `timeframes` holds calendar-day spans, and these used to be passed
+    # straight to `.tail(n)` — a row count. On a trading-day series that
+    # stretched every window by ~1.4x: "1Y" returned 365 rows spanning 510
+    # calendar days, and "5Y" spanned just over seven years.
+    last_date = mood_df["DATE"].max()
+    if selected_tf == "YTD":
+        cutoff = pd.Timestamp(year=last_date.year, month=1, day=1)
+    elif timeframes.get(selected_tf):
+        cutoff = last_date - pd.Timedelta(days=timeframes[selected_tf])
+    else:
+        cutoff = None
+
+    if cutoff is not None:
+        window = mood_df["DATE"] >= cutoff
+        df = mood_df.loc[window].copy()
+        msf_filtered = msf_df.loc[window.to_numpy()].copy()
     else:
         df = mood_df.copy()
         msf_filtered = msf_df.copy()
+
+    # A very short window (a fresh sheet, or 1W over a holiday break) still
+    # needs enough points to draw.
+    if len(df) < 2:
+        df = mood_df.tail(min(len(mood_df), 30)).copy()
+        msf_filtered = msf_df.tail(len(df)).copy()
 
     if df.empty:
         st.warning("No data available for selected timeframe.")
@@ -189,6 +214,17 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     # state is still surfaced in the top metric strip card and used elsewhere
     # by the engine; we just don't draw vertical dotted lines on the chart.
 
+    # Degraded-input banner — an MSF component with no variance is excluded
+    # from the composite rather than silently capturing all of the weight.
+    _degenerate = st.session_state.get("_msf_degenerate") or []
+    if _degenerate:
+        st.warning(
+            f"MSF Spread is running on {4 - len(_degenerate)} of 4 components. "
+            f"No signal in: {', '.join(_degenerate)}. "
+            "Check that the source columns (NIFTY, AD_RATIO) are populated in the sheet.",
+            icon="⚠️",
+        )
+
     # ── Row 2: MSF Spread ─────────────────────────────────────────────────
     msf_values = msf_filtered["msf_spread"].values
     fig.add_trace(go.Scattergl(
@@ -199,9 +235,6 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     ), row=2, col=1)
     fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, row=2, col=1)
     # MSF Spread OB/OS reference bands — ±4 primary (solid), ±3 secondary (dotted)
-    from arthagati import (
-        MSF_OB_LEVEL_1, MSF_OB_LEVEL_2, MSF_OS_LEVEL_1, MSF_OS_LEVEL_2,
-    )
     fig.add_hline(y=MSF_OB_LEVEL_1, line_color="rgba(232,85,90,0.30)",
                   line_width=1, line_dash="solid", row=2, col=1)
     fig.add_hline(y=MSF_OS_LEVEL_1, line_color="rgba(45,212,168,0.30)",
@@ -230,13 +263,12 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
 
     # Divergence triangles sit just inside the ±5 OB/OS bands (at ±4)
     # so the marker and the level line don't visually overlap.
-    from arthagati import MSF_SIGNAL_Y as _MSF_TRI_Y
     _TRI_SIZE = 9   # shared marker pixel-size (must match WT triangles below)
 
     if len(red_idx):
         fig.add_trace(go.Scatter(
             x=[df["DATE"].iloc[i] for i in red_idx],
-            y=[+_MSF_TRI_Y] * len(red_idx),
+            y=[+MSF_SIGNAL_Y] * len(red_idx),
             mode="markers", name="Bearish Signal",
             marker=dict(symbol="triangle-down", size=_TRI_SIZE, color=C_ROSE,
                         line=dict(color=C_ROSE, width=1)),
@@ -245,7 +277,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     if len(green_idx):
         fig.add_trace(go.Scatter(
             x=[df["DATE"].iloc[i] for i in green_idx],
-            y=[-_MSF_TRI_Y] * len(green_idx),
+            y=[-MSF_SIGNAL_Y] * len(green_idx),
             mode="markers", name="Bullish Signal",
             marker=dict(symbol="triangle-up", size=_TRI_SIZE, color=C_EMERALD,
                         line=dict(color=C_EMERALD, width=1)),
@@ -290,18 +322,26 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         # Axis is reversed (negative on top, positive on bottom), so colour
         # coding follows the user's preference: emerald on positive levels,
         # rose on negative — independent of the visual position.
-        from arthagati import (
-            WT_OB_LEVEL_1, WT_OB_LEVEL_2, WT_OS_LEVEL_1, WT_OS_LEVEL_2,
-        )
+        # Bands are calibrated from the full history of |wt1| (see
+        # arthagati.wavetrend_bands) because LazyBear's hlc3-derived +/-80
+        # is unreachable when the source is Mood_Score. Fall back to the
+        # config constants if the engine did not publish them.
+        _bands = st.session_state.get("_wt_bands")
+        if _bands:
+            WT_OB_1, WT_OB_2 = float(_bands[0]), float(_bands[1])
+        else:
+            WT_OB_1, WT_OB_2 = float(WT_OB_LEVEL_1), float(WT_OB_LEVEL_2)
+        WT_OS_1, WT_OS_2 = -WT_OB_1, -WT_OB_2
+
         fig.add_hline(y=0, line_color="rgba(148,163,184,0.40)",
                       line_width=1, line_dash="dash", row=wt_row, col=1)
-        fig.add_hline(y=WT_OB_LEVEL_1, line_color="rgba(45,212,168,0.30)",
+        fig.add_hline(y=WT_OB_1, line_color="rgba(45,212,168,0.30)",
                       line_width=1, line_dash="solid", row=wt_row, col=1)
-        fig.add_hline(y=WT_OS_LEVEL_1, line_color="rgba(232,85,90,0.30)",
+        fig.add_hline(y=WT_OS_1, line_color="rgba(232,85,90,0.30)",
                       line_width=1, line_dash="solid", row=wt_row, col=1)
-        fig.add_hline(y=WT_OB_LEVEL_2, line_color="rgba(45,212,168,0.16)",
+        fig.add_hline(y=WT_OB_2, line_color="rgba(45,212,168,0.16)",
                       line_width=1, line_dash="dot", row=wt_row, col=1)
-        fig.add_hline(y=WT_OS_LEVEL_2, line_color="rgba(232,85,90,0.16)",
+        fig.add_hline(y=WT_OS_2, line_color="rgba(232,85,90,0.16)",
                       line_width=1, line_dash="dot", row=wt_row, col=1)
 
         # ── WT crossover markers ────────────────────────────────────────
@@ -330,7 +370,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
 
         # Marker y placement — just inside the OB/OS bands so triangles
         # are visible without clashing with the reference lines.
-        _marker_y = max(abs(WT_OB_LEVEL_1) - 10, 10)  # = 70 for ±80 levels
+        _marker_y = max(WT_OB_1 * 0.85, 8.0)   # just inside the primary band
 
         if len(wt_red_idx):
             fig.add_trace(go.Scatter(
@@ -358,7 +398,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         _wt_finite = np.concatenate([
             wt1_arr[np.isfinite(wt1_arr)],
             wt2_arr[np.isfinite(wt2_arr)],
-            np.array([WT_OB_LEVEL_1 + 8, WT_OS_LEVEL_1 - 8], dtype=np.float64),
+            np.array([WT_OB_1 + 8, WT_OS_1 - 8], dtype=np.float64),
         ])
         if len(_wt_finite) > 0:
             _w_min = float(_wt_finite.min())
@@ -379,13 +419,12 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     )
 
     # MSF y-range — guarantee the ±4 OB/OS bands are always visible
-    from arthagati import MSF_OB_LEVEL_1 as _MSF_OB1, MSF_OS_LEVEL_1 as _MSF_OS1
     _msf_finite = msf_values[np.isfinite(msf_values)] if msf_values is not None else np.array([])
     if len(_msf_finite) > 0:
-        _msf_min = min(float(_msf_finite.min()), _MSF_OS1 - 0.5)
-        _msf_max = max(float(_msf_finite.max()), _MSF_OB1 + 0.5)
+        _msf_min = min(float(_msf_finite.min()), MSF_OS_LEVEL_1 - 0.5)
+        _msf_max = max(float(_msf_finite.max()), MSF_OB_LEVEL_1 + 0.5)
     else:
-        _msf_min, _msf_max = _MSF_OS1 - 0.5, _MSF_OB1 + 0.5
+        _msf_min, _msf_max = MSF_OS_LEVEL_1 - 0.5, MSF_OB_LEVEL_1 + 0.5
     _msf_pad = max((_msf_max - _msf_min) * 0.05, 0.5)
     _msf_range = [_msf_min - _msf_pad, _msf_max + _msf_pad]
 

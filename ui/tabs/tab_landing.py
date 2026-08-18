@@ -36,7 +36,7 @@ def render_landing_page(version: str, n_predictors: int) -> None:
             title="Historical Mood",
             description=(
                 "Full sentiment timeline with OU forward projection, Kalman confidence "
-                "bands, and regime transition markers on a TradingView-style chart."
+                "bands, and a WaveTrend oscillator on a TradingView-style chart."
             ),
             specs=[
                 ("Range:", "Mood Score −100 → +100"),
@@ -56,7 +56,7 @@ def render_landing_page(version: str, n_predictors: int) -> None:
             specs=[
                 ("Distance:", "Mahalanobis (55%)"),
                 ("Shape:", "Trajectory cosine (35%)"),
-                ("Recency:", "Decay weight (10%)"),
+                ("Separation:", "20 trading days minimum"),
             ],
             card_class="similar",
             icon="search",
@@ -92,7 +92,7 @@ def render_landing_page(version: str, n_predictors: int) -> None:
             title="Mood Engine — 5 Layers",
             body=(
                 "<ul style='margin:0; padding-left:1.1rem; line-height:1.8;'>"
-                "<li><strong>Decay-Spearman</strong> correlations (504d half-life)</li>"
+                "<li><strong>Decay-Spearman</strong> correlations, walk-forward (504d half-life)</li>"
                 "<li><strong>Entropy weighting</strong> — noisy variables suppressed</li>"
                 "<li><strong>Adaptive percentiles</strong> — decay-weighted CDF</li>"
                 "<li><strong>OU normalisation</strong> → [−100, +100]</li>"
@@ -124,7 +124,7 @@ def render_landing_page(version: str, n_predictors: int) -> None:
                 "<li><strong>Volatile Trend</strong> — directional with swings</li>"
                 "<li><strong>Mean-Reverting</strong> — contrarian strategies</li>"
                 "<li><strong>Choppy</strong> — reduce size, avoid</li>"
-                "<li><strong>Output</strong> — scales MSF weights + OU horizon</li>"
+                "<li><strong>Output</strong> — diagnostic only; never feeds the score</li>"
                 "</ul>"
             ),
             color="warning",
@@ -185,11 +185,11 @@ def render_landing_page(version: str, n_predictors: int) -> None:
     with c2:
         render_metric_card("Predictors", f"{n_predictors}", "Macro + breadth vars", color_class="neutral")
     with c3:
-        render_metric_card("Math Primitives", "12", "Pure NumPy functions", color_class="neutral")
+        render_metric_card("Math Primitives", "11", "Pure NumPy functions", color_class="neutral")
     with c4:
         render_metric_card("OU Projection", "90d", "Forward reversion path", color_class="neutral")
     with c5:
-        render_metric_card("Analog Returns", "3", "30 · 60 · 90 day", color_class="neutral")
+        render_metric_card("Analog Returns", "4", "5 · 20 · 60 · 90 day", color_class="neutral")
 
     section_gap()
 
@@ -199,8 +199,8 @@ def render_landing_page(version: str, n_predictors: int) -> None:
         body_html=(
             "Click <strong>Run Analysis</strong> in the sidebar to fetch live data from Google Sheets "
             "and execute the full 5-layer sentiment pipeline. Once loaded, switch between "
-            "<strong>Historical Mood</strong>, <strong>Similar Periods</strong>, and "
-            "<strong>Correlation Analysis</strong> views — or tune the active predictor set in "
-            "<strong>Model Configuration</strong>."
+            "<strong>Historical Mood</strong>, <strong>Similar Periods</strong>, "
+            "<strong>Correlation Analysis</strong>, and <strong>Intelligence Center</strong> "
+            "views — or tune the active predictor set in <strong>Model Configuration</strong>."
         ),
     )

@@ -212,34 +212,49 @@ def render(
     section_divider()
     render_section_header(
         title="Predictor Quality Assessment",
-        description="Quality = |ρ| × (1 − entropy) — exactly how the mood engine weights predictors internally",
+        description="Quality = |ρ| × (1 − entropy) — the same shape as the engine's weighting, measured full-sample",
         icon="target",
         accent="violet",
     )
 
+    # Quality is computed over EVERY numeric column, not just the active set.
+    #
+    # The correlation frames above are built from `active_preds`, and this
+    # loop used to read its |rho| out of them — so an inactive predictor
+    # always scored 0.00 and was badged "Weak". A panel whose stated job is
+    # to guide predictor selection could therefore never recommend anything
+    # the user had not already selected. Correlations for the full column set
+    # are computed once here and reused.
     all_vars = [
         c for c in raw_df.columns
         if c not in non_predictor_cols and pd.api.types.is_numeric_dtype(raw_df[c])
     ]
+    pe_all = calculate_anchor_correlations(raw_df, "NIFTY50_PE", all_vars)
+    ey_all = calculate_anchor_correlations(raw_df, "NIFTY50_EY", all_vars)
+    pe_lookup = dict(zip(pe_all["variable"], pe_all["correlation"])) if not pe_all.empty else {}
+    ey_lookup = dict(zip(ey_all["variable"], ey_all["correlation"])) if not ey_all.empty else {}
+
     quality_rows = []
     for var in all_vars:
-        pe_corr = 0.0
-        if pe_corrs is not None and not pe_corrs.empty:
-            m = pe_corrs.loc[pe_corrs["variable"] == var]
-            if len(m) > 0:
-                pe_corr = abs(m.iloc[0]["correlation"])
-        ey_corr = 0.0
-        if ey_corrs is not None and not ey_corrs.empty:
-            m = ey_corrs.loc[ey_corrs["variable"] == var]
-            if len(m) > 0:
-                ey_corr = abs(m.iloc[0]["correlation"])
+        pe_corr = abs(float(pe_lookup.get(var, 0.0)))
+        ey_corr = abs(float(ey_lookup.get(var, 0.0)))
         avg_corr = (pe_corr + ey_corr) / 2
 
-        var_returns = raw_df[var].pct_change().dropna().values
+        # First differences, not pct_change. Several predictors cross zero
+        # (both term spreads by construction, plus PE_DEV / EY_DEV), and a
+        # denominator near zero produced changes of several hundred x, which
+        # then dominated the histogram bin width and corrupted the entropy.
+        # Entropy is estimated from an adaptive-width histogram, so it is
+        # invariant to the units of the differenced series.
+        var_returns = raw_df[var].diff().dropna().values
         entropy = shannon_entropy(var_returns) if len(var_returns) > 10 else 0.5
         info_quality = 1.0 - entropy
         quality_score = avg_corr * max(info_quality, 0.1)
-        non_zero_pct = (raw_df[var] != 0).mean() * 100
+        # Coverage is the share of rows carrying a real, non-zero value.
+        # `raw_df[var] != 0` counts NaN as True in pandas, so an all-NaN
+        # column used to report 100% coverage.
+        col = raw_df[var]
+        non_zero_pct = float((col.notna() & (col != 0)).mean() * 100)
         quality_rows.append({
             "variable": var,
             "pe_corr": pe_corr,
@@ -279,7 +294,10 @@ def render(
         "<span style='font-size:0.72rem; color:var(--ink-tertiary);'>"
         "|ρ| = average |correlation| with PE &amp; EY anchors · "
         "H = Shannon entropy of returns (lower = more structured) · "
-        "Quality = |ρ| × (1−H) — same formula the mood engine uses for predictor weighting."
+        "Quality = |ρ| × (1−H). The engine applies this same shape per anchor, but on "
+        "<em>walk-forward</em> correlations blended across quarterly checkpoints, so its "
+        "internal weights differ in magnitude from the full-sample figures shown here. "
+        "Read this as a ranking, not as the engine's live coefficients."
         "</span>"
     )
     render_interpretation_card(
