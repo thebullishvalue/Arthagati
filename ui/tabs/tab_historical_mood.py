@@ -50,6 +50,8 @@ from ui.theme import (
     PLOTLY_GRID_ZERO,
     PLOTLY_HOVERLABEL,
     PLOTLY_LEGEND,
+    PLOTLY_SPIKE_X,
+    PLOTLY_SPIKE_Y,
 )
 
 
@@ -143,7 +145,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         fig.add_trace(go.Scatter(
             x=df["DATE"], y=df["Confidence_Lower"],
             mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip",
-            fill="tonexty", fillcolor="rgba(212,168,83,0.10)",
+            fill="tonexty", fillcolor="rgba(212,168,83,0.16)",
             name="95% Confidence",
         ), row=1, col=1)
 
@@ -155,7 +157,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         hovertemplate="<b>%{x|%d %b %Y}</b><br>Mood: %{y:.2f}<extra></extra>",
     ), row=1, col=1)
 
-    fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, line_dash="dash", row=1, col=1)
+    fig.add_hline(y=0, line_color="rgba(155,170,191,0.55)", line_width=1, line_dash="dash", row=1, col=1)
 
     last_point = df.iloc[-1]
     fig.add_annotation(
@@ -163,7 +165,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         text=f"<b>{last_point['Mood_Score']:.1f}</b>",
         showarrow=True, arrowhead=2, arrowcolor=C_AMBER,
         ax=40, ay=0,
-        bgcolor="rgba(10,14,23,0.85)", bordercolor=C_AMBER, borderwidth=1,
+        bgcolor="rgba(14,19,31,0.92)", bordercolor=C_AMBER, borderwidth=1,
         font=dict(color=C_AMBER_BRIGHT, size=11, family="JetBrains Mono, monospace"),
         row=1, col=1,
     )
@@ -194,8 +196,9 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         x=proj_dates[-1], y=0.0,
         text=f"EQ ({last_point.get('OU_Half_Life', 0):.0f}d t½)",
         showarrow=False,
-        font=dict(color="#64748B", size=9, family="JetBrains Mono, monospace"),
-        xanchor="left", xshift=5, row=1, col=1,
+        font=dict(color="#9BAABF", size=10, family="JetBrains Mono, monospace"),
+        # Nudged off the zero line, which it previously sat on top of.
+        xanchor="left", xshift=6, yshift=-12, row=1, col=1,
     )
 
     # Dynamic y-bounds
@@ -233,15 +236,15 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         line=dict(color=C_CYAN, width=2),
         hovertemplate="<b>%{x|%d %b %Y}</b><br>MSF: %{y:.2f}<extra></extra>",
     ), row=2, col=1)
-    fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1, row=2, col=1)
+    fig.add_hline(y=0, line_color="rgba(155,170,191,0.55)", line_width=1, row=2, col=1)
     # MSF Spread OB/OS reference bands — ±4 primary (solid), ±3 secondary (dotted)
-    fig.add_hline(y=MSF_OB_LEVEL_1, line_color="rgba(232,85,90,0.30)",
+    fig.add_hline(y=MSF_OB_LEVEL_1, line_color="rgba(232,85,90,0.42)",
                   line_width=1, line_dash="solid", row=2, col=1)
-    fig.add_hline(y=MSF_OS_LEVEL_1, line_color="rgba(45,212,168,0.30)",
+    fig.add_hline(y=MSF_OS_LEVEL_1, line_color="rgba(45,212,168,0.42)",
                   line_width=1, line_dash="solid", row=2, col=1)
-    fig.add_hline(y=MSF_OB_LEVEL_2, line_color="rgba(232,85,90,0.16)",
+    fig.add_hline(y=MSF_OB_LEVEL_2, line_color="rgba(232,85,90,0.26)",
                   line_width=1, line_dash="dot", row=2, col=1)
-    fig.add_hline(y=MSF_OS_LEVEL_2, line_color="rgba(45,212,168,0.16)",
+    fig.add_hline(y=MSF_OS_LEVEL_2, line_color="rgba(45,212,168,0.26)",
                   line_width=1, line_dash="dot", row=2, col=1)
 
     # Divergence triangles
@@ -296,7 +299,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             mode="lines",
             line=dict(color="rgba(6,182,212,0.0)", width=0),
             fill="tozeroy",
-            fillcolor="rgba(6,182,212,0.20)",
+            fillcolor="rgba(6,182,212,0.16)",
             name="WT1 − WT2",
             hoverinfo="skip",
             showlegend=False,
@@ -333,15 +336,15 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             WT_OB_1, WT_OB_2 = float(WT_OB_LEVEL_1), float(WT_OB_LEVEL_2)
         WT_OS_1, WT_OS_2 = -WT_OB_1, -WT_OB_2
 
-        fig.add_hline(y=0, line_color="rgba(148,163,184,0.40)",
+        fig.add_hline(y=0, line_color="rgba(155,170,191,0.55)",
                       line_width=1, line_dash="dash", row=wt_row, col=1)
-        fig.add_hline(y=WT_OB_1, line_color="rgba(45,212,168,0.30)",
+        fig.add_hline(y=WT_OB_1, line_color="rgba(45,212,168,0.42)",
                       line_width=1, line_dash="solid", row=wt_row, col=1)
-        fig.add_hline(y=WT_OS_1, line_color="rgba(232,85,90,0.30)",
+        fig.add_hline(y=WT_OS_1, line_color="rgba(232,85,90,0.42)",
                       line_width=1, line_dash="solid", row=wt_row, col=1)
-        fig.add_hline(y=WT_OB_2, line_color="rgba(45,212,168,0.16)",
+        fig.add_hline(y=WT_OB_2, line_color="rgba(45,212,168,0.26)",
                       line_width=1, line_dash="dot", row=wt_row, col=1)
-        fig.add_hline(y=WT_OS_2, line_color="rgba(232,85,90,0.16)",
+        fig.add_hline(y=WT_OS_2, line_color="rgba(232,85,90,0.26)",
                       line_width=1, line_dash="dot", row=wt_row, col=1)
 
         # ── WT crossover markers ────────────────────────────────────────
@@ -411,12 +414,11 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     # Calibrated Conviction pane removed — see header comment at top of render().
 
     # ── Layout — Obsidian Quant ───────────────────────────────────────────
-    _shared_tick = dict(size=9, family="JetBrains Mono, monospace", color="#64748B")
-    _shared_spike = dict(
-        showspikes=True, spikemode="across", spikesnap="cursor",
-        spikethickness=0.5, spikedash="dash",
-        spikecolor="rgba(148,163,184,0.18)",
-    )
+    _shared_tick = dict(size=10, family="JetBrains Mono, monospace", color="#9BAABF")
+    # Vertical line from the x-axis spike, horizontal from the y-axis spike.
+    # Both are required for a full crosshair; the chart previously set only
+    # the x-axis, which is why the horizontal line was missing.
+    _shared_spike = PLOTLY_SPIKE_X
 
     # MSF y-range — guarantee the ±4 OB/OS bands are always visible
     _msf_finite = msf_values[np.isfinite(msf_values)] if msf_values is not None else np.array([])
@@ -442,7 +444,9 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             bgcolor="rgba(0,0,0,0)",
         ),
         margin=dict(l=60, r=20, t=60, b=40),
+        # Keep the crosshair alive anywhere in the plot area, not just near a trace.
         spikedistance=-1,
+        hoverdistance=-1,
         yaxis=dict(
             title=dict(text="Mood Score", font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace")),
             showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
@@ -450,6 +454,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             linecolor="rgba(255,255,255,0.04)",
             tickfont=_shared_tick,
             range=[mood_y_hi, mood_y_lo],
+            **PLOTLY_SPIKE_Y,
         ),
         yaxis2=dict(
             title=dict(text="MSF Spread", font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace")),
@@ -457,8 +462,9 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO, zerolinewidth=0.5,
             linecolor="rgba(255,255,255,0.04)",
             tickfont=_shared_tick,
-            # Lock the y-range wide enough to always show the ±4 OB/OS bands
+            # Lock the y-range wide enough to always show the OB/OS bands
             range=_msf_range,
+            **PLOTLY_SPIKE_Y,
         ),
         xaxis=dict(
             showgrid=False, linecolor="rgba(255,255,255,0.04)",
@@ -479,6 +485,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             linecolor="rgba(255,255,255,0.04)",
             tickfont=_shared_tick,
             range=[wt_y_hi, wt_y_lo],  # reversed
+            **PLOTLY_SPIKE_Y,
         )
 
     # X-axes: only the bottom-most row carries date ticks.

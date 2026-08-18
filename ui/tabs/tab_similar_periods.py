@@ -25,6 +25,8 @@ from ui.theme import (
     PLOTLY_BASE,
     PLOTLY_GRID,
     PLOTLY_GRID_ZERO,
+    PLOTLY_SPIKE_X,
+    PLOTLY_SPIKE_Y,
 )
 
 
@@ -298,13 +300,15 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
             name=f"Quadratic (train ρ_s={bt_spearman:.2f}, test ρ_s={oos_spearman:.2f})",
         ))
 
-    fig_bt.add_hline(y=0, line_color="rgba(148,163,184,0.35)", line_width=1, line_dash="dot")
-    fig_bt.add_vline(x=0, line_color="rgba(148,163,184,0.35)", line_width=1, line_dash="dot")
+    fig_bt.add_hline(y=0, line_color="rgba(155,170,191,0.5)", line_width=1, line_dash="dot")
+    fig_bt.add_vline(x=0, line_color="rgba(155,170,191,0.5)", line_width=1, line_dash="dot")
 
     fig_bt.update_layout(
         **PLOTLY_BASE,
         height=420,
         hovermode="closest",
+        spikedistance=-1,
+        hoverdistance=-1,
         showlegend=True,
         margin=dict(l=60, r=20, t=20, b=50),
         xaxis=dict(
@@ -312,18 +316,20 @@ def render(mood_df, *, find_similar_periods, backtest_horizon) -> None:
                        font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace")),
             showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
             zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO,
-            tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
+            tickfont=dict(size=10, family="JetBrains Mono, monospace", color="#9BAABF"),
+            **PLOTLY_SPIKE_X,
         ),
         yaxis=dict(
             title=dict(text=f"NIFTY Return T+{horizon}d (%)",
                        font=dict(size=11, color=C_MUTED, family="JetBrains Mono, monospace")),
             showgrid=True, gridcolor=PLOTLY_GRID, gridwidth=0.5,
             zeroline=True, zerolinecolor=PLOTLY_GRID_ZERO,
-            tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
+            tickfont=dict(size=10, family="JetBrains Mono, monospace", color="#9BAABF"),
+            **PLOTLY_SPIKE_Y,
         ),
         legend=dict(
             x=0.02, y=0.98,
-            bgcolor="rgba(10,14,23,0.85)",
+            bgcolor="rgba(14,19,31,0.92)",
             bordercolor="rgba(255,255,255,0.06)", borderwidth=1,
             font=dict(size=10, family="JetBrains Mono, monospace"),
         ),
