@@ -23,7 +23,7 @@ from __future__ import annotations
 # IDENTITY — single source of truth for every version string in the repo
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION      = "v2.10.0"
+VERSION      = "v2.11.0"
 PRODUCT_NAME = "Arthagati"
 COMPANY      = "@thebullishvalue"
 
@@ -82,6 +82,17 @@ CIRCULAR_COLUMNS: frozenset[str] = frozenset({
     'COR. PE', 'PE_DEV', 'COR. EY', 'EY_DEV',
     'REGIME', 'SIGNAL_STR', 'BTD', 'STT', 'SPREAD',
 })
+
+# Sheet columns that duplicate something load_data() derives itself. Offering
+# both would let the same yield-curve information be counted twice.
+DUPLICATE_COLUMNS: frozenset[str] = frozenset({
+    'IN_YC (10-2)',   # == IN_TERM_SPREAD
+    'US_YC (10-2)',   # == US_TERM_SPREAD
+})
+
+# Minimum quality for a column to be offered as a predictor at all.
+PREDICTOR_MIN_COVERAGE = 60.0   # percent of rows non-null and non-zero
+PREDICTOR_MIN_UNIQUE   = 10     # distinct values
 
 # Columns that are anchors or index keys, never predictors.
 NON_PREDICTOR_COLS: frozenset[str] = frozenset({'DATE', 'NIFTY', 'NIFTY50_PE', 'NIFTY50_EY'})
@@ -226,3 +237,194 @@ BACKTEST_HORIZON = 20    # forward-return horizon for the backtest scatter
 
 OU_PROJ_DAYS    = 90     # OU mean-reversion projection horizon (calendar days)
 STALE_DATA_DAYS = 4      # calendar-day age before the staleness banner fires
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PREDICTOR PROFILES
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Presets for the sidebar dropdown, each carrying the measurement that
+# justifies it. The numbers below were recorded on the reference sheet
+# (see PROFILE_MEASUREMENT_CONTEXT) — they are a RECORD, not a live claim.
+# The Signal Validation view re-measures whatever set is actually active.
+#
+# `predictors = None` means "every eligible column in the loaded sheet",
+# resolved at runtime. Names absent from a sheet are dropped with a note
+# rather than causing an error.
+
+PROFILE_MEASUREMENT_CONTEXT: dict = {
+    "sheet":         "NIFTY · reference sheet",
+    "rows":          4985,
+    "span":          "2006-06-08 → 2026-08-18",
+    "holdout":       "2021-08-05 onward (1246 rows)",
+    "validated_on":  "+20D, +60D",
+    "descriptive":   "+125D, +250D — holdout too short to validate at that length",
+    "baseline_rho":  0.5319,   # -PE alone, no engine, same window
+    "measured_date": "2026-08-18",
+    "permutations":  200,
+}
+
+PREDICTOR_PROFILES: dict[str, dict] = {
+    "measured": {
+        "label":       "Measured",
+        "blurb":       "Chosen by measurement: greedy forward selection on 2006–2021, holdout scored once. Rate and liquidity variables only.",
+        "predictors":  [
+            "SPREAD_02Y",
+            "US_TERM_SPREAD",
+            "CRR",
+            "US02Y",
+        ],
+        "measured": {
+            "n":            4,
+            "dev_rho":      0.3344,
+            "holdout_rho":  0.5382,
+            "p_value":      0.005,
+            "verdict":      "Edge Confirmed",
+            "per_horizon":  {20: 0.419, 60: 0.657, 125: 0.474, 250: 0.64},
+        },
+    },
+    "rates": {
+        "label":       "Rates & Liquidity",
+        "blurb":       "Thematic: the policy-rate and yield-curve family, including the ones selection did not keep.",
+        "predictors":  [
+            "SPREAD_02Y",
+            "US02Y",
+            "CRR",
+            "RATE_SPREAD",
+            "IN_REAL_Y",
+            "IN10Y",
+            "YIELD_SPREAD",
+            "REPO",
+        ],
+        "measured": {
+            "n":            8,
+            "dev_rho":      0.2879,
+            "holdout_rho":  0.4915,
+            "p_value":      0.005,
+            "verdict":      "Edge Confirmed",
+            "per_horizon":  {20: 0.384, 60: 0.599, 125: 0.482, 250: 0.676},
+        },
+    },
+    "broad": {
+        "label":       "Broad",
+        "blurb":       "Every eligible column in the sheet. Maximum coverage, most dilution — the engine normalises weights, so weak predictors take weight from strong ones.",
+        "predictors":  None,  # resolved at runtime: all eligible columns
+        "measured": {
+            "n":            37,
+            "dev_rho":      0.2383,
+            "holdout_rho":  0.4895,
+            "p_value":      0.005,
+            "verdict":      "Edge Confirmed",
+            "per_horizon":  {20: 0.357, 60: 0.622, 125: 0.539, 250: 0.73},
+        },
+    },
+    "valuation": {
+        "label":       "Valuation & Volatility",
+        "blurb":       "Thematic: price-to-book, dividend yield, VIX, USDINR, real yield.",
+        "predictors":  [
+            "NIFTY50_PB",
+            "NIFTY50_DY",
+            "INDIAVIX",
+            "USDINR",
+            "IN_REAL_Y",
+        ],
+        "measured": {
+            "n":            5,
+            "dev_rho":      0.1823,
+            "holdout_rho":  0.4733,
+            "p_value":      0.005,
+            "verdict":      "Edge Confirmed",
+            "per_horizon":  {20: 0.36, 60: 0.587, 125: 0.49, 250: 0.665},
+        },
+    },
+    "legacy_29": {
+        "label":       "Legacy · v2.9",
+        "blurb":       "The v2.9.0 default. Term spreads promoted on the strength of VISION §2-I — which measurement did not support.",
+        "predictors":  [
+            "AD_RATIO",
+            "REL_AD_RATIO",
+            "REL_BREADTH",
+            "COUNT",
+            "IN_TERM_SPREAD",
+            "US_TERM_SPREAD",
+            "IN10Y",
+            "US10Y",
+            "INIRYY",
+            "REPO",
+            "NIFTY50_DY",
+            "NIFTY50_PB",
+        ],
+        "measured": {
+            "n":            12,
+            "dev_rho":      0.1886,
+            "holdout_rho":  0.444,
+            "p_value":      0.005,
+            "verdict":      "Edge Confirmed",
+            "per_horizon":  {20: 0.31, 60: 0.578, 125: 0.536, 250: 0.71},
+        },
+    },
+    "classic_28": {
+        "label":       "Classic · v2.8",
+        "blurb":       "The original shipped default: breadth, the full yield ladder, and two valuation ratios.",
+        "predictors":  [
+            "AD_RATIO",
+            "REL_AD_RATIO",
+            "REL_BREADTH",
+            "COUNT",
+            "IN10Y",
+            "IN02Y",
+            "IN30Y",
+            "INIRYY",
+            "REPO",
+            "US02Y",
+            "US10Y",
+            "US30Y",
+            "NIFTY50_DY",
+            "NIFTY50_PB",
+        ],
+        "measured": {
+            "n":            14,
+            "dev_rho":      0.2131,
+            "holdout_rho":  0.4315,
+            "p_value":      0.005,
+            "verdict":      "Edge Confirmed",
+            "per_horizon":  {20: 0.297, 60: 0.566, 125: 0.536, 250: 0.663},
+        },
+    },
+    "minimal": {
+        "label":       "Minimal",
+        "blurb":       "The single strongest predictor from the univariate screen. Closest to the pure PE anchor.",
+        "predictors":  [
+            "SPREAD_02Y",
+        ],
+        "measured": {
+            "n":            1,
+            "dev_rho":      0.291,
+            "holdout_rho":  0.4177,
+            "p_value":      0.005,
+            "verdict":      "Edge Confirmed",
+            "per_horizon":  {20: 0.359, 60: 0.477, 125: 0.324, 250: 0.312},
+        },
+    },
+    "breadth": {
+        "label":       "Breadth Only",
+        "blurb":       "Market participation alone. Included as a contrast — it measurably underperforms, and the engine's anchors do the work.",
+        "predictors":  [
+            "AD_RATIO",
+            "REL_AD_RATIO",
+            "REL_BREADTH",
+            "BREADTH",
+            "COUNT",
+            "A/(A+D)",
+        ],
+        "measured": {
+            "n":            6,
+            "dev_rho":      0.1409,
+            "holdout_rho":  0.3239,
+            "p_value":      0.005,
+            "verdict":      "Edge Confirmed",
+            "per_horizon":  {20: 0.218, 60: 0.43, 125: 0.457, 250: 0.672},
+        },
+    },
+}
+
+DEFAULT_PROFILE = "measured"

@@ -6,6 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
 
 ---
 
+## [v2.11.0] — 2026-08-18
+
+### Predictor Profiles
+
+Predictor selection moves from a bare multiselect to a dropdown of measured
+presets. Each preset displays the out-of-sample correlation it achieved, the
+margin over the `−PE` baseline, and its p-value, so the choice is made against
+evidence rather than a name.
+
+#### Added
+- **Eight presets + Custom**, ordered by measured holdout ρ:
+
+  | Profile | n | Holdout ρ | vs −PE |
+  |---|---:|---:|---:|
+  | Measured *(default)* | 4 | +0.538 | +0.006 |
+  | Rates & Liquidity | 8 | +0.492 | −0.040 |
+  | Broad | 37 | +0.490 | −0.042 |
+  | Valuation & Volatility | 5 | +0.473 | −0.059 |
+  | Legacy · v2.9 | 12 | +0.444 | −0.088 |
+  | Classic · v2.8 | 14 | +0.432 | −0.100 |
+  | Minimal | 1 | +0.418 | −0.114 |
+  | Breadth Only | 6 | +0.324 | −0.208 |
+
+  All at p = 0.005, measured on 4,985 rows with a 1,246-row holdout, validated
+  at +20D/+60D. Earlier defaults are kept as selectable profiles rather than
+  deleted — the comparison is the point.
+
+- `PREDICTOR_PROFILES` and `PROFILE_MEASUREMENT_CONTEXT` in `config.py`;
+  `resolve_profile()` / `detect_profile()` in `arthagati.py`;
+  `render_profile_card()` in `ui/components.py`.
+- **Provenance on the card.** Every figure is labelled with the sheet, row
+  count, span, holdout window and measurement date — a record, not a live
+  claim. The Signal Validation view re-measures the active set.
+
+#### Changed
+- **One eligibility rule**, shared by the app and the measurement harness:
+  no anchors, no NIFTY-derived columns, no duplicates of derived columns,
+  ≥60% coverage and ≥10 distinct values. Previously the app offered 39
+  columns where the harness had measured 37 — including the sheet's own
+  `IN_YC (10-2)` / `US_YC (10-2)`, which duplicate the derived term spreads.
+- Presets apply immediately; Custom keeps staging → Apply.
+- First run seeds the active set from `DEFAULT_PROFILE`, so dropdown and
+  engine agree from the outset.
+
+#### Fixed
+- **A partially-resolved profile no longer matches.** A preset naming five
+  columns on a sheet carrying two would previously display as that profile
+  and show its five-column measurement — advertising evidence for a set the
+  user was not running. Detection now requires complete resolution; anything
+  else reads as Custom.
+
+---
+
 ## [v2.10.0] — 2026-08-18
 
 ### Measured Predictor Selection · Intelligence Mode Removed

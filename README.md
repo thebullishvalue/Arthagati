@@ -1,4 +1,4 @@
-# ARTHAGATI (अर्थगति) · v2.10.0
+# ARTHAGATI (अर्थगति) · v2.11.0
 
 **Market Sentiment Analysis Engine** — An @thebullishvalue Product
 
@@ -23,6 +23,7 @@
 - [Mathematical Primitives](#mathematical-primitives)
 - [Data Schema](#data-schema)
 - [Configuration](#configuration)
+- [Predictor Profiles](#predictor-profiles)
 - [Key Features](#key-features)
 - [Setup](#setup)
 - [Version History](#version-history)
@@ -459,20 +460,57 @@ The gviz endpoint works without authentication.
 | `GATE_MAX_P_VALUE` | 0.05 | Permutation-null threshold |
 | `GATE_MIN_INDEPENDENT_WINDOWS` | 10 | Power floor before a verdict is issued |
 
-### Predictor Selection
+### Predictor Profiles
 
-Sidebar → Model Configuration uses a **staging → commit** pattern:
-1. Adjust predictors in multiselect (no recomputation)
-2. Pending diff shown: `+2 added, −1 removed`
-3. Click **Apply Configuration** to commit
-4. Engine recomputes with new predictor set; cache + calibration cleared
+Sidebar → Model Configuration → **Predictor Profile**. Each preset carries the
+out-of-sample measurement that justifies it, so the choice is made against
+evidence rather than a name.
 
-The default set includes `IN_TERM_SPREAD` and `US_TERM_SPREAD` and excludes
-the 2-year legs they are built from — per VISION §2-I, the spread carries the
-orthogonal information and including both double-counts the curve. The
-spreads were previously derived and then left out of `DEPENDENT_VARS`, so the
-documented flagship feature was off by default while the raw yields it was
-meant to replace were on.
+| Profile | n | Holdout ρ | vs −PE | Notes |
+|---|---:|---:|---:|---|
+| **Measured** *(default)* | 4 | **+0.538** | +0.006 | Greedy forward selection on 2006–2021, holdout scored once |
+| Rates & Liquidity | 8 | +0.492 | −0.040 | Thematic: policy rates and the yield curve |
+| Broad | 37 | +0.490 | −0.042 | Every eligible column; most dilution |
+| Valuation & Volatility | 5 | +0.473 | −0.059 | PB, DY, VIX, USDINR, real yield |
+| Legacy · v2.9 | 12 | +0.444 | −0.088 | The v2.9.0 default |
+| Classic · v2.8 | 14 | +0.432 | −0.100 | The originally shipped default |
+| Minimal | 1 | +0.418 | −0.114 | Strongest single predictor |
+| Breadth Only | 6 | +0.324 | −0.208 | Contrast — measurably the weakest |
+| **Custom…** | — | — | — | Hand-pick columns (staging → Apply) |
+
+All eight reach `p = 0.005`. Measured on the reference sheet — NIFTY, 4,985
+rows, 2006-06-08 → 2026-08-18, holdout 2021-08-05 onward (1,246 rows),
+validated at +20D and +60D against 200 circular-shift permutations. The
+`−PE` baseline over the same window is **+0.532**.
+
+**These numbers are a record, not a live claim.** They were measured on one
+sheet on one date. The Signal Validation view re-measures whatever set is
+actually active on whatever data is loaded — that is the number to trust.
+
+**Profiles only match when they resolve completely.** If a sheet is missing
+some of a preset's columns, the dropdown reads *Custom…* and the card is not
+shown, rather than displaying a five-column measurement beside a two-column
+set. Missing names are listed on the card when a preset partially applies.
+
+Choosing a preset applies immediately — it is one discrete choice. Custom
+keeps the staging → Apply pattern, because a multiselect fires on every
+checkbox and each change would otherwise trigger a full engine recompute.
+
+### Predictor Eligibility
+
+One rule, applied everywhere, matching the conditions the profile figures
+were recorded under. A column is offered only if it is:
+
+- not an anchor or index key (`DATE`, `NIFTY`, `NIFTY50_PE`, `NIFTY50_EY`);
+- **not derived from NIFTY** — `RSI`, the MA family, `SPREAD90/200`, `OSC`,
+  and the sheet's precomputed `COR.`/`DEV` pairs are withheld. A valuation
+  score built partly from price, then scored against price returns, would
+  measure price predicting itself;
+- not a duplicate of something `load_data()` derives (`IN_YC (10-2)` and
+  `US_YC (10-2)` duplicate the derived term spreads);
+- populated in ≥60% of rows and carrying ≥10 distinct values.
+
+On the reference sheet this takes 65 numeric columns down to 37.
 
 ### Testing
 
@@ -577,6 +615,7 @@ streamlit run arthagati.py
 
 | Version | Date | Summary |
 |---------|------|---------|
+| **v2.11.0** | 2026-08-18 | **Predictor profiles.** Eight measured presets + Custom in a sidebar dropdown, each showing its holdout ρ, margin over the −PE baseline, and p-value; unified eligibility rule (65 → 37 columns); partially-resolved presets no longer advertise a measurement for a set you aren't running |
 | **v2.10.0** | 2026-08-18 | **Measured predictor selection; Intelligence Mode removed.** 65 columns → 4 by development-only selection with a single holdout scoring; the Optuna ensemble deleted after it reduced out-of-sample power on every configuration; `validation.py` + Signal Validation view; mood-score semantics corrected (valuation-contrarian, not sentiment); Hurst on increments; reachable classification bands. Verdict on the reference sheet: **Edge Confirmed, holdout rho +0.538, p = 0.005** |
 | **v2.9.0** | 2026-08-18 | **Audit remediation.** Eliminated look-ahead in the mood, MSF and regime series; rebuilt the Intelligence Mode quality gate around a 25% holdout, a 90-day embargo and a permutation null (it previously graded pure noise "Quality OK"); O(N log N) percentiles; MSF degenerate-component guard; analog separation; `config.py` extraction; first test suite |
 | **v2.8.0** | 2026-05-28 | WaveTrend Oscillator (LazyBear · Mood-driven), Intelligence Mode (post-engine ensemble calibration via Optuna TPE + walk-forward CV), Calibrated Conviction metric, granular forward horizons (5D / 20D / 60D / 90D), MSF Spread reference bands at ±5/±3, structured run-summary console log |

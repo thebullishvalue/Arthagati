@@ -85,6 +85,7 @@ from ui.components import (
     sidebar_title,
     sidebar_masthead,
     sidebar_passport,
+    render_profile_card,
     section_gap,
     section_divider,
     render_footer,
@@ -124,6 +125,12 @@ from config import (  # noqa: E402
     DEPENDENT_VARS,
     NON_PREDICTOR_COLS,
     CIRCULAR_COLUMNS,
+    DUPLICATE_COLUMNS,
+    PREDICTOR_MIN_COVERAGE,
+    PREDICTOR_MIN_UNIQUE,
+    PREDICTOR_PROFILES,
+    PROFILE_MEASUREMENT_CONTEXT,
+    DEFAULT_PROFILE,
     REQUIRED_COLUMNS,
     MSF_SOURCE_COLUMNS,
     TIMEFRAMES,
@@ -1991,6 +1998,96 @@ def _render_sidebar_passport() -> None:
     )
 
 
+def _render_custom_predictor_picker(available_predictors: list[str]) -> None:
+    """Hand-picked predictor set.
+
+    Staging + Apply rather than immediate commit: the multiselect fires on
+    every checkbox, and each change would otherwise trigger a full engine
+    recompute. The preset dropdown applies immediately because it is one
+    discrete choice.
+    """
+    with st.expander("Choose Columns", expanded=True):
+        st.caption("Select predictors, then click Apply to recompute.")
+        staging_predictors = st.multiselect(
+            "Predictor Columns",
+            options=available_predictors,
+            default=list(st.session_state["active_predictors"]),
+            label_visibility="collapsed",
+            help=(
+                "Columns used as dependent variables for the PE & EY "
+                "correlation-weighted mood score. NIFTY-derived columns are "
+                "withheld — using them would make the score a function of the "
+                "price it is scored against."
+            ),
+        )
+        if not staging_predictors:
+            st.warning("Select at least one predictor.")
+            staging_predictors = list(st.session_state["active_predictors"])
+
+        staging_set = set(staging_predictors)
+        active_set = set(st.session_state["active_predictors"])
+        has_changes = staging_set != active_set
+        if has_changes:
+            added = staging_set - active_set
+            removed = active_set - staging_set
+            changes = []
+            if added:
+                changes.append(f"+{len(added)} added")
+            if removed:
+                changes.append(f"\u2212{len(removed)} removed")
+            st.caption(f"Pending: {', '.join(changes)}")
+
+        apply_clicked = st.button(
+            "Apply Configuration" if has_changes else "No changes",
+            use_container_width=True,
+            disabled=not has_changes,
+            type="primary" if has_changes else "secondary",
+        )
+        if apply_clicked and has_changes:
+            st.session_state["active_predictors"] = tuple(staging_predictors)
+            # Different predictor set ⇒ engine output no longer applies.
+            _clear_engine_caches()
+            st.rerun()
+
+        active_count = len(st.session_state["active_predictors"])
+        total_count = len(available_predictors)
+        st.info(f"Active: {active_count}/{total_count} available columns")
+
+
+def resolve_profile(key: str, available: list[str]) -> tuple[list[str], list[str]]:
+    """Return (predictors present in this sheet, names that were missing).
+
+    A profile names columns; a sheet may not carry all of them. Missing names
+    are reported rather than silently dropped, so a preset that only half
+    applies is visible as such.
+    """
+    spec = PREDICTOR_PROFILES.get(key, {}).get("predictors")
+    if spec is None:                       # "broad" — everything eligible
+        return list(available), []
+    present = [p for p in spec if p in available]
+    missing = [p for p in spec if p not in available]
+    return present, missing
+
+
+def detect_profile(active: tuple, available: list[str]) -> str:
+    """Name the preset matching the active set exactly, else 'custom'.
+
+    A profile only matches when it resolved COMPLETELY against this sheet.
+    A partially-resolved preset — say two of the five Valuation columns
+    present — would otherwise match a two-column active set and display the
+    five-column measurement beside it, advertising evidence for a set the
+    user is not running.
+    """
+    cur = set(active)
+    for key in PREDICTOR_PROFILES:
+        present, missing = resolve_profile(key, available)
+        if missing:
+            continue
+        if present and set(present) == cur:
+            return key
+    return "custom"
+
+
 def _dataset_fingerprint(raw_df: pd.DataFrame, predictors) -> tuple:
     """Hashable fingerprint for the session engine cache."""
     return (
@@ -2184,17 +2281,33 @@ def main():
     # evaluated against, and any measured edge would be partly price
     # predicting itself. The real sheet carries 26 such columns (RSI, the MA
     # family, SPREAD90/200, OSC, the precomputed COR./DEV pairs).
+    # Eligibility, in one place, matching the rule the profile measurements
+    # were recorded under:
+    #   * not an anchor or index key
+    #   * not derived from NIFTY — using such a column would make the
+    #     valuation score a function of the price it is scored against
+    #   * not a duplicate of a column load_data() derives itself
+    #   * enough real data to estimate a correlation from
     available_predictors = [
         col for col in raw_df.columns
         if col not in NON_PREDICTOR_COLS
         and col not in CIRCULAR_COLUMNS
+        and col not in DUPLICATE_COLUMNS
         and pd.api.types.is_numeric_dtype(raw_df[col])
-        and raw_df[col].notna().any()
+        and float((raw_df[col].notna() & (raw_df[col] != 0)).mean() * 100) >= PREDICTOR_MIN_COVERAGE
+        and raw_df[col].nunique() >= PREDICTOR_MIN_UNIQUE
     ]
     current_preds = st.session_state.get("active_predictors")
     if not current_preds:
-        default_preds = [p for p in DEPENDENT_VARS if p in available_predictors]
-        st.session_state["active_predictors"] = tuple(default_preds) if default_preds else tuple(available_predictors)
+        # First run seeds from the default profile, so the dropdown and the
+        # active set agree from the outset.
+        default_preds, _ = resolve_profile(DEFAULT_PROFILE, available_predictors)
+        if not default_preds:
+            default_preds = [p for p in DEPENDENT_VARS if p in available_predictors]
+        st.session_state["active_predictors"] = (
+            tuple(default_preds) if default_preds else tuple(available_predictors)
+        )
+        st.session_state.setdefault("predictor_profile", DEFAULT_PROFILE)
     else:
         valid = tuple(p for p in current_preds if p in available_predictors)
         st.session_state["active_predictors"] = valid if valid else tuple(available_predictors)
@@ -2219,49 +2332,62 @@ def main():
         section_divider()
 
         sidebar_title("Model Configuration", icon="cpu")
-        with st.expander("Predictor Columns", expanded=False):
-            st.caption("Select predictors, then click Apply to recompute.")
-            staging_predictors = st.multiselect(
-                "Predictor Columns",
-                options=available_predictors,
-                default=list(st.session_state["active_predictors"]),
-                label_visibility="collapsed",
-                help="These columns are used as dependent variables for PE & EY correlation-weighted mood scoring.",
-            )
-            if not staging_predictors:
-                st.warning("Select at least one predictor.")
-                staging_predictors = list(st.session_state["active_predictors"])
 
-            staging_set = set(staging_predictors)
-            active_set = set(st.session_state["active_predictors"])
-            has_changes = staging_set != active_set
-            if has_changes:
-                added = staging_set - active_set
-                removed = active_set - staging_set
-                changes = []
-                if added:
-                    changes.append(f"+{len(added)} added")
-                if removed:
-                    changes.append(f"−{len(removed)} removed")
-                st.caption(f"Pending: {', '.join(changes)}")
+        # ── Predictor profile ────────────────────────────────────────────
+        # Presets carry the measurement that justifies them (see
+        # config.PREDICTOR_PROFILES). Picking one applies immediately —
+        # it is a single discrete choice, unlike the multiselect below
+        # where staging avoids recomputing on every checkbox.
+        _active = tuple(st.session_state["active_predictors"])
+        _detected = detect_profile(_active, available_predictors)
+        _keys = list(PREDICTOR_PROFILES) + ["custom"]
+        _labels = {k: PREDICTOR_PROFILES[k]["label"] for k in PREDICTOR_PROFILES}
+        _labels["custom"] = "Custom…"
 
-            apply_clicked = st.button(
-                "Apply Configuration" if has_changes else "No changes",
-                use_container_width=True,
-                disabled=not has_changes,
-                type="primary" if has_changes else "secondary",
-            )
-            if apply_clicked and has_changes:
-                st.session_state["active_predictors"] = tuple(staging_predictors)
+        _chosen = st.selectbox(
+            "Predictor Profile",
+            options=_keys,
+            index=_keys.index(_detected) if _detected in _keys else len(_keys) - 1,
+            format_func=lambda k: (
+                _labels[k] if k == "custom"
+                else f"{_labels[k]} · {len(resolve_profile(k, available_predictors)[0])}"
+            ),
+            help=(
+                "Preset predictor mixes, each labelled with the out-of-sample "
+                "correlation it achieved on the reference sheet. Choose Custom to "
+                "pick columns yourself."
+            ),
+        )
+
+        if _chosen != "custom":
+            _preds, _missing = resolve_profile(_chosen, available_predictors)
+            if _preds and set(_preds) != set(_active):
+                st.session_state["active_predictors"] = tuple(_preds)
+                st.session_state["predictor_profile"] = _chosen
                 _clear_engine_caches()
-                # Different predictor set ⇒ engine output no longer applies.
-                _invalidate_engine_cache()
                 st.rerun()
-
-            active_count = len(st.session_state["active_predictors"])
-            total_count = len(available_predictors)
-            if active_count != total_count:
-                st.info(f"Active: {active_count}/{total_count} predictors")
+            _m = PREDICTOR_PROFILES[_chosen]["measured"]
+            _ctx = PROFILE_MEASUREMENT_CONTEXT
+            render_profile_card(
+                label=PREDICTOR_PROFILES[_chosen]["label"],
+                blurb=PREDICTOR_PROFILES[_chosen]["blurb"],
+                n_predictors=len(_preds),
+                holdout_rho=_m["holdout_rho"],
+                p_value=_m["p_value"],
+                baseline_rho=_ctx["baseline_rho"],
+                context=(
+                    f"Recorded {_ctx['measured_date']} on {_ctx['rows']:,} rows "
+                    f"({_ctx['span']}), holdout {_ctx['holdout']}, validated on "
+                    f"{_ctx['validated_on']}. Open Signal Validation to re-measure "
+                    f"the active set on this data."
+                ),
+                missing=_missing,
+            )
+            with st.expander("Columns in this profile", expanded=False):
+                st.caption(" · ".join(_preds) if _preds else "none available in this sheet")
+        else:
+            st.session_state["predictor_profile"] = "custom"
+            _render_custom_predictor_picker(available_predictors)
 
         _render_sidebar_passport()
 
