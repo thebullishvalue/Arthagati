@@ -106,6 +106,24 @@
     --warning-amber: var(--amber);
     --info-cyan: var(--cyan);
     --neutral: var(--slate-warm);
+
+    /* ---- Layout rhythm (added: layout layer) ---- */
+    --page-pad: 32px;
+    --section-gap: 32px;
+    --panel-pad: 20px;
+    --panel-head-h: 44px;
+    --grid-gap: 16px;
+
+    /* ---- Motion tokens ---- */
+    /* Ceiling is 220ms. Anything slower reads as decoration rather than
+       feedback, and the theme previously ran transitions at 600-800ms. */
+    --motion-fast: 120ms;
+    --motion-base: 160ms;
+    --motion-slow: 220ms;
+    --motion-skeleton: 1.2s;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-enter: ease-out;
+    --ease-exit: ease-in;
 }
 
 /* ================================================================
@@ -223,9 +241,8 @@ footer {
 }
 
 .block-container {
-    padding-top: var(--sp-8) !important;
-    padding-bottom: var(--sp-6) !important;
-    max-width: 98%;
+    padding: var(--sp-8) var(--page-pad) var(--sp-12) !important;
+    max-width: 1680px !important;
 }
 
 /* ================================================================
@@ -235,7 +252,6 @@ footer {
     padding: var(--sp-5) 0 var(--sp-6) 0;
     margin-bottom: var(--sp-10);
     position: relative;
-    animation: fadeInDown 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .premium-header::after {
@@ -311,7 +327,6 @@ footer {
     padding-bottom: var(--sp-3);
     border-bottom: 1px solid var(--border);
     position: relative;
-    animation: slideInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Animated accent bar */
@@ -324,7 +339,7 @@ footer {
     height: 2px;
     background: linear-gradient(90deg, var(--accent) 0%, var(--accent-glow) 100%);
     border-radius: 1px;
-    animation: accentBarIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+    animation: accentBarIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes accentBarIn {
@@ -994,7 +1009,6 @@ footer {
     justify-content: flex-start;
     overflow: hidden;
     cursor: default;
-    animation: metricIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
     box-sizing: border-box;
 }
 
@@ -1120,17 +1134,7 @@ footer {
     flex-grow: 1;
 }
 
-@keyframes metricIn {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
-    }
 
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
 
 /* ================================================================
    Unified Card Color System — DRY definitions
@@ -1325,7 +1329,7 @@ footer {
     position: relative;
     overflow: hidden;
     transition: all 350ms cubic-bezier(0.16, 1, 0.3, 1);
-    animation: cardIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: cardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Corner accent dot — matches .metric-card::before placement */
@@ -1538,7 +1542,7 @@ footer {
     border-radius: var(--r-sm);
     padding: var(--sp-3) var(--sp-4);
     overflow: hidden;
-    animation: specFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.5s both;
+    animation: specFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Amber top accent line */
@@ -1683,7 +1687,7 @@ footer {
 .conf-bar-fill {
     height: 100%;
     border-radius: 3px;
-    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ================================================================
@@ -1942,7 +1946,7 @@ footer {
 }
 
 /* Hide the divider on narrow screens — sections stack vertically anyway */
-@media (max-width: 768px) {
+@media (max-width: 834px) {
     .column-vdivider {
         display: none;
     }
@@ -2174,7 +2178,6 @@ footer {
     position: relative;
     overflow: hidden;
     transition: all 350ms cubic-bezier(0.16, 1, 0.3, 1);
-    animation: positionCardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .position-card::before {
@@ -2236,17 +2239,7 @@ footer {
     border: 1px solid rgba(251, 113, 133, 0.15);
 }
 
-@keyframes positionCardIn {
-    from {
-        opacity: 0;
-        transform: translateX(-12px);
-    }
 
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
 
 .position-card:nth-child(1) {
     animation-delay: 0.05s;
@@ -2444,7 +2437,7 @@ footer {
 .conviction-bar-fill {
     height: 100%;
     border-radius: 2px;
-    transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     position: relative;
 }
 
@@ -2456,7 +2449,7 @@ footer {
     right: 0;
     bottom: 0;
     background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.2) 50%, transparent 100%);
-    animation: shimmer 2s infinite;
+    animation: shimmer var(--motion-skeleton) infinite;
 }
 
 .conviction-bar-fill.fill-strong-buy {
@@ -2576,7 +2569,7 @@ footer {
     height: 8px;
     background: var(--amber);
     border-radius: 50%;
-    animation: pulse 1.5s ease-in-out infinite;
+    animation: pulse 2s ease-in-out infinite;
 }
 
 .pulse-dot.complete {
@@ -2614,7 +2607,7 @@ footer {
     margin: var(--sp-6) 0;
     position: relative;
     overflow: hidden;
-    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+    animation: fadeInUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Animated gradient top border */
@@ -2627,7 +2620,6 @@ footer {
     height: 3px;
     background: linear-gradient(90deg, var(--amber), var(--cyan), var(--emerald), var(--violet), var(--amber));
     background-size: 200% 100%;
-    animation: gradientShift 6s ease infinite;
     box-shadow: 0 0 20px var(--amber-glow);
 }
 
@@ -2909,7 +2901,7 @@ footer {
     height: 12px;
     background: linear-gradient(90deg, var(--bg-surface) 25%, var(--bg-elevated) 50%, var(--bg-surface) 75%);
     background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
+    animation: shimmer var(--motion-skeleton) infinite;
     border-radius: var(--r-sm);
     width: 60%;
 }
@@ -2918,7 +2910,7 @@ footer {
     height: 180px;
     background: linear-gradient(90deg, var(--bg-surface) 25%, var(--bg-elevated) 50%, var(--bg-surface) 75%);
     background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
+    animation: shimmer var(--motion-skeleton) infinite;
     border-radius: var(--r-md);
     flex: 1;
 }
@@ -3033,7 +3025,6 @@ footer {
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    animation: slideHint 0.5s cubic-bezier(0.4, 0, 0.2, 1) 1s both;
     cursor: pointer;
     pointer-events: all;
 }
@@ -3064,17 +3055,7 @@ footer {
     transform: rotate(180deg);
 }
 
-@keyframes slideHint {
-    from {
-        opacity: 0;
-        transform: translateY(-50%) translateX(-20px);
-    }
 
-    to {
-        opacity: 0.7;
-        transform: translateY(-50%) translateX(0);
-    }
-}
 
 /* ================================================================
    Timeframe Buttons
@@ -3192,7 +3173,7 @@ footer {
     }
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1194px) {
     .premium-header h1 {
         font-size: 2.2rem;
     }
@@ -3206,7 +3187,7 @@ footer {
     }
 }
 
-@media (max-width: 992px) {
+@media (max-width: 1194px) {
     .block-container {
         max-width: 100%;
         padding-left: var(--sp-4) !important;
@@ -3231,7 +3212,7 @@ footer {
     }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 834px) {
     .premium-header h1 {
         font-size: 1.8rem;
     }
@@ -3326,28 +3307,11 @@ footer {
    KEYFRAME ANIMATIONS
    ================================================================ */
 
-@keyframes fadeInDown {
-    from {
-        opacity: 0;
-        transform: translateY(-20px);
-    }
 
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
 
 @keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 @keyframes fadeIn {
@@ -3360,29 +3324,9 @@ footer {
     }
 }
 
-@keyframes slideInLeft {
-    from {
-        opacity: 0;
-        transform: translateX(-30px);
-    }
 
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
 
-@keyframes slideInRight {
-    from {
-        opacity: 0;
-        transform: translateX(30px);
-    }
 
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
 
 @keyframes pulse {
 
@@ -3418,19 +3362,7 @@ footer {
     }
 }
 
-@keyframes gradientShift {
-    0% {
-        background-position: 0% 50%;
-    }
 
-    50% {
-        background-position: 100% 50%;
-    }
-
-    100% {
-        background-position: 0% 50%;
-    }
-}
 
 @keyframes countUp {
     from {
@@ -3449,7 +3381,7 @@ footer {
    ================================================================ */
 
 .metric-card {
-    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: fadeInUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .metric-card:nth-child(1) {
@@ -3469,7 +3401,7 @@ footer {
 }
 
 .metric-card h2 {
-    animation: countUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+    animation: countUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
 }
 
 /* ================================================================
@@ -3477,7 +3409,7 @@ footer {
    ================================================================ */
 
 .system-card {
-    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: fadeInUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
     position: relative;
     overflow: hidden;
 }
@@ -3490,7 +3422,7 @@ footer {
     width: 100%;
     height: 2px;
     background: linear-gradient(90deg, transparent, var(--amber), transparent);
-    animation: shimmer 3s infinite;
+    animation: shimmer var(--motion-skeleton) infinite;
 }
 
 .system-card:hover::before {
@@ -3509,7 +3441,7 @@ footer {
 
 .signal-row {
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .signal-row:nth-child(1) {
@@ -3574,11 +3506,10 @@ footer {
    ================================================================ */
 
 .section-hdr {
-    animation: slideInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .section-hdr .icon {
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .section-hdr:hover .icon {
@@ -3591,7 +3522,7 @@ footer {
    ================================================================ */
 
 .regime-badge {
-    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: fadeInUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
     position: relative;
     overflow: hidden;
 }
@@ -3609,7 +3540,7 @@ footer {
    ================================================================ */
 
 .chart-container {
-    animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
     position: relative;
 }
 
@@ -3620,7 +3551,7 @@ footer {
     border-radius: var(--r-md);
     background: linear-gradient(135deg, var(--amber-glow) 0%, transparent 50%, var(--cyan-glow) 100%);
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.22s ease;
     pointer-events: none;
     z-index: -1;
 }
@@ -3634,7 +3565,7 @@ footer {
    ================================================================ */
 
 .landing-prompt {
-    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+    animation: fadeInUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
     position: relative;
     padding: var(--sp-8);
     background: var(--glass);
@@ -3653,7 +3584,6 @@ footer {
     height: 2px;
     background: linear-gradient(90deg, var(--amber), var(--cyan), var(--emerald));
     background-size: 200% 100%;
-    animation: gradientShift 4s ease infinite;
 }
 
 .landing-prompt h4 {
@@ -3679,7 +3609,7 @@ footer {
    ================================================================ */
 
 .stMarkdown table {
-    animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .stMarkdown table tbody tr {
@@ -3698,7 +3628,6 @@ footer {
 .info-box,
 .warning-box,
 .interp-card {
-    animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
     position: relative;
     overflow: hidden;
 }
@@ -3916,7 +3845,7 @@ div[data-multi-file-uploader] > div {
     z-index: 1;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 834px) {
     .intel-method-grid {
         grid-template-columns: repeat(2, 1fr);
     }
@@ -4001,8 +3930,8 @@ div[data-multi-file-uploader] > div {
     ================================================================ */
 
 .theme-toggle {
-    animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.5s both;
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .theme-toggle:hover {
@@ -4011,7 +3940,7 @@ div[data-multi-file-uploader] > div {
 }
 
 .theme-toggle svg {
-    transition: transform 0.3s ease;
+    transition: transform 0.22s ease;
 }
 
 .theme-toggle:hover svg {
@@ -4023,7 +3952,7 @@ div[data-multi-file-uploader] > div {
    ================================================================ */
 
 .stButton>button {
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     position: relative;
     overflow: hidden;
 }
@@ -4038,7 +3967,7 @@ div[data-multi-file-uploader] > div {
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.1);
     transform: translate(-50%, -50%);
-    transition: width 0.6s ease, height 0.6s ease;
+    transition: width 0.22s ease, height 0.6s ease;
 }
 
 .stButton>button:hover::before {
@@ -4071,7 +4000,7 @@ div[data-multi-file-uploader] > div {
 }
 
 .stTabs [data-baseweb="tab"] {
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .stTabs [data-baseweb="tab"]:hover {
@@ -4084,7 +4013,7 @@ div[data-multi-file-uploader] > div {
    ================================================================ */
 
 .stDownloadButton>button {
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .stDownloadButton>button:hover {
@@ -4097,7 +4026,7 @@ div[data-multi-file-uploader] > div {
    ================================================================ */
 
 .progress-card {
-    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: fadeInUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .progress-bar-fill {
@@ -4113,7 +4042,7 @@ div[data-multi-file-uploader] > div {
     width: 100%;
     height: 100%;
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-    animation: shimmer 2s infinite;
+    animation: shimmer var(--motion-skeleton) infinite;
 }
 
 /* ================================================================
@@ -4123,7 +4052,7 @@ div[data-multi-file-uploader] > div {
 .skeleton-pulse {
     background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-surface) 50%, var(--bg-elevated) 75%);
     background-size: 200% 100%;
-    animation: shimmer 1.5s ease-in-out infinite;
+    animation: shimmer var(--motion-skeleton) ease-in-out infinite;
 }
 
 /* ================================================================
@@ -4131,7 +4060,7 @@ div[data-multi-file-uploader] > div {
    ================================================================ */
 
 .app-footer {
-    animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
+    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
     margin-top: var(--sp-10);
     padding: var(--sp-6) 0;
     border-top: 1px solid var(--border);
@@ -4166,7 +4095,7 @@ div[data-multi-file-uploader] > div {
 /* ================================================================
    MOBILE PERFORMANCE — Reduce GPU load on small screens
    ================================================================ */
-@media (max-width: 768px) {
+@media (max-width: 834px) {
 
     /* Disable expensive backdrop-filter on mobile */
     .metric-card,
@@ -4215,7 +4144,7 @@ div[data-multi-file-uploader] > div {
 /* ================================================================
    TABLE RESPONSIVE — Horizontal scroll on narrow screens
    ================================================================ */
-@media (max-width: 992px) {
+@media (max-width: 1194px) {
 
     .portfolio-table,
     [data-testid="stDataFrame"],
@@ -4234,7 +4163,7 @@ div[data-multi-file-uploader] > div {
 /* ================================================================
    FIXED-POSITION ELEMENTS — Prevent overlap on mobile
    ================================================================ */
-@media (max-width: 768px) {
+@media (max-width: 834px) {
 
     /* Theme toggle — move below header */
     .theme-toggle {
@@ -4274,7 +4203,7 @@ div[data-multi-file-uploader] > div {
 /* ================================================================
    LANDSCAPE PHONE — Handle width > height at narrow breakpoints
    ================================================================ */
-@media (max-width: 992px) and (orientation: landscape) {
+@media (max-width: 1194px) and (orientation: landscape) {
 
     .block-container {
         padding-top: var(--sp-4) !important;
@@ -4316,7 +4245,7 @@ div[data-multi-file-uploader] > div {
 /* ================================================================
    BLOCK CONTAINER — Better mobile spacing
    ================================================================ */
-@media (max-width: 768px) {
+@media (max-width: 834px) {
 
     .block-container {
         max-width: 100%;
@@ -4516,64 +4445,7 @@ div[data-multi-file-uploader] > div {
     border-radius: var(--r-sm) !important;
     padding: var(--sp-2) var(--sp-4) !important;
 }
-/* Custom Tables (Obsidian Quant Style - Matched to Portfolio Table) */
-.kv-table-container {
-    width: 100%;
-    margin: 1rem 0;
-    border-radius: 10px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    background: linear-gradient(145deg, rgba(27, 34, 51, 0.45) 0%, rgba(27, 34, 51, 0.4) 100%);
-}
 
-.kv-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.kv-table thead th {
-    background: linear-gradient(180deg, rgba(14, 19, 31, 0.95) 0%, rgba(14, 19, 31, 0.85) 100%);
-    color: var(--ink-tertiary);
-    font-size: 0.726rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    padding: 0.75rem 0.75rem;
-    border-bottom: 2px solid rgba(212, 168, 83, 0.3);
-    text-align: left;
-    white-space: nowrap;
-}
-
-.kv-table tbody td {
-    padding: 0.75rem 0.75rem;
-    color: #F1F5F9;
-    font-size: 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    font-family: 'IBM Plex Mono', monospace;
-    vertical-align: middle;
-}
-
-.kv-table tbody tr:last-child td {
-    border-bottom: none;
-}
-
-.kv-table tbody td.key {
-    font-weight: 700;
-    font-size: 0.78rem;
-    letter-spacing: 0.02em;
-    font-family: 'Space Grotesk', sans-serif;
-    color: #F1F5F9;
-    width: 40%;
-}
-
-.kv-table tbody td.value {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-
-.kv-table tbody tr:hover {
-    background: rgba(212, 168, 83, 0.05);
-}
 
 /* ================================================================
    Nishkarsh-specific: System card variants (aarambh/nirnay/convergence)
@@ -5309,7 +5181,7 @@ div[data-multi-file-uploader] > div {
 }
 
 /* Narrow-screen: collapse stats grid to 2 rows */
-@media (max-width: 540px) {
+@media (max-width: 640px) {
     .qual-card-stats {
         grid-template-columns: repeat(3, 1fr);
     }
@@ -5320,84 +5192,6 @@ div[data-multi-file-uploader] > div {
     }
 }
 
-/* ================================================================
-   Intelligence Center — weights table, importance bars, meta card
-   ================================================================ */
-
-/* Weights table (Default · Calibrated · Δ) */
-.weights-table-wrap {
-    margin-top: var(--sp-3);
-    border-radius: var(--r-md);
-    overflow: hidden;
-    border: 1px solid var(--border);
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
-    backdrop-filter: blur(8px);
-}
-
-.weights-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: var(--data);
-    font-size: 0.76rem;
-}
-
-.weights-table thead th {
-    background: linear-gradient(180deg, rgba(14, 19, 31, 0.95) 0%, rgba(14, 19, 31, 0.85) 100%);
-    color: var(--ink-tertiary);
-    font-size: 0.720rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    padding: var(--sp-3) var(--sp-4);
-    border-bottom: 2px solid rgba(212, 168, 83, 0.30);
-    text-align: left;
-    white-space: nowrap;
-}
-
-.weights-table thead th:nth-child(n+2) {
-    text-align: right;
-}
-
-.weights-table tbody tr {
-    border-bottom: 1px solid var(--border-subtle);
-    transition: background 200ms ease;
-}
-
-.weights-table tbody tr:last-child {
-    border-bottom: none;
-}
-
-.weights-table tbody tr:hover {
-    background: rgba(212, 168, 83, 0.04);
-}
-
-.weights-table tbody td {
-    padding: var(--sp-3) var(--sp-4);
-    font-family: var(--data);
-    font-variant-numeric: tabular-nums;
-    color: var(--ink-primary);
-    vertical-align: middle;
-}
-
-.weights-table tbody td.key {
-    font-weight: 700;
-    color: var(--ink-primary);
-    letter-spacing: 0.02em;
-}
-
-.weights-table tbody td.value {
-    text-align: right;
-    color: var(--ink-secondary);
-}
-
-.weights-table tbody td.delta {
-    text-align: right;
-    font-weight: 700;
-}
-
-.weights-table tbody td.delta.pos { color: var(--emerald-bright); }
-.weights-table tbody td.delta.neg { color: var(--rose-bright); }
-.weights-table tbody td.delta.neutral { color: var(--ink-tertiary); }
 
 /* Importance bar rows */
 .importance-row {
@@ -5441,7 +5235,7 @@ div[data-multi-file-uploader] > div {
     background: linear-gradient(90deg, var(--violet) 0%, var(--amber) 100%);
     border-radius: 3px;
     box-shadow: 0 0 8px rgba(139, 92, 246, 0.25);
-    transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .importance-val {
@@ -5472,269 +5266,392 @@ div[data-multi-file-uploader] > div {
    colour class (success / warning / neutral) drives the visual state.
    See _render_intelligence_passport() in arthagati.py. */
 
-/* ================================================================
-   Intelligence Center — Feature Analysis cards
-   ────────────────────────────────────────────────────────────────
-   Single cohesive card that combines linear weight + fANOVA
-   importance per engine-output feature. Lives in a CSS Grid for
-   stable equal-height rows.
-   ================================================================ */
 
-.feature-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--sp-3);
-    margin-top: var(--sp-2);
+@media (max-width: 834px) {
 }
 
-@media (max-width: 900px) {
-    .feature-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-.feature-card {
-    padding: var(--sp-4) var(--sp-5);
-    /* Left tier strip suppressed — direction is already encoded in the
-       big signed weight value + the weight bar colour + the side badge. */
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-.feature-card::before { display: none; }
-
-.feature-card-head {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: var(--sp-3);
-    margin-bottom: var(--sp-3);
-    padding-bottom: var(--sp-3);
-    border-bottom: 1px solid var(--border-subtle);
-}
-
-.feature-rank {
-    font-family: var(--data);
-    font-size: 0.735rem;
-    font-weight: 700;
-    color: var(--ink-tertiary);
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 0.18rem 0.5rem;
-    font-variant-numeric: tabular-nums;
-    min-width: 32px;
-    text-align: center;
-}
-
-.feature-card-id {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.feature-card-name {
-    font-family: var(--display);
-    font-size: 0.92rem;
-    font-weight: 700;
-    color: var(--ink-primary);
-    letter-spacing: 0.01em;
-    line-height: 1.2;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.feature-card-key {
-    font-family: var(--data);
-    font-size: 0.720rem;
-    color: var(--ink-tertiary);
-    letter-spacing: 0.04em;
-}
-
-.feature-card-value {
-    font-family: var(--display);
-    font-size: 1.6rem;
-    font-weight: 800;
-    line-height: 1;
-    margin-bottom: var(--sp-3);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
-    text-align: left;
-}
-
-.feature-card-value.pos {
-    color: var(--emerald-bright);
-    text-shadow: 0 0 9px var(--emerald-glow);
-}
-
-.feature-card-value.neg {
-    color: var(--rose-bright);
-    text-shadow: 0 0 9px var(--rose-glow);
-}
-
-.feature-card-value.neutral { color: var(--ink-secondary); }
-
-.feature-card-bar-row {
-    display: grid;
-    grid-template-columns: 80px 1fr 50px;
-    align-items: center;
-    gap: var(--sp-3);
-    margin-bottom: var(--sp-2);
-}
-
-.feature-card-bar-row:last-child { margin-bottom: 0; }
-
-.feature-card-bar-label {
-    font-family: var(--data);
-    font-size: 0.708rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--ink-tertiary);
-}
-
-.feature-card-bar {
-    height: 5px;
-    background: rgba(255, 255, 255, 0.04);
-    border-radius: 3px;
-    overflow: hidden;
-}
-
-.feature-card-bar-fill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.feature-card-bar-fill.pos {
-    background: linear-gradient(90deg, var(--emerald) 0%, var(--emerald-bright) 100%);
-    box-shadow: 0 0 6px var(--emerald-glow);
-}
-
-.feature-card-bar-fill.neg {
-    background: linear-gradient(90deg, var(--rose) 0%, var(--rose-bright) 100%);
-    box-shadow: 0 0 6px var(--rose-glow);
-}
-
-.feature-card-bar-fill.neutral {
-    background: linear-gradient(90deg, var(--ink-tertiary) 0%, var(--slate-warm) 100%);
-}
-
-.feature-card-bar-fill.importance {
-    background: linear-gradient(90deg, var(--violet) 0%, var(--amber) 100%);
-    box-shadow: 0 0 6px rgba(139, 92, 246, 0.25);
-}
-
-.feature-card-bar-pct {
-    font-family: var(--data);
-    font-size: 0.750rem;
-    font-weight: 700;
-    color: var(--ink-secondary);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-}
-
-/* ================================================================
-   Intelligence Center — Profile stat-card grid
-   ================================================================ */
-.profile-stat-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: var(--sp-3);
-    margin-top: var(--sp-2);
-}
-
-.profile-stat {
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: var(--sp-4) var(--sp-4);
-    position: relative;
-    overflow: hidden;
-    transition: all 250ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.profile-stat::before {
-    content: "";
-    position: absolute;
-    top: var(--sp-3);
-    right: var(--sp-3);
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--cyan);
-    box-shadow: 0 0 8px var(--cyan-glow);
-    opacity: 0.7;
-}
-
-.profile-stat:hover {
-    border-color: rgba(6, 182, 212, 0.20);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2), 0 0 14px var(--cyan-glow);
-}
-
-.profile-stat-label {
-    font-family: var(--data);
-    font-size: 0.708rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--ink-tertiary);
-    margin-bottom: var(--sp-2);
-    padding-right: 14px; /* leave room for the corner dot */
-}
-
-.profile-stat-value {
-    font-family: var(--display);
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--ink-primary);
-    letter-spacing: -0.01em;
-    line-height: 1.1;
-    font-variant-numeric: tabular-nums;
-    word-break: break-word;
-}
-
-.profile-stat-sub {
-    font-family: var(--data);
-    font-size: 0.726rem;
-    color: var(--ink-tertiary);
-    margin-top: var(--sp-2);
-    letter-spacing: 0.04em;
-}
-
-/* ================================================================
-   Intelligence Center — Calibration Impact: table + driver cards
-   ================================================================ */
-.impact-table tbody tr.total td {
-    border-top: 1px solid rgba(212, 168, 83, 0.25) !important;
-    font-weight: 700;
-    background: rgba(212, 168, 83, 0.04);
-}
-
-.impact-table tbody tr.total td.key {
-    color: var(--amber-bright);
-}
-
-/* Profile provenance — same table chassis as Predictive Power Lift, with
-   a dimmed third "note" column for the contextual annotation. */
-.profile-table .value.sub {
-    color: var(--ink-tertiary);
-    font-family: var(--data);
-    font-size: 0.756rem;
-    font-style: italic;
-    letter-spacing: 0.02em;
-}
 
 .profile-table thead th:last-child,
-.profile-table tbody td:last-child {
-    text-align: left !important;
-}
 
 /* .driver-card and its child classes were removed alongside the
    Top Drivers panel — Feature Analysis already exposes the same info. */
+
+
+/* ================================================================
+   LAYOUT LAYER
+   ----------------------------------------------------------------
+   A 12-column grid, one panel primitive, and six breakpoints set at
+   real device widths. Added because the app previously had six
+   breakpoints (1200/992/900/768/540/480) where 900 and 992 both
+   claimed "tablet" and 1024 — iPad landscape — was unhandled.
+
+   `minmax(0, 1fr)` on the grid tracks is load-bearing: without it a
+   wide table or chart inside a cell forces the track wider and the
+   whole page scrolls sideways.
+   ================================================================ */
+
+.fm-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--grid-gap);
+}
+
+.fm-col-3 { grid-column: span 3; }
+.fm-col-4 { grid-column: span 4; }
+.fm-col-6 { grid-column: span 6; }
+.fm-col-8 { grid-column: span 8; }
+.fm-col-12 { grid-column: span 12; }
+
+.fm-section { margin-block: var(--section-gap); }
+.fm-stack { display: flex; flex-direction: column; gap: var(--sp-4); }
+.fm-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.fm-toolbar {
+    display: flex; align-items: center; gap: var(--sp-2);
+    flex-wrap: wrap; min-height: 40px;
+}
+.fm-spacer { flex: 1 1 auto; }
+
+/* ---- Panel primitive ------------------------------------------- */
+/* height:100% is what makes panels in the same row equal-height.    */
+.fm-panel {
+    background: var(--card-base);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--panel-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    height: 100%;
+    min-width: 0;
+}
+
+.fm-panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--sp-3);
+    min-height: var(--panel-head-h);
+    padding-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--border-subtle);
+}
+.fm-panel-id { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.fm-panel-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; flex: 0 0 24px; color: var(--ink-tertiary);
+}
+.fm-panel-icon svg { width: 16px; height: 16px; }
+.fm-panel-title {
+    font-family: var(--display); font-size: 14px; font-weight: 600;
+    line-height: 20px; color: var(--ink-primary); letter-spacing: -0.005em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fm-panel-sub {
+    font-family: var(--data); font-size: 12px; line-height: 16px;
+    color: var(--ink-tertiary); margin-top: 2px;
+}
+.fm-panel-act { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+/* min-width:0 stops a wide child from expanding the panel past its grid cell */
+.fm-panel-body { flex: 1 1 auto; min-width: 0; }
+.fm-panel-body > * { max-width: 100%; }
+.fm-panel-foot {
+    font-family: var(--data); font-size: 11px; color: var(--ink-tertiary);
+    padding-top: var(--sp-3); border-top: 1px solid var(--border-subtle);
+}
+
+/* ---- KPI grid --------------------------------------------------- */
+/* auto-fit + minmax reflows continuously instead of jumping 4-up to  */
+/* 1-up the way st.columns does.                                      */
+.fm-kpi-grid {
+    display: grid; gap: var(--sp-3);
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.fm-kpi {
+    background: var(--card-base);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--sp-4);
+    display: flex; flex-direction: column; gap: var(--sp-1);
+    min-width: 0;
+    transition: border-color var(--motion-base) var(--ease-standard),
+                background var(--motion-base) var(--ease-standard);
+}
+.fm-kpi:hover { border-color: var(--border-active); }
+.fm-kpi-label {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--data); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-tertiary);
+    line-height: 14px;
+}
+.fm-kpi-label svg { width: 12px; height: 12px; flex: 0 0 12px; }
+.fm-kpi-value {
+    font-family: var(--display); font-size: 28px; line-height: 34px;
+    font-weight: 650; letter-spacing: -0.02em; color: var(--ink-primary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fm-kpi-sub {
+    font-family: var(--data); font-size: 11px; line-height: 15px;
+    color: var(--ink-tertiary);
+}
+.fm-kpi--success .fm-kpi-value { color: var(--emerald); }
+.fm-kpi--danger  .fm-kpi-value { color: var(--rose); }
+.fm-kpi--warning .fm-kpi-value { color: var(--amber); }
+.fm-kpi--info    .fm-kpi-value { color: var(--cyan); }
+
+/* ---- Status chip ------------------------------------------------ */
+.fm-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--data); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.09em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: var(--r-sm);
+    border: 1px solid; white-space: nowrap; line-height: 14px;
+}
+.fm-chip--neutral { color: var(--ink-tertiary); border-color: var(--border); background: var(--glass); }
+.fm-chip--success { color: var(--emerald); border-color: rgba(45,212,168,0.35); background: rgba(45,212,168,0.10); }
+.fm-chip--danger  { color: var(--rose);    border-color: rgba(232,85,90,0.35);  background: rgba(232,85,90,0.10); }
+.fm-chip--warning { color: var(--amber);   border-color: rgba(212,168,83,0.35); background: rgba(212,168,83,0.10); }
+.fm-chip--info    { color: var(--cyan);    border-color: rgba(6,182,212,0.35);  background: rgba(6,182,212,0.10); }
+
+/* ---- Table system ----------------------------------------------- */
+/* Scroll is contained inside the panel; the page never moves. */
+.fm-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.fm-table {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--data); font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+}
+.fm-table th {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.10em;
+    text-transform: uppercase; color: var(--ink-tertiary);
+    text-align: left; padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 1; white-space: nowrap;
+}
+.fm-table td {
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--ink-secondary); line-height: 18px;
+}
+.fm-table tr:last-child td { border-bottom: none; }
+.fm-table tbody tr { transition: background var(--motion-fast) var(--ease-standard); }
+.fm-table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
+.fm-table td.num, .fm-table th.num { text-align: right; }
+.fm-table td.num { color: var(--ink-primary); }
+.fm-table td.key { color: var(--ink-primary); font-weight: 500; }
+.fm-table .pos { color: var(--emerald); }
+.fm-table .neg { color: var(--rose); }
+.fm-table .null { color: var(--ink-tertiary); }
+
+/* ---- States: modifiers on the panel, never separate layouts ----- */
+.fm-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: var(--sp-2); text-align: center;
+    min-height: 140px; padding: var(--sp-6) var(--sp-4);
+    color: var(--ink-tertiary);
+}
+.fm-state svg { width: 22px; height: 22px; opacity: 0.7; }
+.fm-state-line { font-family: var(--display); font-size: 13px; color: var(--ink-secondary); }
+.fm-state-hint { font-family: var(--data); font-size: 11px; color: var(--ink-tertiary); max-width: 42ch; }
+
+.fm-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); }
+.fm-skel-line, .fm-skel-chart {
+    background: linear-gradient(90deg, var(--glass) 25%, var(--glass-hover) 50%, var(--glass) 75%);
+    background-size: 200% 100%;
+    animation: fmShimmer var(--motion-skeleton) ease-in-out infinite;
+    border-radius: var(--r-sm);
+}
+.fm-skel-line { height: 14px; }
+.fm-skel-line:nth-child(even) { width: 82%; }
+.fm-skel-chart { height: 100%; min-height: 180px; }
+@keyframes fmShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* ================================================================
+   RESPONSIVE — breakpoints at real device widths
+   1194 = iPad Pro 11" landscape · 834 = iPad Air portrait
+   ================================================================ */
+
+/* iPad landscape and small laptops */
+@media (max-width: 1194px) {
+    :root { --page-pad: 24px; --section-gap: 24px; }
+    .fm-col-8, .fm-col-4 { grid-column: span 12; }
+    .fm-col-3 { grid-column: span 4; }
+}
+
+/* iPad portrait */
+@media (max-width: 834px) {
+    .fm-col-6, .fm-col-4, .fm-col-3 { grid-column: span 6; }
+    /* Row identity survives horizontal scroll on a wide table */
+    .fm-table th:first-child, .fm-table td:first-child {
+        position: sticky; left: 0; background: var(--bg-elevated); z-index: 2;
+    }
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+    :root { --page-pad: 16px; --section-gap: 20px; --panel-pad: 16px; }
+    [class*="fm-col-"] { grid-column: span 12; }
+    .fm-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+    .fm-kpi-value { font-size: 24px; line-height: 30px; }
+    .fm-panel-head { min-height: 40px; }
+    /* Touch targets */
+    .stButton button, .stDownloadButton button { min-height: 44px !important; }
+    [data-baseweb="select"] > div { min-height: 44px !important; }
+}
+
+@media (max-width: 480px) {
+    .fm-kpi-grid { grid-template-columns: 1fr; }
+}
+
+/* No element may force the page sideways. Overflow is contained, never global. */
+html, body { overflow-x: hidden; }
+
+/* ================================================================
+   NATIVE WIDGET CAPTURE
+   ----------------------------------------------------------------
+   Six Streamlit widget families previously had ZERO rules against
+   them — stAlert, stExpander, stSpinner, stCaption, stToggle,
+   stTooltip — so 25 visible call sites rendered in stock chrome:
+   different radius, font, palette and spacing from everything
+   around them. This was the app's single largest source of
+   "looks imported from another product".
+   ================================================================ */
+
+/* ---- Alerts: st.warning / st.info / st.error / st.success ------- */
+[data-testid="stAlert"] {
+    background: var(--card-base) !important;
+    border: 1px solid var(--border) !important;
+    border-left: 2px solid var(--ink-tertiary) !important;
+    border-radius: var(--r-md) !important;
+    padding: var(--sp-3) var(--sp-4) !important;
+    box-shadow: none !important;
+    font-family: var(--display) !important;
+}
+[data-testid="stAlert"] * {
+    font-family: var(--display) !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    color: var(--ink-secondary) !important;
+}
+[data-testid="stAlert"] svg { display: none !important; }   /* stock glyphs */
+[data-testid="stAlert"][class*="warning"] { border-left-color: var(--amber) !important; }
+[data-testid="stAlert"][class*="error"]   { border-left-color: var(--rose) !important; }
+[data-testid="stAlert"][class*="success"] { border-left-color: var(--emerald) !important; }
+[data-testid="stAlert"][class*="info"]    { border-left-color: var(--cyan) !important; }
+
+/* ---- Our own alert, used where we control the call site --------- */
+.fm-alert {
+    display: flex; gap: var(--sp-3); align-items: flex-start;
+    background: var(--card-base);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--ink-tertiary);
+    border-radius: var(--r-md);
+    padding: var(--sp-3) var(--sp-4);
+    margin-bottom: var(--sp-3);
+}
+.fm-alert-icon { flex: 0 0 16px; margin-top: 2px; color: var(--ink-tertiary); }
+.fm-alert-icon svg { width: 16px; height: 16px; }
+.fm-alert-text { min-width: 0; }
+.fm-alert-title {
+    font-family: var(--display); font-size: 13px; font-weight: 600;
+    line-height: 20px; color: var(--ink-primary);
+}
+.fm-alert-body {
+    font-family: var(--display); font-size: 12.5px; line-height: 18px;
+    color: var(--ink-secondary); margin-top: 2px;
+}
+.fm-alert-hint {
+    font-family: var(--data); font-size: 11px; line-height: 16px;
+    color: var(--ink-tertiary); margin-top: var(--sp-2);
+}
+.fm-alert--warning { border-left-color: var(--amber); }
+.fm-alert--warning .fm-alert-icon { color: var(--amber); }
+.fm-alert--danger  { border-left-color: var(--rose); }
+.fm-alert--danger  .fm-alert-icon { color: var(--rose); }
+.fm-alert--success { border-left-color: var(--emerald); }
+.fm-alert--success .fm-alert-icon { color: var(--emerald); }
+.fm-alert--info    { border-left-color: var(--cyan); }
+.fm-alert--info    .fm-alert-icon { color: var(--cyan); }
+
+/* ---- Captions (12 call sites) ----------------------------------- */
+[data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] p {
+    font-family: var(--data) !important;
+    font-size: 11.5px !important;
+    line-height: 17px !important;
+    color: var(--ink-tertiary) !important;
+    letter-spacing: 0.01em;
+}
+[data-testid="stCaptionContainer"] strong { color: var(--ink-secondary) !important; }
+
+/* ---- Expanders --------------------------------------------------- */
+[data-testid="stExpander"] {
+    background: var(--card-base) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r-md) !important;
+    overflow: hidden;
+}
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] details > summary {
+    font-family: var(--display) !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: var(--ink-secondary) !important;
+    padding: var(--sp-3) var(--sp-4) !important;
+    min-height: var(--panel-head-h);
+    display: flex; align-items: center;
+    transition: color var(--motion-base) var(--ease-standard),
+                background var(--motion-base) var(--ease-standard);
+}
+[data-testid="stExpander"] summary:hover { color: var(--ink-primary) !important; }
+[data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+    padding: 0 var(--sp-4) var(--sp-4) !important;
+    border-top: 1px solid var(--border-subtle);
+}
+
+/* ---- Spinner ----------------------------------------------------- */
+[data-testid="stSpinner"] {
+    font-family: var(--data) !important;
+    font-size: 11.5px !important;
+    color: var(--ink-tertiary) !important;
+}
+[data-testid="stSpinner"] > div > div {
+    border-top-color: var(--amber) !important;
+    border-right-color: rgba(255,255,255,0.08) !important;
+    border-bottom-color: rgba(255,255,255,0.08) !important;
+    border-left-color: rgba(255,255,255,0.08) !important;
+}
+
+/* ---- Toggle ------------------------------------------------------ */
+[data-testid="stToggle"] label,
+[data-testid="stCheckbox"] label {
+    font-family: var(--display) !important;
+    font-size: 13px !important;
+    color: var(--ink-secondary) !important;
+}
+
+/* ---- Tooltip ----------------------------------------------------- */
+[data-testid="stTooltipContent"],
+div[data-baseweb="tooltip"] {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r-sm) !important;
+    font-family: var(--data) !important;
+    font-size: 11.5px !important;
+    line-height: 17px !important;
+    color: var(--ink-secondary) !important;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35) !important;
+}
+
+
+/* ================================================================
+   REDUCED MOTION
+   A blanket rule, so motion added later is covered by default
+   rather than by remembering to opt it in.
+   ================================================================ */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
