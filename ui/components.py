@@ -1,5 +1,5 @@
 """
-Arthagati v2.8.0 — Reusable UI components.
+Arthagati — Reusable UI components.
 अर्थगति (Arthagati) — "Market sentiment / movement of meaning"
 
 UI thesis: Obsidian Quant Institutional Research Terminal.
