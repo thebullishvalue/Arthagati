@@ -589,10 +589,53 @@
    construction instead of by each one happening to size the same. */
 .outcome-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+    /* FOUR cards, so the row is 4-up, then 2-up, then 1-up — always a
+       complete rectangle. `auto-fit` was the wrong tool: it packs as many
+       tracks as fit and orphans the remainder, which at desktop width laid
+       the four out 3 + 1 with the fourth alone on its own row. A fixed count
+       cannot do that. If the outcome tuple changes length, change the count
+       here and halve it at the first breakpoint. */
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--s4);
     align-items: stretch;
 }
+@media (max-width: 1200px) { .outcome-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .outcome-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── System grid (cold start) ─────────────────────────────────────────────
+   The three system panels are STATIC TEXT, so they are one grid of plain
+   divs rather than three Streamlit containers — the same call the outcome
+   grid above already makes, for the same reason. Static content gains
+   nothing from a container and loses something real to it: the chain from
+   column to panel runs through two wrappers that each shrink to their own
+   content, so a panel whose copy ran to six lines stood taller than one with
+   four, the row read as ragged, and the three spec blocks each started
+   wherever their own paragraph happened to end.
+
+   `grid-template-rows: auto 1fr auto` is what makes the set read as a set:
+   the header takes its own height, the copy absorbs ALL the slack, and the
+   spec block sits on the panel floor — so three panels of different copy
+   length are the same height AND their spec rows share one baseline. */
+.system-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--grid-gap);
+    align-items: stretch;
+}
+.system-panel {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    transition: border-color var(--motion-base) var(--ease-standard);
+}
+.system-panel:hover { border-color: var(--line-strong); }
+/* The spec block carries its own top rule rather than borrowing the last
+   copy line's — with the copy row stretched, that border would float. */
+.system-panel .panel-specs { border-top: 1px solid var(--line); padding-top: var(--s3); }
+@media (max-width: 1024px) { .system-grid { grid-template-columns: minmax(0, 1fr); } }
 .outcome {
     background: var(--surface-1);
     border: 1px solid var(--line);
