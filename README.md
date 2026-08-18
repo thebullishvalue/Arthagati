@@ -1,383 +1,635 @@
-# TATTVA — तत्त्व
+# ARTHAGATI (अर्थगति) · v2.11.0
 
-**Unified Convergence Engine** · v2.7.0 · *@thebullishvalue*
+**Market Sentiment Analysis Engine** — An @thebullishvalue Product
 
-> *Tattva (तत्त्व)* — Sanskrit for "principle / essence / reality": the underlying
-> truth distilled from the convergence of evidence.
-
-Tattva is a research terminal that produces a single, reproducible directional
-signal for a **target** — a commodity (Gold, Silver, Copper, Brent, Cotton), a
-currency (USD/INR, the Dollar Index), or an equity **index** (Indian broad & sectoral, US benchmarks,
-or an India sector-ETF universe) — by converging two independent engines: a
-top-down macro **forecast** and a bottom-up **regime breadth** read, grading its
-own out-of-sample edge as it goes.
-
-It runs entirely on free **yfinance** data (plus NSE/Wikipedia for index
-constituents). No API keys, no secrets, no database.
-
-**Where to start.** [What it does](#what-it-does) is the one-screen version and
-[Quickstart](#quickstart) gets it running. [How the model works](#how-the-model-works)
-is the argument — what is estimated, what is declared, and what is deliberately
-not claimed — and is the section to read before trusting an output.
-[Interpreting the output](#interpreting-the-output) is what to look at once a run
-finishes, including where the edge is not.
+> Quantitative market-mood scoring built on physics-informed mathematics:
+> Ornstein-Uhlenbeck mean-reversion, Kalman filtering with burn-in bootstrap,
+> walk-forward correlations, Ledoit-Wolf covariance shrinkage, and a
+> post-engine ensemble calibrator (Intelligence Mode) driven by Optuna TPE
+> over walk-forward folds.
 
 ---
 
-## What it does
+## Table of Contents
 
-For the selected target, Tattva runs a 5-phase pipeline and renders a Streamlit
-terminal:
+- [What It Does](#what-it-does)
+- [System Architecture](#system-architecture)
+  - [Mood Score Pipeline](#mood-score-pipeline)
+  - [MSF Spread Oscillator](#msf-spread-oscillator)
+  - [WaveTrend (LazyBear · Mood-driven)](#wavetrend-lazybear--mood-driven)
+  - [Signal Validation](#signal-validation)
+  - [Similar Periods Engine](#similar-periods-engine)
+  - [Regime Detection](#regime-detection)
+- [Mathematical Primitives](#mathematical-primitives)
+- [Data Schema](#data-schema)
+- [Configuration](#configuration)
+- [Predictor Profiles](#predictor-profiles)
+- [Key Features](#key-features)
+- [Setup](#setup)
+- [Version History](#version-history)
 
-| Engine | Question it answers | How |
+---
+
+## What It Does
+
+Arthagati answers one question: **"What is the market's current sentiment
+state, how confident should I be in that reading, and what would a
+walk-forward-calibrated ensemble of the engine's signals say about its
+predictive worth?"**
+
+It ingests macro, breadth, and valuation data from a Google Sheet and
+produces five outputs:
+
+| Output | Range | Description |
+|--------|-------|-------------|
+| **Mood Score** | −100 to +100 | Correlation-weighted composite anchored to PE and Earnings Yield |
+| **MSF Spread** | −10 to +10 | Momentum / Structure / Flow / Regime confirmation oscillator |
+| **WaveTrend** | (unbounded) | LazyBear oscillator on Mood Score with WT1/WT2 crossover signals |
+| **Similar Periods** | — | Historical analogs matched by Mahalanobis distance + trajectory shape, with forward returns at 5D / 20D / 60D / 90D |
+| **Predictor Assessment** | — | Transparency into which variables drive the score and which are noise |
+
+---
+
+## System Architecture
+
+### Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     DATA INGESTION LAYER                            │
+│  Google Sheets (gviz API · env var coords) → CSV parse              │
+│  Forward-fill NaN · Derive term spreads · Auto-derive EY from PE    │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+              ▼                             ▼
+┌─────────────────────────┐   ┌─────────────────────────────────────┐
+│   MOOD SCORE PIPELINE   │   │      MSF SPREAD OSCILLATOR          │
+│   (5-Layer Engine)      │   │   (4-Component, Inverse-Variance)   │
+│                         │   │                                     │
+│  L1: Walk-Fwd Corr      │   │  Momentum  → NIFTY ROC z-score      │
+│  L2: Entropy Weighting  │   │  Structure → Mood trend divergence  │
+│  L3: Adaptive Percentile│   │  Regime    → Adaptive dir. count    │
+│  L4: OU Normalization   │   │  Flow      → Breadth divergence     │
+│  L5: Kalman Smoothing   │   │                                     │
+└────────────┬────────────┘   └──────────────┬──────────────────────┘
+             │                               │
+             ├───────────────────────────────┘
+             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│   WAVETREND OSCILLATOR (LazyBear · Mood-Score-driven)               │
+│   esa = EMA(Mood, 10) · ci = (Mood − esa) / (0.015 · EMA(|Δ|,10))   │
+│   WT1 = EMA(ci, 21) · WT2 = ALMA(WT1, 20) · crossover ▲ / ▼ signals │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+              ▼                             ▼
+┌──────────────────────────┐  ┌────────────────────────────────────┐
+│  INTELLIGENCE MODE       │  │   OUTPUT LAYER                     │
+│  (post-engine ensemble)  │  │                                    │
+│                          │  │   Mood Score · MSF Spread · WT     │
+│  7-feature matrix F →    │──┤   Calibrated Conviction (if IM ON) │
+│  Optuna TPE on weights w │  │   Diagnostics · Similar Periods    │
+│  Walk-forward CV + 25%   │  │   Backtest · Correlation Analysis  │
+│  holdout + permutation   │  │                                    │
+│  Calibrated = F @ w      │  │                                    │
+└──────────────────────────┘  └────────────────────────────────────┘
+```
+
+---
+
+### Mood Score Pipeline
+
+Five processing layers transform raw market data into a normalised sentiment score:
+
+```
+Raw Data ──► L1: Walk-Forward Correlations ──► L2: Entropy Weighting
+                                                  │
+                                                  ▼
+             L5: Kalman Smoothing ◄── L4: OU Normalization ◄── L3: Adaptive Percentiles
+                                                  │
+                                                  ▼
+                                         Mood Score [−100, +100]
+                                         + Diagnostics
+```
+
+#### Layer 1 — Walk-Forward Correlations
+- Exponential-decay-weighted Spearman rank correlation at quarterly checkpoints
+- Half-life: `CORR_HALF_LIFE` = 504 days (~2 trading years)
+- **Strictly causal**: the statistics applied to segment *k* are estimated on
+  data ending at checkpoint *k−1*. The score at time *t* is a function of
+  data up to *t* and nothing after it, which a regression test asserts to
+  1e-9 by perturbing future rows and checking the past does not move.
+- Rows before `CORR_MIN_WARMUP` borrow the first checkpoint's statistics and
+  are flagged `Is_Warmup`; every evaluation path excludes them
+- Weight blending across checkpoints (α ≈ 0.29, HL = 2) prevents discontinuous jumps
+
+#### Layer 2 — Information-Theoretic Weighting
+- `weight = |correlation| × (1 − Shannon_entropy)`
+- Entropy bins via Freedman-Diaconis rule: `bin_width = 2·IQR·n^{-1/3}`
+- Miller-Madow bias correction on entropy estimate
+- Noisy/random variables suppressed; structured signals amplified
+
+#### Layer 3 — Adaptive Percentiles
+- Decay-weighted empirical CDF over a Fenwick tree of value ranks: **O(N log N)**
+- Writing `w_i = exp(-λt)·exp(λi)`, the `exp(-λt)` factor cancels between
+  numerator and denominator, leaving a prefix-sum over rank
+- Half-life: `PCT_HALF_LIFE` = 252 days (~1 trading year)
+- Answers: *"Where is PE today vs recent history?"* — not vs all-time
+
+#### Layer 4 — Ornstein-Uhlenbeck Normalisation
+- Models mood as mean-reverting diffusion: `dx = θ(μ − x)dt + σdW`
+- Kendall-Marriott-Pope first-order bias correction on AR(1) coefficient
+- Per-observation residual RSS (correct under expanding AR(1) coefficients)
+- Rescales by stationary std: `(x − μ) / (σ/√2θ) × MOOD_SCALE` → **[−100, +100]**
+- **Scope note**: the input is already an expanding z-score, so the stationary
+  std is ≈ 1 (measured 1.09) and this layer's effect on the *score* is a few
+  percent — the −100…+100 range comes from `MOOD_SCALE`. Layer 4 earns its
+  place through the diagnostics it produces (θ, μ, half-life, and the forward
+  reversion projection), not through the rescaling.
+
+#### Layer 5 — Kalman Smoothing
+- 1D fading-memory Kalman filter (Sorenson-Sacks)
+- Harvey (1990) burn-in bootstrap: first 50 obs calibrated from first stable window
+- Confidence band: `tanh` soft-clip `±KALMAN_CI_Z × √variance` (~95% interval)
+- Tight band = confident reading; wide band = system is uncertain
+
+---
+
+### MSF Spread Oscillator
+
+Four-component confirmation oscillator, weighted by inverse-variance (Markowitz for signals):
+
+| Component | Measures | Method |
+|-----------|----------|--------|
+| **Momentum** | NIFTY rate-of-change z-score | `MSF_ROC_LEN` = 14 days |
+| **Structure** | Mood trend divergence + acceleration | Fast/slow trend + curvature |
+| **Regime** | Directional count | Windowed `rolling(20).sum()` — prevents cumsum drift |
+| **Flow** | Breadth participation divergence | Deviation from rolling mean |
+
+**Reference bands**: ±5 (primary, solid) and ±3 (secondary, dotted).
+**Divergence markers**: ▲ bullish at y=−4, ▼ bearish at y=+4 (just inside the primary bands).
+
+**Weighting**: inverse-variance — stable components receive more weight —
+with two guard rails:
+
+- **Causal.** Variance is *expanding*, so the weight at time *t* uses only
+  observations up to *t*. It was previously computed from the trailing 60
+  rows and applied across all of history, which meant past MSF values shifted
+  every time new data arrived (measured: up to 0.52 on a ±5 band).
+- **Clamped.** Weights are bounded to `[0.10, 0.50]` and any component whose
+  variance collapses is excluded and reported. A zero-variance component took
+  `1/1e-6` inverse-variance, won ~100% of the weight, and — being identically
+  zero after the z-score/sigmoid chain — flattened the composite to a
+  constant (measured std 0.0001 against a healthy 1.95). A sheet missing its
+  `AD_RATIO` column was enough to trigger it, silently. The view now shows a
+  banner naming the dead component.
+
+---
+
+### WaveTrend (Mood-driven)
+
+Port of the WaveTrend oscillator core, with `hlc3` replaced by `Mood_Score`:
+
+```
+ap  = Mood_Score
+esa = ema(ap, 10)                       // Channel length (n1)
+d   = ema(|ap − esa|, 10)
+ci  = (ap − esa) / max(0.015 · d, 1e-6) // denominator floored
+tci = ema(ci, 21)                       // Average length (n2)
+wt1 = tci                               // Wave line
+wt2 = alma(wt1, 20, 0.85, 6)            // Signal line
+```
+
+| Element | Detail |
+|---|---|
+| **Source** | `Mood_Score` (engine output) |
+| **Signal line** | `ALMA(20, offset 0.85, sigma 6)` — matches `ta.alma` exactly |
+| **OB / OS** | **Calibrated from the data** — see below |
+| **Crossover signals** | ▲ green when WT1 crosses above WT2 · ▼ red when WT2 crosses above WT1 |
+| **WT1 − WT2 area fill** | Cyan, transparent (zero-baselined) |
+| **Y-axis convention** | Reversed (negative on top) to match the Mood Score pane |
+
+**Why the bands are computed, not hardcoded.** The familiar ±80 / ±60 levels
+assume `ci` built from `hlc3`. Driven by `Mood_Score` the oscillator has a
+different scale: |wt1| empirically peaks near 70 and never reaches 80, so the
+primary band was unreachable and roughly 40% of the pane was permanently
+empty. The levels are now the 95th and 80th percentiles of |wt1| over the
+**full history** — stable across timeframe switches, and slow-moving as data
+arrives. `WT_OB_LEVEL_1 / _2` remain as fallbacks for short series.
+
+The first `n1 + n2 = 31` bars are masked while the EMA chain stabilises.
+
+### Signal Validation
+
+Measures whether the Mood Score carries out-of-sample predictive power.
+Nothing is fitted, so there is nothing to overfit.
+
+| Element | Detail |
+|---|---|
+| **Holdout** | final 25% of history, scored once |
+| **Statistic** | mean Spearman rho over 6 contiguous blocks x horizons |
+| **Null** | 200 circular shifts of the signal against the same returns |
+| **Baseline** | `−PE` — "cheap is good", no engine at all |
+| **Power floor** | verdict only at horizons with ≥10 independent forward windows |
+
+Horizons longer than the holdout can support are reported as **descriptive**
+and marked `*` in the view — never folded into the verdict. On 20 years of
+NIFTY, a 1,246-row holdout supports +20D and +60D; +125D and +250D are shown
+but not validated.
+
+**Result on the reference sheet** (NIFTY, 2006–2026, holdout 2021–2026):
+
+```
+verdict        Edge Confirmed
+holdout rho    +0.538   (p = 0.005, 200 permutations)
+−PE baseline   +0.532   margin +0.006
+by horizon     +20D +0.42   +60D +0.66   +125D +0.47*  +250D +0.64*
+```
+
+**Read the margin.** The edge is real and significant, and it is almost
+entirely the PE anchor. An ablation across the whole pipeline:
+
+| Signal | dev rho | holdout rho |
 |---|---|---|
-| **FVO** | *Where should this be trading, given the state of the world?* | Recursive **dynamic cointegrating regression** of log price on the *integrated* common factors of ~200 macro instruments, with time-varying coefficients. Publishes a fair-value **level**, the mispricing gap against it, and the oscillator (gap in units of its own predictive SD). |
-| **SWAYAM** | *Do independent views of this asset agree?* | MSF + MMR oscillators with HMM/GARCH/CUSUM regime detection, run as a 15-view ensemble (timescale × information-set × mechanism) on the target's **own** OHLCV, aggregated into breadth. Views are weighted by their own recursively-estimated skill, not counted equally. |
-| **CONVERGENCE** | *Do the two agree, and how strongly?* | Adaptive-weighted, **directional** composite across Direction / Breadth / Magnitude / Regime, smoothed with a Drift-Diffusion filter. |
-| **INTELLIGENCE** | *Which dimensions actually predict, and does it hold up?* | Dimension weights learned **online** from resolved outcomes — exponentially discounted directional skill, scaled by its own significance — plus a read-only expanding-window **walk-forward IC** durability check. Nothing is fitted to the whole sample and nothing is persisted. |
-| **PRECEDENT** | *When the state looked like today, what happened next?* | Covariance-aware **Mahalanobis** analog matching (OAS shrinkage) over Tattva's own state features, under a **Theiler exclusion window** so returned analogs are genuinely distinct episodes → an empirical, non-parametric forward-return base rate across a fixed **1/3/5/10/20/60d** term structure, independent of the model. |
+| `−PE` level, no engine | +0.467 | **+0.549** |
+| PE percentile only (L3) | +0.326 | +0.543 |
+| PE+EY percentile base, no predictors | +0.327 | +0.543 |
+| Full engine, selected 4 predictors | +0.334 | +0.544 |
+| Full engine, all 37 eligible | +0.238 | +0.555 |
+| Full engine, breadth only | +0.141 | +0.434 |
 
-The headline output is a normalized convergence signal in `[-1, +1]`
-(STRONG BUY → HOLD → STRONG SELL) with a per-window walk-forward IC chart you
-can trust — and a published history that does not change when you re-run it.
-
----
-
-## Quickstart
-
-```bash
-# 1. Install (Python 3.10+)
-pip install -r requirements.txt
-
-# 2. Run
-streamlit run app.py
-```
-
-Then in the control rail on the left: pick an **Asset Class** and a **Target**
-(a commodity, USD/INR, an equity index, or any listed stock) and click
-**Run Analysis**. First run fetches ~9 years of history (cached afterwards) and
-runs the full pipeline; subsequent runs are fast. Switching target re-runs the
-engines on the already-fetched macro universe.
-
-The rail is grouped by scope — **Instrument** (what is being analysed) →
-**Model** (a read-only status readout) → **Session** (Reset / Refresh) →
-**Appearance** (Slate, the dark working theme; Paper, the light one for
-reading and print). Controls that reframe a single chart live in that chart's
-own panel header, not in the rail: the chart-window selector sits opposite the
-context line on the page's primary chart, so a control's position tells you its
-scope.
-
-No configuration is required — there are no secrets or environment variables to set.
+Every configuration lands between +0.53 and +0.55. The five layers do not add
+rank information over inverting the PE ratio. What they do add is a bounded,
+comparable score, a confidence band, an equilibrium and half-life, and regime
+context — which is a reasonable product, stated honestly.
 
 ---
 
-## How the model works
+### Why Intelligence Mode was removed
 
-**Valuation, in levels.** FVO regresses **log price** on the *integrated* common
-factors of the macro cross-section with time-varying coefficients:
+v2.8.0 shipped a post-engine ensemble: Optuna tuned a linear combination of
+engine outputs into a "Calibrated Conviction" signal. It was removed in
+v2.10.0 because measurement showed it **reduces** the signal's out-of-sample
+power, on every configuration tested:
 
-```
-p_t = alpha_t + sum_j beta_{j,t} F_{j,t} + e_t ,   F_{j,t} = sum_{s<=t} f_{j,s}
-```
+| Predictor set | raw Mood Score | fitted ensemble | margin |
+|---|---|---|---|
+| selected 4 | +1.674 | +1.239 | **−0.436** |
+| current 12 | +1.893 | −0.444 | **−2.337** |
+| all 37 | +1.753 | +1.363 | **−0.390** |
 
-This is a dynamic cointegrating regression (Bierens & Martins 2010), not the
-spurious level regression the phrase usually implies: `p` and `F` are both
-integrated, and `e` is the deviation from the time-varying long-run relation —
-i.e. the mispricing. Two properties follow that a return-space regression cannot
-deliver. The residual is a **level**, so fair value is a price rather than a
-forecast, and the gap is a genuine mean-reverting spread. And if the relation is
-really cointegrating, that residual is stationary and its reversion is testable
-**online**, which is what tells the decision layer whether valuation is
-informative today instead of assuming it always is.
+The mechanism is visible in the weights. Only `mood` carries forward
+information (holdout rho +0.31 at 90d); the four MSF components sit between
+−0.03 and +0.01. Maximising an information ratio across CV folds rewards
+whatever fits in-sample, so the search loaded on the technicals — in the
+12-predictor run it assigned `mood` a weight of **−0.37**, inverting its one
+useful input.
 
-Two independent valuation views are maintained and averaged by their own
-out-of-sample predictive evidence: a **latent** view on the principal factors of
-the cross-section (maximum statistical efficiency, weak economic labels), and a
-**block** view on named asset-class aggregates — equity, rates, credit,
-inflation, energy, metals, agriculture, currency, volatility, real assets. Every
-block coefficient has a name, which is what makes the output auditable, and
-leave-one-block-out refits give ablation-based driver importance plus a
-cross-sectional consistency score: independent slices of the world either agree
-about the mispricing or they do not, and that agreement is itself decision-relevant.
+The quality gate rebuilt in v2.9.0 caught this every time and refused to
+activate. A component whose own gate rejects it on every real configuration
+is not a feature. The measurement apparatus it was built on — holdout,
+embargo, permutation null — survives as `validation.py`, pointed at the
+question the product actually needs answered.
 
-**What is deliberately not claimed.** One step ahead, yesterday's close beats any
-valuation of a near-integrated price, so the engine is *not* scored against a
-random-walk null — that would measure a claim it never makes. It is scored
-against the honest competitor: the asset's own 252-day trailing mean. Positive
-means the global cross-section locates the level better than the asset's own
-history does.
+### Similar Periods Engine
 
-**One horizon, chosen by computation.** Tattva reads a single **10-day** forecast
-horizon (daily bars throughout — no weekly resampling), finalized from a 33-target
-walk-forward study: the leakage-free directional edge lives at 1–10d and fades by
-15–20d (analog edge peaks at +20d and collapses beyond it — zero of 33 targets
-significant at +60d). There is no second horizon to choose, because a longer lens
-measured on this evidence is a slower-turnover re-expression of the same edge
-rather than an independent one. The Precedent tab shows a fixed **1/3/5/10/20/60d**
-term structure spanning past that collapse point on purpose — its per-horizon
-walk-forward IC makes the fade legible rather than hiding it behind a truncated grid.
+Three-part scoring to find historical analogs:
 
-**Estimated, not tuned.** A classification cut-point is the causal empirical
-quantile of the signal's own past; a weight is the exponentially-discounted
-realised skill of the thing being weighted. Both come from
-`analytics/adaptive.py`, and both use only data that had already resolved. Because the
-quantile is the instrument's own, the p90 conviction cut-point resolves to
-15.28 on Gold, 12.26 on USD/INR and 13.10 on S&P 500 — a single pooled number
-would leave quiet instruments permanently NEUTRAL and volatile ones permanently
-at an extreme. Each constant has a **warm-up prior**, so an instrument's first
-year runs on the declared value and the estimate takes over only once it is
-better informed than the prior.
+| Component | Weight | Method |
+|-----------|--------|--------|
+| **State Match** | 55% | Mahalanobis distance with Ledoit-Wolf OAS shrinkage on 5-feature vector |
+| **Trajectory** | 35% | Cosine similarity on least-squares detrended 20-day mood path |
+| **Recency** | 10% | Exponential decay (365-day half-life) |
 
-What stays declared is *structure* — horizons (what you intend to hold), the
-view bank and discount grid (the hypothesis space to average over), the
-estimability floors — because those are choices about the question, not
-estimates of an answer. Still genuinely hand-set, and the README would rather
-say so than pretend otherwise: the DDM filter constants, the analog blend
-weights, and the Swayam kernel knobs. The research suite is eight studies —
-one per constant that is still swept rather than estimated.
+**Minimum separation.** Analogs are selected greedily with a
+`SIMILAR_MIN_SEPARATION` = 20 trading-day gap. Adjacent trading days describe
+near-identical states, so an unconstrained top-10 routinely collapsed onto two
+or three episodes — measured, five of ten inside a 32-row window — while the
+UI quoted a median forward return and a hit rate over those ten rows as though
+they were ten independent observations. The trailing 90 rows are also excluded,
+since they cannot carry a full set of forward returns.
 
-**The engine never looks ahead, and it is asserted.** Every published value is a
-function of data available at its own date, so re-running on more data extends
-the record rather than rewriting it. That is not a claim about intent — it is a
-mechanical property with a mechanical test: `research/test_reproducibility.py`
-runs the system on `data[:T]` and on `data[:T-250]` and requires the two to
-agree **exactly** on every shared date, across the FVO engine, the Swayam view
-weights, the aggregated breadth, the convergence dimension weights and the
-adaptive thresholds. A component that consulted the future cannot pass it. The
-test also fails on all-NaN output, so a component that quietly stopped
-producing anything cannot pass it either.
+Each match includes forward NIFTY returns at **5D, 20D, 60D, and 90D**.
 
-**Two things can still move a past reading, and neither is look-ahead.**
+**Backtest scatter.** Mood Score at T vs NIFTY return at T+`BACKTEST_HORIZON`
+(20 days), 70/30 chronological split with a **one-horizon embargo** between
+the halves — without it the last 20 training points draw their labels from
+inside the test window. Consecutive dots share almost all of their forward
+window, so the effective sample is far smaller than the dot count and the
+reported coefficients are more certain-looking than they are; the view says so.
 
-*The newest bar is still forming* until its session closes — continuously, for a
-24/7 instrument like crypto — so the reading for today can differ from the
-reading for today once today is over. Verified not to leak backwards: perturbing
-the final close and re-running leaves all 2,921 earlier dates bit-identical.
-A session fitted on a fraction of the cross-section is withheld outright rather
-than published provisionally, so a half-open panel reads as "no value yet"
-instead of a confident wrong one.
+### Regime Detection
 
-*The panel's composition can change between runs* — a rate-limited fetch, a
-holiday, an instrument admitted for the first time — and the factor basis is
-estimated from whichever instruments are present. Different panel, different
-eigenvectors, so published history moves. Measured by dropping one predictor
-from the live 242-column panel and refitting: **median 0.04-0.14%, p95
-3.1-5.0%** (`research/test_composition_sensitivity.py`, which pins the size of
-this exposure so a change that worsens it fails loudly). This is not fixable
-inside the model — no estimator is invariant to its own input set, and
-replacing Marchenko-Pastur truncation with eigenvalue shrinkage was measured to
-make it 2-8x worse. Closing it requires a declared universe that the realised
-panel is asserted against, which does not exist yet. Until it does, the panel
-fingerprint printed in the run console is how a composition change is detected
-after the fact.
+Hurst exponent × entropy classifies the market into four quadrants:
 
-**Causal factors.** The factor structure is estimated recursively
-from an exponentially weighted correlation matrix, with the number of factors set
-by the **Marchenko-Pastur** edge — the eigenvalues that stand above what pure
-noise of that dimension would produce — and the memory chosen online from a bank
-of half-lives by predictive likelihood. Everything is one-sided: an instrument
-joins the cross-section on the day its own accumulated print count first reaches
-the estimability floor, and contributes only on days it actually printed, so
-admission never retroactively changes and a foreign market's holiday cannot enter
-as a fabricated zero return. Adding new data never rewrites history — though
-changing which instruments are in the panel does, per the exception above.
+| Regime | Hurst | Entropy | Strategy Implication |
+|--------|-------|---------|---------------------|
+| **Trending** | high | low | Momentum strategies work |
+| **Volatile Trend** | high | high | Directional with large swings |
+| **Mean-Reverting** | low | low | Contrarian / range strategies |
+| **Choppy** | low | high | Hardest to trade — reduce size |
 
-**Why the coefficient memory is slow.** Scoring discount factors by one-step
-predictive likelihood is degenerate for a *level* regression: the model that
-tracks price most closely always wins, and its limit is the useless statement
-"fair value = price". The grid is therefore restricted to implied memories of
-~4y, ~8y, ~40y and permanent. This is the single most consequential decision in
-the engine and it is a modelling commitment, not a tuned choice — admitting a
-~5-month memory collapses the measured mispricing by roughly a factor of three
-and its half-life from weeks to days, which is a residual, not a valuation.
+**Thresholds are relative and causal.** Both axes are split at their own
+*expanding median*, not at a fixed constant:
 
-**Honest validation, leakage-free.** The durability diagnostic is an
-expanding-window walk-forward: each window learns weights on the past and is
-scored on the NEXT purged block, so every reported IC is genuinely out-of-sample
-and nothing it returns feeds back into the signal. Scoring is
-**non-overlapping** (stride = the shortest hold horizon) rather than on every
-daily row — a daily-sampled IC on overlapping h-day forward returns overstates
-its own precision by roughly √h, so the trust chip's SOLID/MODEST/MARGINAL tiers
-are set on the non-overlapping scale. FVO itself has no labels to leak: it is fit to no forward
-target, so there is no label overlap to purge and no horizon-specific refit. Its
-**burn-in** (the first `FVO_BURN_IN` rows, before an exponentially weighted
-correlation matrix over ~200 instruments has enough weight for the
-Marchenko-Pastur edge to mean anything) is left genuinely unpublished and flagged
-`Valid = False`, rather than filled with a prior dressed up as an estimate. An expanding-window **walk-forward IC** runs every analysis and
-is charted in Diagnostics — consistently positive bars = durable edge; a couple of
-spikes = a lucky regime. The **Precedent** tab is a separate, non-parametric base
-rate read alongside the model, not part of the calibrated convergence signal; its
-analog matcher enforces a **Theiler exclusion window** (Theiler 1986) between
-returned analogs so "N analogs" reflects N genuinely distinct historical episodes,
-not N adjacent days of the same episode.
+- The theoretical `H = 0.5` random-walk boundary does not apply. Hurst is
+  measured on the mood score — a smoothed composite of percentiles — where
+  ~84% of observations sit above 0.5 and the upper quartile pins to the 0.99
+  clip. A 0.5 split assigned nearly everything to "trending" and the four
+  quadrants collapsed to one (measured: 887 / 864 / 136 / 113).
+- The threshold was previously the median of the *whole* series, so a regime
+  label depended on data from after the point it described. An expanding
+  median uses only observations up to and including each row.
+
+So **"Trending" means persistent relative to this series' own history**, not
+`H > 0.5` in the absolute sense. Classification is withheld (`Unknown`) until
+`REGIME_MIN_HISTORY` observations are available.
+
+Regime is a **diagnostic only** — it never feeds the score, the MSF weights,
+or the OU horizon.
+
+## Mathematical Primitives
+
+Pure-NumPy functions with single callsites:
+
+| Function | Layer | Purpose |
+|----------|-------|---------|
+| `exponential_decay_weights` | L1 | Recency weighting |
+| `weighted_spearman` | L1 | Robust rank correlation with decay |
+| `shannon_entropy` | L2 | Freedman-Diaconis bin-width entropy estimation |
+| `adaptive_percentile` | L3 | O(N log N) Fenwick-tree decay-weighted CDF |
+| `kalman_filter_1d` | L5 | Fading-memory filter with burn-in bootstrap |
+| `rolling_hurst` | Diagnostics | DFA-1 with minimum 4-segment guard |
+| `rolling_entropy` | Diagnostics | Market disorder measurement |
+| `_ledoit_wolf_shrinkage` | Similar Periods | Analytical OAS covariance shrinkage |
+| `mahalanobis_distance_batch` | Similar Periods | Shrinkage-regularised state matching |
+| `cosine_similarity` | Similar Periods | Least-squares detrended trajectory matching |
+| `detect_regime_transitions` | Diagnostics | Hurst × Entropy quadrant classification |
+| `_calculate_wavetrend_impl` | WaveTrend | WaveTrend oscillator on Mood Score |
+| `wavetrend_bands` | WaveTrend | Empirically calibrated OB/OS levels |
+
+Plus internal helpers: `_hurst_dfa` (DFA implementation), `sigmoid`
+(overflow-safe normalisation), `rolling_mean_fast` (O(N) cumsum-based),
+`zscore_clipped` (NaN-aware rolling z-score).
 
 ---
 
-## Data sources (all yfinance)
+## Data Schema
 
-- **Target & predictors:** the target's price series (commodity future / FX / index
-  level) plus the macro universe in `core/config.py` — `GLOBAL_MACRO_MAP`
-  (bond/rates/equity/risk/real-asset ETFs) + `MACRO_SYMBOLS_YF` (commodities + FX).
-- **Index targets:** `INDEX_TARGETS` in `data/universe.py` (India broad/sectoral, US
-  benchmarks, India sector-ETF universe).
-- **Swayam input:** the target's **own** OHLCV, for every target. Swayam asks
-  its breadth question of one price series read many ways — timescale ×
-  information set × mechanism — so no constituent list, proxy basket or
-  cross-section fetch is involved, and a large index costs the same single
-  series as a commodity.
+### Source Columns (Google Sheet)
 
-Every external call is wrapped in a two-tier cache (memory + disk), a per-service
-circuit breaker, retry-with-backoff, a **partial-success re-fetch** (yfinance
-rate-limits a few tickers per batch, so the missing symbols are re-fetched to
-complete the set rather than cached incomplete), and a stale-snapshot fallback — so
-the UI and research suite keep working through transient yfinance rate-limiting.
+| Category | Columns |
+|----------|---------|
+| **Index** | `DATE`, `NIFTY` |
+| **Valuation Anchors** | `NIFTY50_PE`, `NIFTY50_EY`, `NIFTY50_DY`, `NIFTY50_PB`, `PE_DEV`, `EY_DEV` |
+| **Breadth** | `AD_RATIO`, `REL_AD_RATIO`, `REL_BREADTH`, `BREADTH`, `COUNT` |
+| **India Macro** | `IN10Y`, `IN02Y`, `IN30Y`, `INIRYY`, `REPO`, `CRR` |
+| **US Macro** | `US02Y`, `US10Y`, `US30Y`, `US_FED` |
 
-**Freshness is calendar-exact.** `data/calendars.py` resolves each ticker to its home
-exchange and uses real trading calendars (`exchange_calendars`) to count "days behind",
-judge the partial-session gate (only markets that were *open* are expected to post), and
-build each target's model spine from its true sessions. The dependency is **optional** —
-absent, every check degrades to a plain Mon–Fri mask.
+### Derived Columns (computed in-app)
+
+| Column | Formula | Purpose |
+|--------|---------|---------|
+| `IN_TERM_SPREAD` | `IN10Y − IN02Y` | India yield curve slope — inverted = recession signal |
+| `US_TERM_SPREAD` | `US10Y − US02Y` | US yield curve slope — every US recession since 1960 preceded by inversion |
+| `NIFTY50_EY` | `(1 / NIFTY50_PE) × 100` | Auto-derived if sheet column is empty or constant |
+| `MSF_Spread`, `WT1`, `WT2` | (engine) | Indicator outputs added to the engine-output dataframe |
+
+The app loads **all columns** present in the sheet. Any numeric column
+beyond the four anchor keys (`DATE`, `NIFTY`, `NIFTY50_PE`, `NIFTY50_EY`)
+is available as a selectable predictor.
 
 ---
 
 ## Configuration
 
-**Everything is per-instrument.** Each instrument carries its own full
-`InstrumentConfig` — routing *and* every tunable knob across ALL layers: the
-FVO valuation (burn-in / print floor / coefficient-memory grid / lookback),
-Swayam + Swayam breadth, convergence DDM + dimension weights, the
-classification thresholds, and the interpretation/display tiers (markers,
-conviction, breadth, agreement, model-spread) — in the `INSTRUMENT_CONFIGS`
-registry (`core/config.py`). The five catalogue classes (commodity, fx,
-india_index, us_index, etf) are tuned **per instrument** (hand-wired values in
-`_PER_INSTRUMENT_OVERRIDES`, layered on the class default); the India/US **stock**
-classes are tuned at **asset-class** level via `STOCK_CONFIGS`, since free-form
-symbols can't be pre-tuned. Only genuine statistical-definition constants
-(R²/ADF/KPSS/HMM cut-points, chart dimensions) stay global. An instrument with
-no override runs on its class default, so the registry only has to carry what
-is genuinely instrument-specific: to retune one instrument, add its knob to
-`_PER_INSTRUMENT_OVERRIDES`; to retune a whole class, edit its default in
-`CLASS_CONFIG_DEFAULTS`.
+### Environment Variables
 
-| What | Where |
-|---|---|
-| Target commodities / FX | `COMMODITY_TARGETS` in `core/config.py` |
-| Index targets (India / US / ETF) | `INDEX_TARGETS` in `data/universe.py` |
-| **Per-instrument config (structure, floors, warm-up priors)** | `InstrumentConfig` / `INSTRUMENT_CONFIGS` in `core/config.py` |
-| **Per-asset-class config defaults** | `CLASS_CONFIG_DEFAULTS` (`commodity`, `fx`, `india_index`, `us_index`, `etf`, `stock_india`, `stock_us`) + `STOCK_CONFIGS` in `core/config.py` |
-| Individual-stock targets (free-form symbol, Swayam self-mode) | Sidebar **India Stocks** / **US Stocks** asset class → `data/universe.py::resolve_stock_symbol` + `core/config.py::register_stock_target` |
-| FVO valuation + scoring horizons (burn-in / print floor / discount grid / lookback / hold) | fields on each `InstrumentConfig` (`fvo_*`, `forecast_horizon`, `hold_horizons`) |
-| DDM / dimension weights / thresholds / markers / display tiers / analog blend / Swayam grid | fields on each `InstrumentConfig` |
-| Macro predictor universe | `GLOBAL_MACRO_MAP` + `MACRO_SYMBOLS_YF` |
-| Constituent cap | `_DEFAULT_CAP` in `data/universe.py` (`0` = no cap, full index) |
-| Valuation burn-in / print floor / discount grid | `core/config.py` (`FVO_BURN_IN`, `FVO_MIN_PRINTS`, `FVO_VALUATION_DELTAS`, `MIN_DATA_POINTS`) |
-| Asset-class block map for the cross-section | `engines/fvo/blocks.py` |
+The Google Sheet coordinates are configured via two environment variables:
 
-In-app: nothing about the model is user-configurable, by design. The valuation
-panel is the whole traded cross-section minus this target's self-replicating
-near-duplicates, and the dimension weights are learned forward every run rather
-than loaded from a profile — so there is no predictor picker to set and no
-calibration artefact to go stale. The rail's **Model** group shows what the run
-actually reached (dimension weights, walk-forward IC); it is a readout, not a
-control.
-
-**Individual stocks are free-form, not a drop-down.** Selecting **India Stocks** or
-**US Stocks** as the Asset Class swaps the Target picker for a symbol text box.
-India symbols are resolved by probing `SYMBOL.NS` (NSE) first, then `SYMBOL.BO`
-(BSE) — an explicit `.NS`/`.BO` suffix skips the probe; US symbols are used as
-typed (`.` → `-`, the yfinance convention — e.g. `BRK.B` → `BRK-B`). A resolved
-symbol is registered as a first-class target (`RELIANCE (NSE)`, `AAPL (US)`, …) —
-FVO values it and Swayam runs Swayam self-mode on it, with the same
-per-target treatment as every other target. Successful resolutions are
-cached 7 days (`~/.cache/tattva/symbol_resolution/`); a not-found symbol is never
-cached, so a transient yfinance outage can't permanently brand it invalid.
-
----
-
-## Project structure
-
-```
-app.py                  Streamlit entrypoint + 5-phase orchestration
-core/                   config — macro universe, structure, floors, priors, and the
-                        per-instrument InstrumentConfig registry — + logging
-data/                   yfinance fetchers, index catalogue + constituent
-                        resolution (universe), two-tier cache, circuit breakers,
-                        per-exchange trading calendars (calendars.py)
-engines/                fvo/ (valuation: recursive cointegrating regression —
-                        causal DLM/DMA primitives, online factor model with a
-                        Marchenko-Pastur cut, regime filter, asset-class block
-                        map), swayam/ (breadth: the per-series MSF/MMR/regime
-                        kernel + the skill-weighted self-referential view bank)
-analytics/              adaptive (causal thresholds + online skill weights),
-                        OU, Hurst/DFA,
-                        robust-quantile z-scores, HMM/GARCH/CUSUM, breaks,
-                        analogs (Mahalanobis precedent matcher)
-convergence/            cross-validator, conviction (DDM), divergence,
-                        normalization, intelligence (online weights + walk-forward)
-ui/                     theme, components, tabs (Convergence/FVO/Swayam/
-                        Precedent/Diagnostics/Data)
-research/               tuning & validation harnesses (Swayam/Swayam/analog
-                        sweeps, marker/hero studies) + run_tuning.py orchestrator
+```bash
+export ARTHAGATI_SHEET_ID="<spreadsheet-id>"
+export ARTHAGATI_SHEET_GID="<worksheet-gid>"
 ```
 
-Re-tuning: `python3 research/run_tuning.py` opens an interactive menu (run the whole
-suite end-to-end, from-scratch, a single tier, or hand-picked studies); `--list`
-shows the suite, `--all`/`--only`/`--segment`/`--fresh` script it. Every study
-emits a **gated per-instrument** `_PER_INSTRUMENT_OVERRIDES` snippet alongside its
-class-level result, and the orchestrator writes one consolidated report
-(`research/reports/`) plus a current-vs-validated reference for every tuned
-constant. A live heartbeat keeps long runs legible. It **reports only** — config is
-applied by hand after review.
+**Getting your Sheet coordinates:**
+1. Open your Google Sheet
+2. Copy the **SHEET_ID** from the URL: `docs.google.com/spreadsheets/d/<SHEET_ID>/edit...`
+3. The **SHEET_GID** is the `gid` parameter in the URL (usually `0` for the first sheet)
+
+**Sheet access:** the sheet must be set to **"Anyone with the link can view"**.
+The gviz endpoint works without authentication.
+
+### Hyperparameters
+
+| Constant | Default | Purpose |
+|----------|---------|---------|
+| `DATA_TTL` | 3600s | Cache TTL for Sheets fetch |
+| `CORR_HALF_LIFE` | 504d | Spearman recency weight decay |
+| `PCT_HALF_LIFE` | 252d | Adaptive ECDF recency weight decay |
+| `MOOD_SCALE` | 30.0 | OU signal → mood score scaling |
+| `KALMAN_CI_Z` | 1.96 | Confidence band width (~95%) |
+| `KALMAN_HALF_LIFE` | 126d | Kalman fading memory |
+| `CORR_MIN_WARMUP` | 252 | Warm-up length; earlier rows flagged `Is_Warmup` |
+| `CORR_REBALANCE_PERIOD` | 63 | Expanding-window rebalance interval |
+| `MSF_WINDOW` | 20 | MSF rolling window |
+| `MSF_ROC_LEN` | 14 | NIFTY rate-of-change period |
+| `MSF_ZSCORE_CLIP` | 3.0 | Z-score clipping threshold |
+| `MSF_SCALE` | 10.0 | MSF output scaling |
+| `MSF_OB_LEVEL_1 / _2` | ±5 / ±3 | MSF reference bands (primary / secondary) |
+| `MSF_SIGNAL_Y` | 4 | MSF divergence-triangle y-coordinate magnitude |
+| `WT_CHANNEL_LEN` | 10 | WaveTrend n1 (channel length) |
+| `WT_AVERAGE_LEN` | 21 | WaveTrend n2 (average length) |
+| `WT_SIGNAL_LEN` | 20 | WaveTrend ALMA signal-line period |
+| `WT_OB_QUANTILE_1 / _2` | 0.95 / 0.80 | Quantiles of \|wt1\| used for the OB/OS bands |
+| `WT_OB_LEVEL_1 / _2` | ±60 / ±40 | Fallback bands for short series |
+| `CC_OB_LEVEL_1 / _2` | ±100 / ±80 | Calibrated Conviction reference bands |
+| `SIMILAR_W_MAHA` | 0.55 | Mahalanobis distance weight |
+| `SIMILAR_W_TRAJ` | 0.35 | Trajectory similarity weight |
+| `SIMILAR_W_RECV` | 0.10 | Recency decay weight |
+| `TRAJ_WINDOW` | 20 | Trajectory comparison window |
+| `OU_PROJ_DAYS` | 90 | OU forward projection horizon |
+| `BACKTEST_HORIZON` | 20 | Forward-return horizon for the backtest scatter |
+| `SIMILAR_MIN_SEPARATION` | 20 | Minimum trading days between accepted analogs |
+| `MSF_MIN_WEIGHT / _MAX_WEIGHT` | 0.10 / 0.50 | Inverse-variance weight clamp |
+| `HOLDOUT_FRACTION` | 0.25 | Share of history withheld from the calibrator |
+| `GATE_MIN_HOLDOUT_IR` | 0.25 | Minimum holdout effect size to activate |
+| `GATE_MAX_P_VALUE` | 0.05 | Permutation-null threshold |
+| `GATE_MIN_INDEPENDENT_WINDOWS` | 10 | Power floor before a verdict is issued |
+
+### Predictor Profiles
+
+Sidebar → Model Configuration → **Predictor Profile**. Each preset carries the
+out-of-sample measurement that justifies it, so the choice is made against
+evidence rather than a name.
+
+| Profile | n | Holdout ρ | vs −PE | Notes |
+|---|---:|---:|---:|---|
+| **Measured** *(default)* | 4 | **+0.538** | +0.006 | Greedy forward selection on 2006–2021, holdout scored once |
+| Rates & Liquidity | 8 | +0.492 | −0.040 | Thematic: policy rates and the yield curve |
+| Broad | 37 | +0.490 | −0.042 | Every eligible column; most dilution |
+| Valuation & Volatility | 5 | +0.473 | −0.059 | PB, DY, VIX, USDINR, real yield |
+| Legacy · v2.9 | 12 | +0.444 | −0.088 | The v2.9.0 default |
+| Classic · v2.8 | 14 | +0.432 | −0.100 | The originally shipped default |
+| Minimal | 1 | +0.418 | −0.114 | Strongest single predictor |
+| Breadth Only | 6 | +0.324 | −0.208 | Contrast — measurably the weakest |
+| **Custom…** | — | — | — | Hand-pick columns (staging → Apply) |
+
+All eight reach `p = 0.005`. Measured on the reference sheet — NIFTY, 4,985
+rows, 2006-06-08 → 2026-08-18, holdout 2021-08-05 onward (1,246 rows),
+validated at +20D and +60D against 200 circular-shift permutations. The
+`−PE` baseline over the same window is **+0.532**.
+
+**These numbers are a record, not a live claim.** They were measured on one
+sheet on one date. The Signal Validation view re-measures whatever set is
+actually active on whatever data is loaded — that is the number to trust.
+
+**Profiles only match when they resolve completely.** If a sheet is missing
+some of a preset's columns, the dropdown reads *Custom…* and the card is not
+shown, rather than displaying a five-column measurement beside a two-column
+set. Missing names are listed on the card when a preset partially applies.
+
+Choosing a preset applies immediately — it is one discrete choice. Custom
+keeps the staging → Apply pattern, because a multiselect fires on every
+checkbox and each change would otherwise trigger a full engine recompute.
+
+### Predictor Eligibility
+
+One rule, applied everywhere, matching the conditions the profile figures
+were recorded under. A column is offered only if it is:
+
+- not an anchor or index key (`DATE`, `NIFTY`, `NIFTY50_PE`, `NIFTY50_EY`);
+- **not derived from NIFTY** — `RSI`, the MA family, `SPREAD90/200`, `OSC`,
+  and the sheet's precomputed `COR.`/`DEV` pairs are withheld. A valuation
+  score built partly from price, then scored against price returns, would
+  measure price predicting itself;
+- not a duplicate of something `load_data()` derives (`IN_YC (10-2)` and
+  `US_YC (10-2)` duplicate the derived term spreads);
+- populated in ≥60% of rows and carrying ≥10 distinct values.
+
+On the reference sheet this takes 65 numeric columns down to 37.
+
+### Testing
+
+```bash
+pip install pytest
+pytest                 # fast suite
+pytest -m slow         # statistical regressions (runs the engine repeatedly)
+```
+
+The suite pins the defects this release fixed rather than testing happy
+paths: causality of the mood score, MSF and regime series; exactness of the
+Fenwick percentile against a direct transcription of its definition; the
+degenerate-component guard; analog separation; and — the headline —
+that the calibration gate rejects data containing no edge.
+
+## Key Features
+
+### Engine-Output Session Cache
+`mood_df` and `msf_df` are cached in `st.session_state` keyed by
+`(row count, first date, last date, sorted predictor set)`. View
+switches, timeframe button clicks, and expander toggles are
+**O(150 ms)** — only data refresh / predictor changes / data-age >14d
+trigger a full recompute.
+
+### Cross-Session Profile Caching
+The Intelligence Mode profile (`profiles/active.json`) is reused across
+sessions as long as it remains *fresh*: same predictor count, data end
+≤14 days newer than fit time, profile age ≤14 days, **and a grade of
+Quality OK** — a profile that failed the gate is never treated as fresh.
+
+> **Multi-user caveat.** `active.json` is a single file shared by every
+> session of a deployment. Set `ARTHAGATI_PROFILE_DIR` to isolate it. Reset
+> to Defaults is session-scoped and does not delete the shared file, which it
+> previously did — removing the calibrated profile for every concurrent user.
+
+### OU Forward Projection
+The mood chart extends a dotted line 90 days beyond the last data point
+showing the Ornstein-Uhlenbeck expected reversion path:
+`E[mood(t+n)] = μ + (mood_current − μ) · exp(−θ · n)`.
+
+### Kalman Confidence Bands
+A translucent band surrounds the mood score line showing ±1.96σ of the
+filter's estimate variance. A mood of +40 with tight bands is
+fundamentally different from +40 with wide bands.
+
+### Divergence Signals
+- **MSF Spread** — bullish (▲ at y=−4) and bearish (▼ at y=+4) divergence triangles, detected via 10-bar lookback extrema comparison
+- **WaveTrend** — bullish (▲ at y=+70) and bearish (▼ at y=−70) WT1/WT2 crossover triangles
+
+### Data Staleness Warning
+If the most recent data point is more than `STALE_DATA_DAYS` (4) calendar
+days old, an amber callout reports the gap. The threshold clears a normal
+weekend without firing.
+
+### MSF Component Breakdown
+Four horizontal bars show each component's current contribution vs
+period average, with colours indicating direction.
+
+### Backtest Scatter
+Similar Periods view includes a chronological 70/30 train/test scatter
+of Mood Score at T vs NIFTY return at T+`BACKTEST_HORIZON` (20 days),
+with linear and quadratic fit lines and both Pearson/Spearman correlations
+reported.
+
+### Intelligence Center Dashboard
+A read-only view (Run Analysis triggers the actual calibration) showing:
+- **Calibration Diagnostics** strip — Train IR · Val IR · Stability · Quality
+- **Calibration Impact** strip — Raw Mood · Calibrated Conviction · Net Shift · Direction
+- **Feature Analysis** grid — per-feature card with weight + fANOVA importance + Bullish/Bearish/Neutral badge
+- **Predictive Power Lift** table — per-horizon Spearman IR comparison: raw Mood vs Calibrated
+- **Profile Provenance** table — run timestamp, predictors, CV setup, data window, schema version
 
 ---
 
-## Interpreting the output
+## Setup
 
-- **Hero card** — normalized convergence signal and the FVO / Swayam contributions.
-- **FVO tab** — price against the fair-value level the cross-section implies,
-  inside its 95% predictive band, with the mispricing gap that drives the signal
-  stack below it. Model quality reads left to right as a chain: does the
-  cross-section track this asset at all (OOS R²), does it beat the asset's own
-  252d trailing mean (**R² vs Trailing Mean** — the discriminating number), do
-  independent slices of the world agree on the mispricing's sign (**Valuation
-  Confidence**), is the gap stationary and how fast (**Mean Reversion**), and how
-  tightly is fair value pinned today (**Model Spread**).
-- **Precedent tab** — the most statistically-similar historical states (Mahalanobis)
-  and what the target did next, across a fixed **1/3/5/10/20/60d** term structure
-  (`PRECEDENT_HORIZONS`); an empirical base rate to read *alongside* FVO
-  (agreement strengthens conviction, disagreement is a divergence). The Analog Skill
-  chart shows walk-forward IC at each horizon, so where the edge is genuinely present
-  (typically ~10–20d) vs weak (the 1d and 60d ends) is visible, not assumed.
-- **Diagnostics → Intelligence Center** — learned-vs-prior weights and the **walk-forward
-  IC** chart (the durability verdict).
+### Local
 
-Rule of thumb: trust the **walk-forward consistency**, not any single conviction
-reading. Across the universe the (leakage-free) directional edge is
-modest and concentrated at **10–20d** — the precedent base rate is strongest as a
-~10d confirmer, and is best treated as fading in the recent regime.
+```bash
+# 1. Set environment variables with your Sheet coordinates
+export ARTHAGATI_SHEET_ID="<your-spreadsheet-id>"
+export ARTHAGATI_SHEET_GID="<your-worksheet-gid>"
 
-**Swayam's honest limitation.** Breadth is read across 15 *views of one price
-series* rather than 15 independent instruments, so the bank is more internally
-correlated than a genuine cross-section would be — expect lumpier breadth swings
-and more synchronized regime flips than a constituent read would show. That is
-the price of not needing a hand-curated proxy, and it is disclosed rather than
-hidden: the Swayam tab surfaces an "effective view count" (an eigenvalue-based
-diagnostic, never fed into the signal itself), and the views are skill-weighted,
-so a timescale that has stopped predicting fades out of the aggregate instead of
-padding the apparent agreement. The trade is deliberate — a self-referential
-bank needs no hand-curated proxy basket, and a proxy is a judgement the data
-never gets to overrule.
+# 2. Make sure the sheet is "Anyone with the link can view"
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Run
+streamlit run arthagati.py
+```
+
+### Streamlit Cloud
+
+1. Push repo to GitHub
+2. **App Settings → Environment Variables** — add `ARTHAGATI_SHEET_ID` and `ARTHAGATI_SHEET_GID`
+3. Deploy
 
 ---
 
-## Disclaimer
+## Version History
 
-Tattva is a **research and educational tool**, not investment advice. Outputs are
-statistical signals with weak, regime-dependent, out-of-sample edge — not predictions.
-Markets are noisy and the validated ICs are modest. Do not make trading or investment
-decisions solely on this software's output. See [LICENSE.md](LICENSE.md).
+| Version | Date | Summary |
+|---------|------|---------|
+| **v2.11.0** | 2026-08-18 | **Predictor profiles.** Eight measured presets + Custom in a sidebar dropdown, each showing its holdout ρ, margin over the −PE baseline, and p-value; unified eligibility rule (65 → 37 columns); partially-resolved presets no longer advertise a measurement for a set you aren't running |
+| **v2.10.0** | 2026-08-18 | **Measured predictor selection; Intelligence Mode removed.** 65 columns → 4 by development-only selection with a single holdout scoring; the Optuna ensemble deleted after it reduced out-of-sample power on every configuration; `validation.py` + Signal Validation view; mood-score semantics corrected (valuation-contrarian, not sentiment); Hurst on increments; reachable classification bands. Verdict on the reference sheet: **Edge Confirmed, holdout rho +0.538, p = 0.005** |
+| **v2.9.0** | 2026-08-18 | **Audit remediation.** Eliminated look-ahead in the mood, MSF and regime series; rebuilt the Intelligence Mode quality gate around a 25% holdout, a 90-day embargo and a permutation null (it previously graded pure noise "Quality OK"); O(N log N) percentiles; MSF degenerate-component guard; analog separation; `config.py` extraction; first test suite |
+| **v2.8.0** | 2026-05-28 | WaveTrend Oscillator (LazyBear · Mood-driven), Intelligence Mode (post-engine ensemble calibration via Optuna TPE + walk-forward CV), Calibrated Conviction metric, granular forward horizons (5D / 20D / 60D / 90D), MSF Spread reference bands at ±5/±3, structured run-summary console log |
+| **v2.7.0** | 2026-04-15 | Obsidian Quant UI port: modular `ui/` package with `theme.css`, components, tabs; Sanskrit serif masthead; section headers with icon badges; analog/correlation/quality cards |
+| **v2.6.0** | 2026-04-06 | Google Sheets Infrastructure Simplification: gviz API migration, OAuth removal, environment variable configuration, retry logic |
+| **v2.5.0** | 2026-04-05 | Production Readiness & Code Cleanup: Dead function removal, unused return value elimination, type hint modernisation, version consistency |
+| **v2.4.0** | — | Adversarial Audit Resolution: OU RSS fix, backward leakage removal, DFA segment guard, MSF regime artifact fix, O(N log N) adaptive percentiles, Kalman warm-up bootstrap, Freedman-Diaconis entropy bins, Ledoit-Wolf shrinkage, walk-forward weight blending, tanh confidence band soft-clip, least-squares trajectory detrend, 70/30 backtest split |
+| **v2.3.0** | — | Walk-Forward Correlations & Bias Corrections: Expanding-window Spearman, percentile symmetry fix, DFA replacing R/S, Kendall-Marriott-Pope bias correction, dynamic y-axis |
+| **v2.2.1** | — | UI Rendering & Memory Optimizations: WebGL regime transitions, bounded caching (`max_entries=5`) |
+| **v2.2.0** | — | Performance Architecture Rewrite: C-level NumPy vectorisation, O(N) cumulative sums, memory-optimised 1D slice lookbacks, 99%+ execution time reduction |
+| **v2.1.0** | — | Diagnostics & Forward Returns: OU projection, Kalman bands, forward returns, backtest scatter, regime detection, staleness warnings |
+| **v2.0.0** | — | Physics-Informed Mathematics: OU normalisation, Mahalanobis similarity, inverse-variance MSF, Kalman smoothing, adaptive percentiles, decay-Spearman correlations |
+| **v1.2.0** | — | Initial Release: Pearson correlations, expanding percentiles, fixed MSF weights |
 
 ---
 
-*© 2026 @thebullishvalue. All rights reserved. See [LICENSE.md](LICENSE.md) and
-[CHANGELOG.md](CHANGELOG.md).*
+*© 2026 Arthagati · @thebullishvalue*
