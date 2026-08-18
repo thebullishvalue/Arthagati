@@ -1,17 +1,20 @@
 """
-Arthagati — Signal Validation view.
-
-Answers one question with one number: does the Mood Score carry
-out-of-sample predictive power, and is it distinguishable from chance?
+Arthagati — Validation: is any of this distinguishable from chance?
 
 Nothing here is fitted. The view reports a measurement made on a holdout the
-engine had no part in shaping, against a permutation null, alongside the
-null model the engine has to beat — the negated PE ratio, "cheap is good"
-with no engine at all.
+engine had no part in shaping, against a permutation null, alongside the null
+model the engine has to beat — the negated PE ratio, "cheap is good" with no
+engine at all. See validation.py for the measurements.
 
-This replaced the Intelligence Center, which reported diagnostics for a
-fitted ensemble that reduced the signal's out-of-sample power on every real
-configuration tested. See validation.py for the measurements.
+The result is also written to session state, because the conviction chain on
+Overview reads two of these numbers as gates: a reading the holdout cannot
+support must not carry conviction anywhere in the app.
+
+Reading order:
+
+  1 TRUST    can this be believed?      Verdict and its gates
+  2 ANCHOR   what was measured?         Holdout, null and baseline
+  3 DETAIL   where does it live?        Rho by horizon
 """
 
 from __future__ import annotations
@@ -21,24 +24,24 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from ui.components import (
-    render_section_header,
-    render_metric_card,
-    render_interpretation_card,
-    section_divider,
-    section_gap,
-)
-from ui.theme import C_EMERALD, C_ROSE, C_MUTED
-from ui.charts import PLOT_CONFIG, chart_height
 import validation as val
+from ui import format as fmt
+from ui.components import (
+    render_chart_panel,
+    render_empty_state,
+    render_interpretation_card,
+    render_kpi_strip,
+    render_note,
+    render_section_header,
+    render_table_panel,
+)
+from ui.theme import chart_color, chart_layout, chart_rgba, grid_rgba, style_axes
 
 
-def _verdict_class(v: str) -> str:
-    return {
-        val.VERDICT_EDGE: "success",
-        val.VERDICT_NO_EDGE: "danger",
-        val.VERDICT_INSUFFICIENT: "neutral",
-    }.get(v, "neutral")
+def _verdict_tone(v: str) -> str:
+    return {val.VERDICT_EDGE: "success",
+            val.VERDICT_NO_EDGE: "danger",
+            val.VERDICT_INSUFFICIENT: "warning"}.get(v, "neutral")
 
 
 @st.cache_data(max_entries=3, show_spinner=False)
@@ -47,15 +50,12 @@ def _run_validation(mood_df: pd.DataFrame, pe: np.ndarray) -> dict:
 
 
 def render(mood_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
-    render_section_header(
-        title="Signal Validation",
-        description="Out-of-sample Spearman rho on a held-out window, against a permutation null",
-        icon="shield",
-        accent="emerald",
-    )
-
     if mood_df is None or mood_df.empty or "NIFTY" not in mood_df.columns:
-        st.caption("Run an analysis first.")
+        render_empty_state(
+            "No engine output to validate",
+            "The holdout is cut from the engine's own frame, so there is nothing to "
+            "score until a run completes.",
+            eyebrow="Not scored")
         return
 
     pe = (raw_df["NIFTY50_PE"].to_numpy(dtype=float)
@@ -63,117 +63,142 @@ def render(mood_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
     with st.spinner("Scoring the holdout and running the permutation null…"):
         r = _run_validation(mood_df, pe)
 
-    section_gap()
-    c1, c2, c3, c4 = st.columns(4, gap="small")
-    with c1:
-        render_metric_card(
-            "Holdout rho", f"{r['holdout_rho']:+.3f}",
-            f"{r['n_holdout']:,} rows from {r['holdout_start']}",
-            "success" if r["holdout_rho"] > 0 else "danger",
-            icon="target",
-        )
-    with c2:
-        render_metric_card(
-            "Significance", f"p = {r['p_value']:.3f}",
-            f"vs {r['n_permutations']} circular shifts",
-            "success" if r["p_value"] <= val.GATE_MAX_P_VALUE else "danger",
-            icon="shield",
-        )
-    with c3:
-        margin = r["holdout_rho"] - r["baseline_rho"] if np.isfinite(r["baseline_rho"]) else float("nan")
-        render_metric_card(
-            "vs −PE baseline", f"{margin:+.3f}" if np.isfinite(margin) else "—",
-            f"baseline {r['baseline_rho']:+.3f} · no engine",
-            "success" if np.isfinite(margin) and margin > 0.02 else "warning",
-            icon="zap",
-        )
-    with c4:
-        render_metric_card(
-            "Verdict", r["verdict"],
-            f"{r['independent_windows']:.1f} independent windows",
-            _verdict_class(r["verdict"]),
-            icon="check-circle",
-        )
+    # Publish the two figures the conviction chain gates on. Written here
+    # rather than recomputed there so the card and this page cannot disagree
+    # about whether an edge was measured.
+    st.session_state["_validation_summary"] = {
+        "holdout_rho": r["holdout_rho"], "p_value": r["p_value"],
+        "baseline_rho": r["baseline_rho"], "n_holdout": r["n_holdout"],
+        "verdict": r["verdict"],
+    }
 
-    _v = ", ".join(f"+{h}D" for h in r["validated_horizons"]) or "none"
-    _d = ", ".join(f"+{h}D" for h in r["descriptive_horizons"])
-    st.caption(
-        f"Development rho {r['dev_rho']:+.3f} · holdout {r['holdout_rho']:+.3f}. "
-        f"The verdict is computed on **{_v}** — the horizons this holdout can support. "
-        + (f"**{_d}** are shown below but not validated: forward windows overlap, so a "
-           f"{r['n_holdout']:,}-row holdout carries too few independent windows at that "
-           "length to separate them from chance. " if _d else "")
-        + "Nothing is fitted to the holdout; it is scored once, after the fact."
-    )
+    margin = (r["holdout_rho"] - r["baseline_rho"]
+              if np.isfinite(r["baseline_rho"]) else float("nan"))
+    p_ok = r["p_value"] <= val.GATE_MAX_P_VALUE
+    enough = r["independent_windows"] >= val.MIN_INDEPENDENT_WINDOWS
 
-    section_divider()
+    # ── 1 · TRUST ─────────────────────────────────────────────────────────
     render_section_header(
-        title="Rho by Horizon",
-        description="Where the signal lives — held-out window · * = descriptive, not validated",
-        icon="bar-chart",
-        accent="cyan",
+        "Out-of-Sample Verdict",
+        "Spearman rho on a window the engine had no part in shaping, scored once "
+        "after the fact against a permutation null and against the no-engine "
+        "baseline.",
+        icon="shield",
+        accent="emerald",
     )
+    render_kpi_strip([
+        {"label": "Holdout rho", "value": fmt.rho(r["holdout_rho"]),
+         "subtext": f"{r['n_holdout']:,} rows from {r['holdout_start']}",
+         "color_class": "success" if r["holdout_rho"] > 0 else "danger", "icon": "target"},
+        {"label": "Significance", "value": f"p {fmt.pvalue(r['p_value'])}",
+         "subtext": f"vs {r['n_permutations']} circular shifts",
+         "color_class": "success" if p_ok else "danger", "icon": "shield"},
+        {"label": "vs −PE baseline",
+         "value": fmt.rho(margin) if np.isfinite(margin) else "—",
+         "subtext": f"baseline {fmt.rho(r['baseline_rho'])} · no engine",
+         "color_class": "success" if np.isfinite(margin) and margin > 0.02 else "warning",
+         "icon": "zap"},
+        {"label": "Development rho", "value": fmt.rho(r["dev_rho"]),
+         "subtext": "in-sample, for contrast", "color_class": "neutral", "icon": "chart"},
+        {"label": "Indep. windows", "value": fmt.num(r["independent_windows"], 1),
+         "subtext": f"gate at {val.MIN_INDEPENDENT_WINDOWS:.0f}",
+         "color_class": "success" if enough else "warning", "icon": "layers"},
+        {"label": "Verdict", "value": r["verdict"],
+         "subtext": "on validated horizons",
+         "color_class": _verdict_tone(r["verdict"]), "icon": "check-circle"},
+    ], max_cols=6)
 
-    per = {int(k): float(v) for k, v in r["per_horizon"].items()}
-    hs = sorted(per)
-    validated = set(r["validated_horizons"])
-    # Validated horizons solid; descriptive ones dimmed, so the chart cannot
-    # be read as claiming more than the test established.
-    colors = [
-        (C_EMERALD if per[h] > 0 else C_ROSE) if h in validated
-        else ("rgba(45,212,168,0.35)" if per[h] > 0 else "rgba(232,85,90,0.35)")
-        for h in hs
-    ]
-    fig = go.Figure(go.Bar(
-        x=[f"+{h}D{'' if h in validated else ' *'}" for h in hs], y=[per[h] for h in hs],
-        marker_color=colors,
-        text=[f"{per[h]:+.3f}" for h in hs], textposition="outside",
-        hovertemplate="%{x}<br>rho %{y:.3f}<extra></extra>",
-    ))
-    fig.add_hline(y=0, line_color="rgba(148,163,184,0.4)", line_width=1)
-    # Font, margin, grid, hover, legend and crosshair all come from the
-    # registered template. Only the structural bits are declared here.
-    fig.update_layout(
-        height=chart_height("sm"),
-        showlegend=False,
-        hovermode="closest",          # categorical bars, not a time series
-        xaxis=dict(showgrid=False),
-        yaxis=dict(title=dict(text="Spearman rho")),
-    )
-    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-    st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    section_divider()
+    # ── 2 · ANCHOR ────────────────────────────────────────────────────────
+    validated = ", ".join(f"+{h}D" for h in r["validated_horizons"]) or "none"
+    descriptive = ", ".join(f"+{h}D" for h in r["descriptive_horizons"])
 
     if r["verdict"] == val.VERDICT_EDGE:
         body = (
-            f"Mood Score ranks forward NIFTY returns on held-out data with mean Spearman "
-            f"<strong>rho {r['holdout_rho']:+.3f}</strong> across {len(hs)} horizons "
-            f"(<strong>p = {r['p_value']:.3f}</strong> against {r['n_permutations']} "
-            "circularly shifted copies of itself). The relationship strengthens with "
-            "horizon — this is a positioning signal measured in months, not days.<br><br>"
-            f"<strong>What it is not.</strong> The negated PE ratio alone — no engine, no "
-            f"percentiles, no correlations — scores <strong>{r['baseline_rho']:+.3f}</strong> "
-            "on the same window. Most of the edge belongs to the valuation anchor, not to "
-            "the five-layer pipeline. The engine's contribution is a bounded, comparable "
-            "score and its diagnostics, not additional rank information."
+            f"Mood Score ranks forward NIFTY returns on held-out data with mean "
+            f"Spearman <strong>rho {r['holdout_rho']:+.3f}</strong> across "
+            f"{len(r['per_horizon'])} horizons, at <strong>p "
+            f"{fmt.pvalue(r['p_value'])}</strong> against {r['n_permutations']} "
+            "circularly shifted copies of itself. The relationship strengthens with "
+            "horizon: this is a positioning signal measured in months, not days."
+            "<br><br><strong>What it is not.</strong> The negated PE ratio alone — no "
+            "engine, no percentiles, no correlations — scores "
+            f"<strong>{r['baseline_rho']:+.3f}</strong> on the same window. Most of "
+            "the edge belongs to the valuation anchor, not to the five-layer "
+            "pipeline. The engine's contribution is a bounded, comparable score and "
+            "its diagnostics, not additional rank information — which is why the "
+            "conviction chain on Overview carries the margin over this baseline as a "
+            "gate of its own."
         )
-        render_interpretation_card("Edge Confirmed — with a caveat worth reading", body, color="success")
+        render_interpretation_card("Edge confirmed — with a caveat worth reading",
+                                   body, color="success")
     elif r["verdict"] == val.VERDICT_INSUFFICIENT:
         body = (
             f"The holdout spans {r['independent_windows']:.1f} independent "
-            f"{max(r['horizons'])}-day windows; at least {val.MIN_INDEPENDENT_WINDOWS:.0f} are "
-            "needed before a verdict means anything. Forward windows overlap, so a short "
-            "holdout carries far fewer independent observations than it has rows. "
-            "No verdict is issued rather than a guess."
+            f"{max(r['horizons'])}-day windows; at least "
+            f"{val.MIN_INDEPENDENT_WINDOWS:.0f} are needed before a verdict means "
+            "anything. Forward windows overlap, so a short holdout carries far fewer "
+            "independent observations than it has rows. No verdict is issued rather "
+            "than a guess."
         )
-        render_interpretation_card("Insufficient Data to Validate", body, color="warning")
+        render_interpretation_card("Insufficient data to validate", body, color="warning")
     else:
         body = (
-            f"Holdout rho {r['holdout_rho']:+.3f} at p = {r['p_value']:.3f} — not "
-            "distinguishable from a circularly shifted copy of the same signal. On this "
-            "data and this predictor set the score carries no demonstrable forward "
-            "information. Try a longer history or a different predictor set."
+            f"Holdout rho {r['holdout_rho']:+.3f} at p {fmt.pvalue(r['p_value'])} — not "
+            "distinguishable from a circularly shifted copy of the same signal. On "
+            "this data and this predictor set the score carries no demonstrable "
+            "forward information. Drivers ranks the universe by the same quality "
+            "shape the engine weights with; a different predictor set is the next "
+            "thing to try."
         )
-        render_interpretation_card("No Demonstrable Edge", body, color="danger")
+        render_interpretation_card("No demonstrable edge", body, color="danger")
+
+    render_note(
+        f"The verdict is computed on <strong>{validated}</strong> — the horizons this "
+        f"holdout can support."
+        + (f" <strong>{descriptive}</strong> are shown below but not validated: a "
+           f"{r['n_holdout']:,}-row holdout carries too few independent windows at "
+           "that length to separate them from chance." if descriptive else "")
+        + " Nothing is fitted to the holdout; it is scored once, after the fact.")
+
+    # ── 3 · DETAIL ────────────────────────────────────────────────────────
+    render_section_header(
+        "Rho by Horizon",
+        "Where the signal lives. Bars for horizons the holdout cannot validate are "
+        "dimmed, so the chart cannot be read as claiming more than the test "
+        "established.",
+        icon="bar-chart",
+        accent="cyan",
+    )
+    per = {int(k): float(v) for k, v in r["per_horizon"].items()}
+    hs = sorted(per)
+    validated_set = set(r["validated_horizons"])
+    colours = [
+        (chart_color("emerald") if per[h] > 0 else chart_color("rose"))
+        if h in validated_set
+        else (chart_rgba("emerald", 0.30) if per[h] > 0 else chart_rgba("rose", 0.30))
+        for h in hs
+    ]
+    fig = go.Figure(go.Bar(
+        x=[f"+{h}D{'' if h in validated_set else ' *'}" for h in hs],
+        y=[per[h] for h in hs], marker_color=colours, width=0.55,
+        text=[f"{per[h]:+.3f}" for h in hs], textposition="outside",
+        hovertemplate="%{x}  rho %{y:.3f}<extra></extra>"))
+    fig.add_hline(y=0, line_color=grid_rgba(0.11), line_width=1)
+    fig.update_layout(**chart_layout(height=320, show_legend=False))
+    fig.update_layout(hovermode="closest")
+    style_axes(fig, y_title="Spearman rho")
+
+    render_chart_panel(
+        fig, key="val-horizons",
+        context=f"Held-out window · validated {validated}",
+        chip=(r["verdict"].upper(), _verdict_tone(r["verdict"])),
+        footer="Asterisk marks a descriptive, unvalidated horizon.",
+    )
+    render_table_panel(
+        pd.DataFrame([{"Horizon": f"+{h}D", "Holdout rho": per[h],
+                       "Status": "Validated" if h in validated_set else "Descriptive"}
+                      for h in hs]),
+        key="val-horizon-table", label_col="Horizon",
+        context="One row per evaluated forward window",
+        sign_color_cols={"Holdout rho"}, precision=3, max_height=240,
+    )

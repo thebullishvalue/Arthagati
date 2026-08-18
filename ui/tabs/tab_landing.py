@@ -1,252 +1,197 @@
 """
-Arthagati landing page — three system cards + methodology + awaiting-data prompt.
-Mirrors Nishkarsh's tab_landing structure & visual fidelity.
+Arthagati — cold start: a description of the product, built from the product's
+own parts.
+
+Every block here uses the same components the analysis pages use — a section
+header for each division, ``render_kpi_strip`` for the coverage numbers, and
+``panel()`` for each system — so the landing page sits on the same
+section-rhythm contract as everything else and cannot drift into reading like
+a different product's marketing page bolted to the front of this one.
+
+The claim leads, because a reader who has not run anything needs to know what
+the thing IS before they are shown what it covers.
 """
 
 from __future__ import annotations
 
+import html as html_mod
+
 import streamlit as st
 
+from config import (
+    CORR_HALF_LIFE,
+    CORR_REBALANCE_PERIOD,
+    KALMAN_HALF_LIFE,
+    MSF_OB_LEVEL_1,
+    MSF_OB_LEVEL_2,
+    PCT_HALF_LIFE,
+    PREDICTOR_PROFILES,
+    PROFILE_MEASUREMENT_CONTEXT,
+    SIMILAR_MIN_SEPARATION,
+    SIMILAR_W_MAHA,
+    SIMILAR_W_RECV,
+    SIMILAR_W_TRAJ,
+)
 from ui.components import (
+    panel,
     render_header,
+    render_kpi_strip,
+    render_notice_rail,
     render_section_header,
-    render_system_card,
-    render_metric_card,
-    render_landing_prompt,
-    render_interpretation_card,
-    section_gap,
+)
+
+#: The three engines, as the cold-start screen describes them. Data, not
+#: markup — the landing page renders them through one template, so the three
+#: panels cannot drift apart in structure the way three hand-written HTML
+#: blocks would.
+#:
+#: The order is the order of the argument: MOOD makes the claim, MSF says
+#: whether to believe it, PRECEDENT checks both against history without
+#: depending on either being right.
+_SYSTEM_PANELS = (
+    ("mood", "MOOD", "The claim · valuation",
+     "Scores where the market sits against its own recent history, anchored to the PE "
+     "ratio and Earnings Yield, through five causal layers: decay-weighted rank "
+     "correlation, an entropy penalty on noisy inputs, a decay-weighted percentile, an "
+     "Ornstein-Uhlenbeck fit, and a Kalman filter. It moves AGAINST recent price by "
+     "construction — cheap scores high — so a falling score during a rally is the "
+     "instrument working, not failing.",
+     (("Weights", f"Decay-Spearman · {CORR_HALF_LIFE}d half-life"),
+      ("Normalisation", "Ornstein-Uhlenbeck"),
+      ("Filter", f"Kalman · {KALMAN_HALF_LIFE}d fading memory"))),
+
+    ("msf", "MSF", "The confirmation · oscillator",
+     "Four components — momentum, structure, regime and flow — blended by inverse "
+     "variance and auto-calibrated, built to be independent of the score above. That "
+     "independence is the point: when the two disagree, the disagreement is "
+     "information rather than an error, and it is the constraint that most often caps "
+     "conviction.",
+     (("Components", "Momentum · Structure · Regime · Flow"),
+      ("Weights", "Inverse-variance, auto-calibrated"),
+      ("Bands", f"±{MSF_OB_LEVEL_2:.0f} / ±{MSF_OB_LEVEL_1:.0f}, fixed"))),
+
+    ("precedent", "PRECEDENT", "The check · historical analogs",
+     "Finds the days whose market state most resembles the current one by Mahalanobis "
+     "distance and trajectory shape, under a minimum-separation window so each match is "
+     "a distinct episode rather than an adjacent day of the same one. It is the only "
+     "read in the app that does not depend on the engine being right.",
+     ((f"Distance", f"Mahalanobis · {SIMILAR_W_MAHA:.0%}"),
+      ("Shape", f"Trajectory cosine · {SIMILAR_W_TRAJ:.0%}"),
+      ("Separation", f"{SIMILAR_MIN_SEPARATION} trading days minimum"))),
+)
+
+#: What a completed run puts on the screen. Four static cards, so ONE markdown
+#: block rather than four Streamlit containers — static text gains nothing from
+#: a container and loses something real to it, since the anonymous row
+#: Streamlit wraps markdown in does not grow to fit its content and each panel
+#: clips its own last line by a different amount. A grid of plain divs has no
+#: wrapper to collapse.
+_OUTCOMES = (
+    ("A directional claim",
+     "One verdict, with the six gates that condition it and the single binding "
+     "constraint named — the specific reason conviction is not higher."),
+    ("A measured edge",
+     "Holdout Spearman rho against a permutation null, and against the negated PE "
+     "ratio: the same claim with no engine at all. The margin between them is a gate, "
+     "not a footnote."),
+    ("An independent check",
+     "A forward-return base rate from the most similar historical states, reported "
+     "with its own spread so a thin sample cannot read as agreement."),
+    ("The evidence",
+     "Every candidate predictor's correlation, entropy and coverage, ranked by the "
+     "same quality shape the engine weights with — including the ones it rejected."),
 )
 
 
-def render_landing_page(version: str, n_predictors: int) -> None:
-    """Informational landing page shown before analysis starts."""
+def render_landing_page(version: str, n_predictors: int, sheet_configured: bool) -> None:
+    ctx = PROFILE_MEASUREMENT_CONTEXT
 
-    # ── Masthead ────────────────────────────────────────────────────
     render_header(
-        title="Arthagati",
-        tagline="Ornstein-Uhlenbeck  ·  Kalman  ·  Decay-Spearman  ·  Adaptive Percentiles  |  Valuation-Anchored Market Positioning",
+        "ARTHAGATI",
+        "Valuation-Anchored Sentiment · Ornstein-Uhlenbeck · Kalman · Walk-Forward Spearman",
     )
 
-    section_gap()
+    # A missing data source is a caveat on everything below it, so it renders
+    # in the app's own notice grammar, under the masthead rather than over it.
+    if not sheet_configured:
+        render_notice_rail([{
+            "kind": "warning",
+            "title": "Data source not configured",
+            "body": "<code>ARTHAGATI_SHEET_ID</code> and <code>ARTHAGATI_SHEET_GID</code> "
+                    "are unset, so a run will fail at ingestion. Point them at the "
+                    "spreadsheet ID and worksheet GID of a sheet readable through the "
+                    "Google Visualization API, then restart.",
+        }])
 
-    # ── Three system feature cards ──────────────────────────────────
-    col1, col2, col3 = st.columns(3, gap="small")
-    with col1:
-        render_system_card(
-            title="Historical Mood",
-            description=(
-                "Full sentiment timeline with OU forward projection, Kalman confidence "
-                "bands, and a WaveTrend oscillator on a TradingView-style chart."
-            ),
-            specs=[
-                ("Range:", "Mood Score −100 → +100"),
-                ("Confirmation:", "MSF Spread oscillator"),
-                ("Projection:", "90-day OU mean-reversion"),
-            ],
-            card_class="mood",
-            icon="chart",
-        )
-    with col2:
-        render_system_card(
-            title="Similar Periods",
-            description=(
-                "Historical analog matching against the full dataset with forward-return "
-                "outcomes, aggregate win-rates, and a backtest scatter."
-            ),
-            specs=[
-                ("Distance:", "Mahalanobis (55%)"),
-                ("Shape:", "Trajectory cosine (35%)"),
-                ("Separation:", "20 trading days minimum"),
-            ],
-            card_class="similar",
-            icon="search",
-        )
-    with col3:
-        render_system_card(
-            title="Correlation Analysis",
-            description=(
-                "Full transparency into which variables drive the score and which are "
-                "noise, ranked by the engine's own quality formula."
-            ),
-            specs=[
-                ("Anchors:", "PE  &  Earnings Yield"),
-                ("Method:", "Decay-Spearman + Entropy"),
-                ("Output:", "Keep / Useful / Weak"),
-            ],
-            card_class="corr",
-            icon="file-text",
-        )
+    # ── The proposition ───────────────────────────────────────────────────
+    st.markdown(
+        """<div class="lede">
+  <div class="lede-claim">One score prices market sentiment against its own
+    history, a second instrument says whether to believe it, and a held-out
+    test says whether either has ever been worth anything.</div>
+  <div class="lede-cta">Press <strong>Run Analysis</strong> in the rail.</div>
+</div>""",
+        unsafe_allow_html=True,
+    )
 
-    section_gap()
+    # ── Coverage — the app's own KPI grammar, not a bespoke number row ─────
+    render_section_header("Coverage", icon="layers")
+    render_kpi_strip(
+        [
+            {"label": "Predictor Profiles", "value": str(len(PREDICTOR_PROFILES)),
+             "subtext": "Each carrying the out-of-sample correlation it actually "
+                        "achieved on the reference sheet, alongside the no-engine "
+                        "baseline it has to beat"},
+            {"label": "Default Predictors", "value": str(n_predictors),
+             "subtext": "Macro, breadth and valuation series. NIFTY-derived columns are "
+                        "withheld — using one would make the score a function of the "
+                        "price it is scored against"},
+            {"label": "Daily History Per Run", "value": "~20y",
+             "subtext": f"Walk-forward throughout: statistics for a segment are "
+                        f"estimated on data through the previous checkpoint, "
+                        f"rebalanced every {CORR_REBALANCE_PERIOD} days"},
+        ],
+        max_cols=3,
+        key="landing-coverage",
+    )
 
-    # ── Methodology — three coloured interpretation cards ──────────
+    # ── The three engines, as panels ──────────────────────────────────────
     render_section_header(
-        title="Analysis Methodology",
-        description="Physics-informed scoring pipeline · confirmation · regime detection",
+        "Systems",
+        "Three readings of the same market, in the order the argument runs.",
         icon="cpu",
     )
+    cols = st.columns(3, gap="small")
+    for col, (cls, name, kicker, body, specs) in zip(cols, _SYSTEM_PANELS):
+        with col:
+            with panel(f"landing-{cls}", name, context=kicker):
+                st.markdown(
+                    f'<div class="panel-copy">{html_mod.escape(body)}</div>'
+                    '<div class="panel-specs">'
+                    + "".join(
+                        f'<div class="lookback-row"><span class="lbl">{html_mod.escape(k)}</span>'
+                        f'<span class="val">{html_mod.escape(v)}</span></div>'
+                        for k, v in specs
+                    )
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
 
-    m1, m2, m3 = st.columns(3, gap="small")
-    with m1:
-        render_interpretation_card(
-            title="Mood Engine — 5 Layers",
-            body=(
-                "<ul style='margin:0; padding-left:1.1rem; line-height:1.8;'>"
-                "<li><strong>Decay-Spearman</strong> correlations, walk-forward (504d half-life)</li>"
-                "<li><strong>Entropy weighting</strong> — noisy variables suppressed</li>"
-                "<li><strong>Adaptive percentiles</strong> — decay-weighted CDF</li>"
-                "<li><strong>OU normalisation</strong> → [−100, +100]</li>"
-                "<li><strong>Kalman smoothing</strong> + ±1.96σ band</li>"
-                "</ul>"
-            ),
-            color="success",
-        )
-    with m2:
-        render_interpretation_card(
-            title="MSF Spread — Confirmation",
-            body=(
-                "<ul style='margin:0; padding-left:1.1rem; line-height:1.8;'>"
-                "<li><strong>Momentum</strong> — NIFTY ROC z-score (14d)</li>"
-                "<li><strong>Structure</strong> — mood trend divergence</li>"
-                "<li><strong>Flow</strong> — breadth participation</li>"
-                "<li><strong>Regime</strong> — adaptive directional count</li>"
-                "<li><strong>Weights</strong> — inverse-variance (Markowitz)</li>"
-                "</ul>"
-            ),
-            color="info",
-        )
-    with m3:
-        render_interpretation_card(
-            title="Regime Detection",
-            body=(
-                "<ul style='margin:0; padding-left:1.1rem; line-height:1.8;'>"
-                "<li><strong>Trending</strong> — momentum strategies favoured</li>"
-                "<li><strong>Volatile Trend</strong> — directional with swings</li>"
-                "<li><strong>Mean-Reverting</strong> — contrarian strategies</li>"
-                "<li><strong>Choppy</strong> — reduce size, avoid</li>"
-                "<li><strong>Output</strong> — diagnostic only; never feeds the score</li>"
-                "</ul>"
-            ),
-            color="warning",
-        )
-
-    section_gap()
-
-    # ── Mood score interpretation zones ─────────────────────────────
+    # ── What a run returns ────────────────────────────────────────────────
     render_section_header(
-        title="Mood Score Interpretation",
-        description="What the score measures, and which way to read it",
+        "What a run returns",
+        f"Measured on the reference sheet {ctx['measured_date']}: "
+        f"{ctx['rows']:,} rows spanning {ctx['span']}, holdout {ctx['holdout']}, "
+        f"validated on {ctx['validated_on']} against {ctx['permutations']} permutations.",
         icon="target",
-        accent="cyan",
     )
-
-    render_interpretation_card(
-        title="Read this first — the score is a valuation gauge, not a sentiment gauge",
-        body=(
-            "The Mood Score is anchored to <strong>PE and Earnings Yield</strong>. A cheap "
-            "market scores <strong>high</strong>; an expensive one scores <strong>low</strong>. "
-            "It therefore moves <em>against</em> recent price action — measured on NIFTY "
-            "2006–2026, the score correlates <strong>−0.54</strong> with the trailing 60-day "
-            "return.<br><br>"
-            "That is the intended behaviour, and it is where the score's value lies: over the "
-            "same twenty years the mean forward 250-day NIFTY return was "
-            "<strong>+19.7%</strong> following readings above +20, against <strong>+5.9%</strong> "
-            "following readings below −20 (Spearman +0.22).<br><br>"
-            "The practical consequence: a high score during a sell-off is the signal working, "
-            "not a contradiction. In October 2008 the score read <strong>+21 to +39</strong> "
-            "while NIFTY fell 25%; through the 2020–21 melt-up it read <strong>−36 to −15</strong>. "
-            "Do not read it as a momentum or trend-following indicator."
-        ),
-        color="warning",
-    )
-
-    section_gap()
-
-    z1, z2, z3 = st.columns(3, gap="small")
-    with z1:
-        render_interpretation_card(
-            title="Constructive Zone (> +20)",
-            body=(
-                "Valuation is cheap against its own recent history — forward returns have "
-                "historically been strongest here. Favours <strong>accumulation</strong>. "
-                "At extremes (&gt; +45, <strong>Very Bullish</strong>) the market is usually "
-                "in or just past a drawdown."
-            ),
-            color="success",
+    st.markdown(
+        '<div class="outcome-grid">'
+        + "".join(
+            f'<div class="outcome"><div class="o-t">{html_mod.escape(t)}</div>'
+            f'<div class="o-d">{html_mod.escape(d)}</div></div>'
+            for t, d in _OUTCOMES
         )
-    with z2:
-        render_interpretation_card(
-            title="Neutral Zone (−20 to +20)",
-            body=(
-                "Valuation is near its recent norm and carries little directional "
-                "information. Use the MSF Spread, WaveTrend and Similar Periods for "
-                "context rather than leaning on the score alone."
-            ),
-            color="info",
-        )
-    with z3:
-        render_interpretation_card(
-            title="Expensive Zone (&lt; −20)",
-            body=(
-                "Valuation is stretched against its own recent history — forward returns "
-                "have historically been weakest here. Favours <strong>defensive</strong> "
-                "positioning. At extremes (&lt; −45, <strong>Very Bearish</strong>) the "
-                "market has usually just run hard."
-            ),
-            color="danger",
-        )
-
-    section_gap()
-
-    # ── System coverage strip ───────────────────────────────────────
-    render_section_header(
-        title="System Coverage",
-        description="Anchors · predictors · mathematical primitives",
-        icon="layers",
-        accent="violet",
-    )
-
-    c1, c2, c3, c4, c5 = st.columns(5, gap="small")
-    with c1:
-        render_metric_card("Score Anchors", "2", "PE · Earnings Yield", color_class="neutral")
-    with c2:
-        render_metric_card("Predictors", f"{n_predictors}", "Macro + breadth vars", color_class="neutral")
-    with c3:
-        render_metric_card("Math Primitives", "11", "Pure NumPy functions", color_class="neutral")
-    with c4:
-        render_metric_card("OU Projection", "90d", "Forward reversion path", color_class="neutral")
-    with c5:
-        render_metric_card("Analog Returns", "4", "5 · 20 · 60 · 90 day", color_class="neutral")
-
-    section_gap()
-
-    # ── Awaiting-data prompt ────────────────────────────────────────
-    render_interpretation_card(
-        title="What has been measured",
-        body=(
-            "On this sheet — NIFTY, 2006–2026 — the Mood Score ranks forward returns on a "
-            "held-out window (2021–2026, never used to build or select anything) with mean "
-            "Spearman <strong>rho +0.54</strong>, <strong>p = 0.005</strong> against 200 "
-            "circularly shifted copies of itself. The edge is real and it is measured, not "
-            "asserted.<br><br>"
-            "<strong>Where it comes from.</strong> The negated PE ratio alone — no engine at "
-            "all — scores <strong>+0.53</strong> on the same window. Most of the edge belongs "
-            "to the valuation anchor. The five-layer pipeline contributes a bounded, "
-            "comparable score and its diagnostics rather than additional forecasting power. "
-            "Read the Signal Validation view for the full measurement."
-        ),
-        color="info",
-    )
-
-    section_gap()
-
-    render_landing_prompt(
-        title="Awaiting Run",
-        body_html=(
-            "Click <strong>Run Analysis</strong> in the sidebar to fetch live data from Google Sheets "
-            "and execute the full 5-layer sentiment pipeline. Once loaded, switch between "
-            "<strong>Historical Mood</strong>, <strong>Similar Periods</strong>, "
-            "<strong>Correlation Analysis</strong>, and <strong>Signal Validation</strong> "
-            "views — or tune the active predictor set in <strong>Model Configuration</strong>."
-        ),
+        + "</div>",
+        unsafe_allow_html=True,
     )
