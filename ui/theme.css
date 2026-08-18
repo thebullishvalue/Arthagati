@@ -33,21 +33,21 @@
     /* 48 */
 
     /* ---- Surfaces ---- */
-    --bg-deep: #050810;
-    --bg-base: #0A0E17;
-    --bg-elevated: #111827;
-    --bg-surface: #151C2C;
-    --glass: rgba(17, 24, 39, 0.45);
-    --glass-hover: rgba(21, 28, 44, 0.65);
-    --border: rgba(255, 255, 255, 0.05);
-    --border-active: rgba(212, 168, 83, 0.35);
-    --border-subtle: rgba(255, 255, 255, 0.03);
+    --bg-deep: #0E131F;
+    --bg-base: #141A28;
+    --bg-elevated: #1B2233;
+    --bg-surface: #232C40;
+    --glass: rgba(27, 34, 51, 0.55);
+    --glass-hover: rgba(35, 44, 64, 0.72);
+    --border: rgba(255, 255, 255, 0.13);
+    --border-active: rgba(212, 168, 83, 0.45);
+    --border-subtle: rgba(255, 255, 255, 0.08);
 
     /* ---- Ink ---- */
     --ink-primary: #F1F5F9;
-    --ink-secondary: #94A3B8;
-    --ink-tertiary: #4B5563;
-    --ink-inverse: #0A0E17;
+    --ink-secondary: #9BAABF;
+    --ink-tertiary: #7D8795;
+    --ink-inverse: #0E131F;
 
     /* ---- Accent palette — Terminal Glass ---- */
     --amber: #D4A853;
@@ -63,7 +63,7 @@
     --rose: #E8555A;
     --rose-glow: rgba(232, 85, 90, 0.2);
     --rose-bright: #F07075;
-    --violet: #8B5CF6;
+    --violet: #9364FE;
     --violet-glow: rgba(139, 92, 246, 0.2);
     --orange: #F59E0B;
     --orange-glow: rgba(245, 158, 11, 0.2);
@@ -75,8 +75,8 @@
     --data: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
 
     /* ---- Card shared variables (DRY) ---- */
-    --card-base: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-base-hover: linear-gradient(145deg, var(--glass-hover) 0%, rgba(21, 28, 44, 0.5) 100%);
+    --card-base: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
+    --card-base-hover: linear-gradient(145deg, var(--glass-hover) 0%, rgba(35, 44, 64, 0.5) 100%);
     --card-border-default: var(--border);
 
     /* ---- Radius ---- */
@@ -256,7 +256,7 @@ footer {
     letter-spacing: -0.03em;
     color: var(--ink-primary);
     margin: 0 0 0.5rem 0;
-    text-shadow: 0 0 40px var(--amber-glow);
+    text-shadow: 0 0 20px var(--amber-glow);
     position: relative;
 }
 
@@ -275,7 +275,7 @@ footer {
 
 .premium-header .tagline {
     font-family: var(--data);
-    font-size: 0.7rem;
+    font-size: 0.750rem;
     font-weight: 500;
     color: var(--amber-dim);
     text-transform: uppercase;
@@ -550,7 +550,7 @@ footer {
 
 .section-hdr .text .desc {
     font-family: var(--data);
-    font-size: 0.68rem;
+    font-size: 0.744rem;
     color: var(--ink-secondary);
     margin-top: 0.2rem;
     line-height: 1.4;
@@ -654,7 +654,7 @@ footer {
 }
 
 .system-card {
-    background: linear-gradient(135deg, var(--glass) 0%, rgba(17, 24, 39, 0.35) 100%);
+    background: linear-gradient(135deg, var(--glass) 0%, rgba(27, 34, 51, 0.35) 100%);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
@@ -777,7 +777,7 @@ footer {
 }
 
 .system-card:hover {
-    background: linear-gradient(135deg, var(--glass-hover) 0%, rgba(21, 28, 44, 0.55) 100%);
+    background: linear-gradient(135deg, var(--glass-hover) 0%, rgba(35, 44, 64, 0.55) 100%);
     border-color: var(--border-active);
     transform: translateY(-4px);
     box-shadow:
@@ -833,7 +833,7 @@ footer {
    paragraph wraps to a different number of lines. */
 .system-card .spec {
     font-family: var(--data);
-    font-size: 0.68rem;
+    font-size: 0.744rem;
     color: var(--ink-tertiary);
     line-height: 2;
     border-top: 1px solid var(--border);
@@ -1070,7 +1070,7 @@ footer {
 .metric-card h4 {
     font-family: var(--data);
     color: var(--ink-tertiary);
-    font-size: 0.62rem;
+    font-size: 0.726rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -1113,7 +1113,7 @@ footer {
 /* Equal-height columns defined above — DRY, single source */
 .metric-card .sub-metric {
     font-family: var(--data);
-    font-size: 0.68rem;
+    font-size: 0.744rem;
     color: var(--ink-secondary);
     margin: 0;
     line-height: 1.4;
@@ -1152,9 +1152,9 @@ footer {
     --card-accent: var(--emerald);
     --card-glow: var(--emerald-glow);
     --card-value: var(--emerald-bright);
-    --card-bg: linear-gradient(145deg, rgba(45, 212, 168, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
+    --card-bg: linear-gradient(145deg, rgba(45, 212, 168, 0.04) 0%, rgba(27, 34, 51, 0.4) 100%);
     --card-border: rgba(45, 212, 168, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(45, 212, 168, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
+    --card-bg-hover: linear-gradient(145deg, rgba(45, 212, 168, 0.08) 0%, rgba(35, 44, 64, 0.5) 100%);
 }
 
 .metric-card.success::before {
@@ -1162,7 +1162,7 @@ footer {
 }
 
 .metric-card.success h2 {
-    text-shadow: 0 0 20px var(--emerald-glow);
+    text-shadow: 0 0 10px var(--emerald-glow);
 }
 
 .metric-card.success:hover::after {
@@ -1173,9 +1173,9 @@ footer {
     --card-accent: var(--rose);
     --card-glow: var(--rose-glow);
     --card-value: var(--rose-bright);
-    --card-bg: linear-gradient(145deg, rgba(232, 85, 90, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
+    --card-bg: linear-gradient(145deg, rgba(232, 85, 90, 0.04) 0%, rgba(27, 34, 51, 0.4) 100%);
     --card-border: rgba(232, 85, 90, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(232, 85, 90, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
+    --card-bg-hover: linear-gradient(145deg, rgba(232, 85, 90, 0.08) 0%, rgba(35, 44, 64, 0.5) 100%);
 }
 
 .metric-card.danger::before {
@@ -1183,7 +1183,7 @@ footer {
 }
 
 .metric-card.danger h2 {
-    text-shadow: 0 0 20px var(--rose-glow);
+    text-shadow: 0 0 10px var(--rose-glow);
 }
 
 .metric-card.danger:hover::after {
@@ -1194,9 +1194,9 @@ footer {
     --card-accent: var(--amber);
     --card-glow: var(--amber-glow);
     --card-value: var(--amber-bright);
-    --card-bg: linear-gradient(145deg, rgba(212, 168, 83, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
+    --card-bg: linear-gradient(145deg, rgba(212, 168, 83, 0.04) 0%, rgba(27, 34, 51, 0.4) 100%);
     --card-border: rgba(212, 168, 83, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(212, 168, 83, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
+    --card-bg-hover: linear-gradient(145deg, rgba(212, 168, 83, 0.08) 0%, rgba(35, 44, 64, 0.5) 100%);
 }
 
 .metric-card.warning::before {
@@ -1204,7 +1204,7 @@ footer {
 }
 
 .metric-card.warning h2 {
-    text-shadow: 0 0 20px var(--amber-glow);
+    text-shadow: 0 0 10px var(--amber-glow);
 }
 
 .metric-card.warning:hover::after {
@@ -1215,9 +1215,9 @@ footer {
     --card-accent: var(--cyan);
     --card-glow: var(--cyan-glow);
     --card-value: var(--cyan);
-    --card-bg: linear-gradient(145deg, rgba(6, 182, 212, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
+    --card-bg: linear-gradient(145deg, rgba(6, 182, 212, 0.04) 0%, rgba(27, 34, 51, 0.4) 100%);
     --card-border: rgba(6, 182, 212, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(6, 182, 212, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
+    --card-bg-hover: linear-gradient(145deg, rgba(6, 182, 212, 0.08) 0%, rgba(35, 44, 64, 0.5) 100%);
 }
 
 .metric-card.info::before {
@@ -1225,7 +1225,7 @@ footer {
 }
 
 .metric-card.info h2 {
-    text-shadow: 0 0 20px var(--cyan-glow);
+    text-shadow: 0 0 10px var(--cyan-glow);
 }
 
 .metric-card.info:hover::after {
@@ -1236,9 +1236,9 @@ footer {
     --card-accent: var(--violet);
     --card-glow: var(--violet-glow);
     --card-value: var(--violet);
-    --card-bg: linear-gradient(145deg, rgba(139, 92, 246, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
+    --card-bg: linear-gradient(145deg, rgba(139, 92, 246, 0.04) 0%, rgba(27, 34, 51, 0.4) 100%);
     --card-border: rgba(139, 92, 246, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(139, 92, 246, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
+    --card-bg-hover: linear-gradient(145deg, rgba(139, 92, 246, 0.08) 0%, rgba(35, 44, 64, 0.5) 100%);
 }
 
 .metric-card.violet::before {
@@ -1246,7 +1246,7 @@ footer {
 }
 
 .metric-card.violet h2 {
-    text-shadow: 0 0 20px var(--violet-glow);
+    text-shadow: 0 0 10px var(--violet-glow);
 }
 
 .metric-card.violet:hover::after {
@@ -1286,7 +1286,7 @@ footer {
     background: var(--bg-elevated);
     color: var(--ink-primary);
     font-family: var(--data);
-    font-size: 0.7rem;
+    font-size: 0.750rem;
     line-height: 1.5;
     padding: var(--sp-2) var(--sp-3);
     border-radius: var(--r-sm);
@@ -1378,9 +1378,9 @@ footer {
 .signal-card.undervalued {
     --card-accent: var(--emerald);
     --card-glow: var(--emerald-glow);
-    --card-bg: linear-gradient(145deg, rgba(45, 212, 168, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
+    --card-bg: linear-gradient(145deg, rgba(45, 212, 168, 0.04) 0%, rgba(27, 34, 51, 0.4) 100%);
     --card-border: rgba(45, 212, 168, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(45, 212, 168, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
+    --card-bg-hover: linear-gradient(145deg, rgba(45, 212, 168, 0.08) 0%, rgba(35, 44, 64, 0.5) 100%);
 }
 
 /* Variant tints — rose (sell/overvalued) */
@@ -1388,9 +1388,9 @@ footer {
 .signal-card.overvalued {
     --card-accent: var(--rose);
     --card-glow: var(--rose-glow);
-    --card-bg: linear-gradient(145deg, rgba(232, 85, 90, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
+    --card-bg: linear-gradient(145deg, rgba(232, 85, 90, 0.04) 0%, rgba(27, 34, 51, 0.4) 100%);
     --card-border: rgba(232, 85, 90, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(232, 85, 90, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
+    --card-bg-hover: linear-gradient(145deg, rgba(232, 85, 90, 0.08) 0%, rgba(35, 44, 64, 0.5) 100%);
 }
 
 /* Variant tints — amber (hold/fair) */
@@ -1398,9 +1398,9 @@ footer {
 .signal-card.fair {
     --card-accent: var(--amber);
     --card-glow: var(--amber-glow);
-    --card-bg: linear-gradient(145deg, rgba(212, 168, 83, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
+    --card-bg: linear-gradient(145deg, rgba(212, 168, 83, 0.04) 0%, rgba(27, 34, 51, 0.4) 100%);
     --card-border: rgba(212, 168, 83, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(212, 168, 83, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
+    --card-bg-hover: linear-gradient(145deg, rgba(212, 168, 83, 0.08) 0%, rgba(35, 44, 64, 0.5) 100%);
 }
 
 @keyframes cardIn {
@@ -1417,7 +1417,7 @@ footer {
 
 .signal-card .label {
     font-family: var(--data);
-    font-size: 0.62rem;
+    font-size: 0.726rem;
     text-transform: uppercase;
     letter-spacing: 0.14em;
     color: var(--ink-tertiary);
@@ -1439,7 +1439,7 @@ footer {
 
 .signal-card .subtext {
     font-family: var(--data);
-    font-size: 0.72rem;
+    font-size: 0.756rem;
     color: var(--ink-secondary);
     line-height: 1.6;
 }
@@ -1468,7 +1468,7 @@ footer {
     padding: 0.3rem 0.8rem;
     border-radius: var(--r-sm);
     font-family: var(--data);
-    font-size: 0.68rem;
+    font-size: 0.744rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -1514,7 +1514,7 @@ footer {
     font-family: var(--display);
     color: var(--cyan);
     margin: 0 0 var(--sp-2) 0;
-    font-size: 0.68rem;
+    font-size: 0.744rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -1571,7 +1571,7 @@ footer {
     justify-content: space-between;
     align-items: baseline;
     font-family: var(--data);
-    font-size: 0.6rem;
+    font-size: 0.720rem;
     line-height: 1.8;
 }
 
@@ -1580,12 +1580,12 @@ footer {
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-size: 0.55rem;
+    font-size: 0.705rem;
 }
 
 .spec-value {
     color: var(--ink-secondary);
-    font-size: 0.6rem;
+    font-size: 0.720rem;
     font-weight: 400;
     text-align: right;
 }
@@ -1652,7 +1652,7 @@ footer {
 
 .regime-sub {
     font-family: var(--data);
-    font-size: 0.7rem;
+    font-size: 0.750rem;
     color: var(--ink-secondary);
     margin-bottom: var(--sp-3);
 }
@@ -1754,7 +1754,7 @@ footer {
 
 .interp-title {
     font-family: var(--display);
-    font-size: 0.68rem;
+    font-size: 0.744rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -1960,7 +1960,7 @@ footer {
 
 .sidebar-title {
     font-family: var(--display);
-    font-size: 0.68rem;
+    font-size: 0.744rem;
     font-weight: 700;
     color: var(--ink-tertiary);
     text-transform: uppercase;
@@ -1973,7 +1973,7 @@ footer {
 .stDateInput input,
 .stSelectbox>div>div,
 .stSelectbox select {
-    background: rgba(10, 14, 23, 0.6) !important;
+    background: rgba(14, 19, 31, 0.6) !important;
     border: 1px solid var(--border) !important;
     border-radius: 8px !important;
     color: var(--ink-primary) !important;
@@ -1995,7 +1995,7 @@ footer {
     border-radius: var(--r-md);
     overflow: hidden;
     border: 1px solid var(--border);
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
 }
@@ -2006,10 +2006,10 @@ footer {
 }
 
 [data-testid="stDataFrame"] th {
-    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%) !important;
+    background: linear-gradient(180deg, rgba(14, 19, 31, 0.95) 0%, rgba(14, 19, 31, 0.85) 100%) !important;
     color: var(--ink-tertiary) !important;
     font-family: var(--data) !important;
-    font-size: 0.62rem !important;
+    font-size: 0.726rem !important;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     font-weight: 600;
@@ -2039,7 +2039,7 @@ footer {
     border-radius: var(--r-md);
     overflow: hidden;
     border: 1px solid var(--border);
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
 }
@@ -2053,9 +2053,9 @@ footer {
 
 /* Header row */
 .portfolio-table thead th {
-    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%);
+    background: linear-gradient(180deg, rgba(14, 19, 31, 0.95) 0%, rgba(14, 19, 31, 0.85) 100%);
     color: var(--ink-tertiary);
-    font-size: 0.62rem;
+    font-size: 0.726rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -2165,7 +2165,7 @@ footer {
 }
 
 .position-card {
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     border: 1px solid var(--border);
@@ -2189,7 +2189,7 @@ footer {
 }
 
 .position-card:hover {
-    background: linear-gradient(145deg, var(--glass-hover) 0%, rgba(21, 28, 44, 0.5) 100%);
+    background: linear-gradient(145deg, var(--glass-hover) 0%, rgba(35, 44, 64, 0.5) 100%);
     border-color: rgba(255, 255, 255, 0.1);
     transform: translateX(4px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
@@ -2326,7 +2326,7 @@ footer {
     gap: 0.3rem;
     padding: 0.3rem 0.75rem;
     border-radius: 20px;
-    font-size: 0.72rem;
+    font-size: 0.756rem;
     font-weight: 600;
     font-family: var(--data);
     position: relative;
@@ -2380,7 +2380,7 @@ footer {
 
 .position-signal-label {
     font-family: var(--data);
-    font-size: 0.6rem;
+    font-size: 0.720rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -2488,10 +2488,10 @@ footer {
 }
 
 .stMarkdown table th {
-    background: rgba(10, 14, 23, 0.9) !important;
+    background: rgba(14, 19, 31, 0.9) !important;
     color: var(--ink-tertiary) !important;
     font-family: var(--data) !important;
-    font-size: 0.65rem !important;
+    font-size: 0.735rem !important;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-weight: 600;
@@ -2543,7 +2543,7 @@ footer {
 
 .progress-sub {
     font-family: var(--data);
-    font-size: 0.68rem;
+    font-size: 0.744rem;
     color: var(--ink-tertiary);
     margin-top: 0.35rem;
 }
@@ -2564,7 +2564,7 @@ footer {
 
 .progress-pct {
     text-align: right;
-    font-size: 0.65rem;
+    font-size: 0.735rem;
     color: var(--ink-tertiary);
     margin-top: 0.35rem;
     font-family: var(--data);
@@ -2603,7 +2603,7 @@ footer {
    ================================================================ */
 .landing-prompt {
     background:
-        linear-gradient(135deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%),
+        linear-gradient(135deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%),
         radial-gradient(circle at 25% 25%, rgba(212, 168, 83, 0.05) 0%, transparent 50%),
         radial-gradient(circle at 75% 75%, rgba(34, 211, 238, 0.03) 0%, transparent 50%);
     backdrop-filter: blur(12px);
@@ -2704,7 +2704,7 @@ footer {
 
 .app-footer .content {
     font-family: var(--data);
-    font-size: 0.65rem;
+    font-size: 0.735rem;
     color: var(--ink-tertiary);
     letter-spacing: 0.04em;
 }
@@ -2868,7 +2868,7 @@ footer {
     font-weight: 700;
     text-transform: uppercase;
     font-family: var(--display);
-    font-size: 0.72rem;
+    font-size: 0.756rem;
     letter-spacing: 0.08em;
 }
 
@@ -2945,7 +2945,7 @@ footer {
     align-items: center;
     gap: var(--sp-2);
     font-family: var(--data);
-    font-size: 0.65rem;
+    font-size: 0.735rem;
     color: var(--ink-secondary);
     transition: all 200ms ease;
 }
@@ -2983,7 +2983,7 @@ footer {
     border-radius: var(--r-md);
     padding: var(--sp-3) var(--sp-4);
     font-family: var(--data);
-    font-size: 0.62rem;
+    font-size: 0.726rem;
     color: var(--ink-tertiary);
     opacity: 0;
     transform: translateY(8px);
@@ -3004,7 +3004,7 @@ footer {
     border-radius: 3px;
     padding: 1px 5px;
     font-family: var(--data);
-    font-size: 0.58rem;
+    font-size: 0.714rem;
     color: var(--ink-secondary);
     margin: 0 2px;
 }
@@ -3055,7 +3055,7 @@ footer {
 
 .sidebar-hint-label {
     font-family: var(--data);
-    font-size: 0.6rem;
+    font-size: 0.720rem;
     color: var(--amber-dim);
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -3081,7 +3081,7 @@ footer {
    ================================================================ */
 .timeframe-btn {
     font-family: var(--data) !important;
-    font-size: 0.72rem !important;
+    font-size: 0.756rem !important;
     font-weight: 500 !important;
     letter-spacing: 0.06em;
     padding: 0.45rem 0 !important;
@@ -3137,12 +3137,12 @@ footer {
 [data-testid="stDataFrame"] .dataframe-search {
     padding: var(--sp-3) var(--sp-4);
     border-bottom: 1px solid var(--border);
-    background: rgba(10, 14, 23, 0.4);
+    background: rgba(14, 19, 31, 0.4);
 }
 
 [data-testid="stDataFrame"] .dataframe-search input {
     width: 100%;
-    background: rgba(10, 14, 23, 0.6);
+    background: rgba(14, 19, 31, 0.6);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--ink-primary);
@@ -3237,7 +3237,7 @@ footer {
     }
 
     .premium-header .tagline {
-        font-size: 0.6rem;
+        font-size: 0.720rem;
     }
 
     .section-hdr .text h3 {
@@ -3313,7 +3313,7 @@ footer {
     }
 
     .stTabs [data-baseweb="tab"] {
-        font-size: 0.65rem;
+        font-size: 0.735rem;
         padding: 10px 0;
     }
 
@@ -3748,10 +3748,10 @@ footer {
 }
 
 .portfolio-table-2col thead th {
-    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%);
+    background: linear-gradient(180deg, rgba(14, 19, 31, 0.95) 0%, rgba(14, 19, 31, 0.85) 100%);
     color: var(--ink-tertiary);
     font-family: var(--display);
-    font-size: 0.62rem;
+    font-size: 0.726rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -3794,7 +3794,7 @@ div[data-multi-file-uploader] > div {
 }
 
 .iw-delta {
-    font-size: 0.65rem;
+    font-size: 0.735rem;
     font-weight: 400;
     opacity: 0.7;
     margin-left: 0.25rem;
@@ -3805,7 +3805,7 @@ div[data-multi-file-uploader] > div {
     text-align: right;
     margin-top: var(--sp-2);
     color: var(--ink-tertiary);
-    font-size: 0.7rem;
+    font-size: 0.750rem;
     font-family: var(--data);
     letter-spacing: 0.04em;
 }
@@ -3879,17 +3879,17 @@ div[data-multi-file-uploader] > div {
     text-transform: uppercase;
     letter-spacing: 0.14em;
     color: var(--emerald);
-    text-shadow: 0 0 24px var(--emerald-glow);
+    text-shadow: 0 0 12px var(--emerald-glow);
 }
 
 .intel-method-pill {
     font-family: var(--data);
-    font-size: 0.68rem;
+    font-size: 0.744rem;
     color: var(--ink-secondary);
     padding: 0.35rem 0.85rem;
     border: 1px solid var(--border);
     border-radius: 999px;
-    background: rgba(10, 14, 23, 0.5);
+    background: rgba(14, 19, 31, 0.5);
     letter-spacing: 0.04em;
 }
 
@@ -3925,7 +3925,7 @@ div[data-multi-file-uploader] > div {
 .intel-method-tile {
     position: relative;
     overflow: hidden;
-    background: rgba(10, 14, 23, 0.45);
+    background: rgba(14, 19, 31, 0.45);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     padding: var(--sp-4);
@@ -3933,7 +3933,7 @@ div[data-multi-file-uploader] > div {
 }
 
 .intel-method-tile:hover {
-    background: rgba(10, 14, 23, 0.65);
+    background: rgba(14, 19, 31, 0.65);
     border-color: rgba(255, 255, 255, 0.1);
     transform: translateY(-2px);
 }
@@ -3965,7 +3965,7 @@ div[data-multi-file-uploader] > div {
 
 .intel-method-tile .tile-label {
     font-family: var(--display);
-    font-size: 0.62rem;
+    font-size: 0.726rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -3976,7 +3976,7 @@ div[data-multi-file-uploader] > div {
 
 .intel-method-tile .tile-body {
     color: var(--ink-secondary);
-    font-size: 0.74rem;
+    font-size: 0.762rem;
     line-height: 1.65;
     font-family: var(--data);
 }
@@ -3992,7 +3992,7 @@ div[data-multi-file-uploader] > div {
     padding: 0.08rem 0.4rem;
     border-radius: var(--r-sm);
     font-family: var(--data);
-    font-size: 0.72rem;
+    font-size: 0.756rem;
     letter-spacing: 0.02em;
 }
 
@@ -4267,7 +4267,7 @@ div[data-multi-file-uploader] > div {
     .metric-tooltip-text {
         max-width: 200px;
         right: -40px;
-        font-size: 0.6rem;
+        font-size: 0.720rem;
     }
 }
 
@@ -4290,7 +4290,7 @@ div[data-multi-file-uploader] > div {
     }
 
     .premium-header .tagline {
-        font-size: 0.55rem !important;
+        font-size: 0.705rem !important;
     }
 
     /* Reduce card minimum heights in landscape */
@@ -4335,15 +4335,15 @@ div[data-multi-file-uploader] > div {
     }
 
     .spec-row {
-        font-size: 0.55rem !important;
+        font-size: 0.705rem !important;
     }
 
     .spec-label {
-        font-size: 0.5rem !important;
+        font-size: 0.690rem !important;
     }
 
     .spec-value {
-        font-size: 0.55rem !important;
+        font-size: 0.705rem !important;
     }
 }
 
@@ -4368,11 +4368,11 @@ div[data-multi-file-uploader] > div {
     }
 
     .system-card p {
-        font-size: 0.7rem !important;
+        font-size: 0.750rem !important;
     }
 
     .system-card .spec {
-        font-size: 0.6rem !important;
+        font-size: 0.720rem !important;
     }
 
     /* Metric cards minimal */
@@ -4382,7 +4382,7 @@ div[data-multi-file-uploader] > div {
     }
 
     .metric-card h4 {
-        font-size: 0.55rem !important;
+        font-size: 0.705rem !important;
     }
 
     .metric-card h2 {
@@ -4462,7 +4462,7 @@ div[data-multi-file-uploader] > div {
 [data-testid="stFileUploadDropzone"] small {
     font-family: var(--data) !important;
     color: var(--ink-tertiary) !important;
-    font-size: 0.58rem !important;
+    font-size: 0.714rem !important;
     text-transform: uppercase !important;
     letter-spacing: 0.06em !important;
     margin-top: -0.15rem !important;
@@ -4477,7 +4477,7 @@ div[data-multi-file-uploader] > div {
     font-family: var(--data) !important;
     text-transform: uppercase !important;
     letter-spacing: 0.12em !important;
-    font-size: 0.68rem !important;
+    font-size: 0.744rem !important;
     font-weight: 600 !important;
     padding: 0.4rem 1.2rem !important;
     border-radius: var(--r-sm) !important;
@@ -4523,7 +4523,7 @@ div[data-multi-file-uploader] > div {
     border-radius: 10px;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.05);
-    background: linear-gradient(145deg, rgba(17, 24, 39, 0.45) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, rgba(27, 34, 51, 0.45) 0%, rgba(27, 34, 51, 0.4) 100%);
 }
 
 .kv-table {
@@ -4532,9 +4532,9 @@ div[data-multi-file-uploader] > div {
 }
 
 .kv-table thead th {
-    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%);
-    color: #4B5563;
-    font-size: 0.62rem;
+    background: linear-gradient(180deg, rgba(14, 19, 31, 0.95) 0%, rgba(14, 19, 31, 0.85) 100%);
+    color: var(--ink-tertiary);
+    font-size: 0.726rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -4853,7 +4853,7 @@ div[data-multi-file-uploader] > div {
 
 .analog-eyebrow {
     font-family: var(--data);
-    font-size: 0.56rem;
+    font-size: 0.708rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.18em;
@@ -4886,7 +4886,7 @@ div[data-multi-file-uploader] > div {
 
 .analog-stat-label {
     font-family: var(--data);
-    font-size: 0.56rem;
+    font-size: 0.708rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -4905,17 +4905,17 @@ div[data-multi-file-uploader] > div {
 
 .analog-stat-value.amber {
     color: var(--amber-bright);
-    text-shadow: 0 0 18px var(--amber-glow);
+    text-shadow: 0 0 9px var(--amber-glow);
 }
 
 .analog-stat-value.pos {
     color: var(--emerald-bright);
-    text-shadow: 0 0 16px var(--emerald-glow);
+    text-shadow: 0 0 8px var(--emerald-glow);
 }
 
 .analog-stat-value.neg {
     color: var(--rose-bright);
-    text-shadow: 0 0 16px var(--rose-glow);
+    text-shadow: 0 0 8px var(--rose-glow);
 }
 
 .analog-stat-value.neutral {
@@ -4929,7 +4929,7 @@ div[data-multi-file-uploader] > div {
 
 .analog-fwd-block-label {
     font-family: var(--data);
-    font-size: 0.56rem;
+    font-size: 0.708rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -4991,14 +4991,14 @@ div[data-multi-file-uploader] > div {
 .analog-fwd-tile.pos {
     --tile-accent: var(--emerald);
     --tile-glow: var(--emerald-glow);
-    background: linear-gradient(145deg, rgba(45, 212, 168, 0.05) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, rgba(45, 212, 168, 0.05) 0%, rgba(27, 34, 51, 0.4) 100%);
     border-color: rgba(45, 212, 168, 0.18);
 }
 
 .analog-fwd-tile.neg {
     --tile-accent: var(--rose);
     --tile-glow: var(--rose-glow);
-    background: linear-gradient(145deg, rgba(232, 85, 90, 0.05) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, rgba(232, 85, 90, 0.05) 0%, rgba(27, 34, 51, 0.4) 100%);
     border-color: rgba(232, 85, 90, 0.18);
 }
 
@@ -5008,7 +5008,7 @@ div[data-multi-file-uploader] > div {
 
 .analog-fwd-label {
     font-family: var(--data);
-    font-size: 0.55rem;
+    font-size: 0.705rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -5039,7 +5039,7 @@ div[data-multi-file-uploader] > div {
 
 .analog-foot-label {
     font-family: var(--data);
-    font-size: 0.56rem;
+    font-size: 0.708rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -5054,7 +5054,7 @@ div[data-multi-file-uploader] > div {
 
 .analog-foot-pct {
     font-family: var(--data);
-    font-size: 0.7rem;
+    font-size: 0.750rem;
     font-weight: 700;
     color: var(--ink-secondary);
     font-variant-numeric: tabular-nums;
@@ -5140,12 +5140,12 @@ div[data-multi-file-uploader] > div {
 
 .corr-card-val.pos {
     color: var(--emerald-bright);
-    text-shadow: 0 0 14px var(--emerald-glow);
+    text-shadow: 0 0 7px var(--emerald-glow);
 }
 
 .corr-card-val.neg {
     color: var(--rose-bright);
-    text-shadow: 0 0 14px var(--rose-glow);
+    text-shadow: 0 0 7px var(--rose-glow);
 }
 
 .corr-card-bar {
@@ -5155,7 +5155,7 @@ div[data-multi-file-uploader] > div {
 
 .corr-card-tier {
     font-family: var(--data);
-    font-size: 0.55rem;
+    font-size: 0.705rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.16em;
@@ -5214,7 +5214,7 @@ div[data-multi-file-uploader] > div {
 
 .qual-card-rank {
     font-family: var(--data);
-    font-size: 0.65rem;
+    font-size: 0.735rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     color: var(--ink-tertiary);
@@ -5257,7 +5257,7 @@ div[data-multi-file-uploader] > div {
 
 .qual-stat-label {
     font-family: var(--data);
-    font-size: 0.54rem;
+    font-size: 0.702rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -5276,7 +5276,7 @@ div[data-multi-file-uploader] > div {
 .qual-card-active {
     justify-self: end;
     font-family: var(--data);
-    font-size: 0.62rem;
+    font-size: 0.726rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -5330,7 +5330,7 @@ div[data-multi-file-uploader] > div {
     border-radius: var(--r-md);
     overflow: hidden;
     border: 1px solid var(--border);
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
     backdrop-filter: blur(8px);
 }
 
@@ -5342,9 +5342,9 @@ div[data-multi-file-uploader] > div {
 }
 
 .weights-table thead th {
-    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%);
+    background: linear-gradient(180deg, rgba(14, 19, 31, 0.95) 0%, rgba(14, 19, 31, 0.85) 100%);
     color: var(--ink-tertiary);
-    font-size: 0.6rem;
+    font-size: 0.720rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -5407,7 +5407,7 @@ div[data-multi-file-uploader] > div {
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
     margin-bottom: var(--sp-2);
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     transition: border-color 200ms ease;
@@ -5419,7 +5419,7 @@ div[data-multi-file-uploader] > div {
 
 .importance-key {
     font-family: var(--data);
-    font-size: 0.74rem;
+    font-size: 0.762rem;
     font-weight: 600;
     color: var(--ink-primary);
     letter-spacing: 0.01em;
@@ -5446,7 +5446,7 @@ div[data-multi-file-uploader] > div {
 
 .importance-val {
     font-family: var(--data);
-    font-size: 0.72rem;
+    font-size: 0.756rem;
     font-weight: 700;
     color: var(--ink-secondary);
     font-variant-numeric: tabular-nums;
@@ -5459,7 +5459,7 @@ div[data-multi-file-uploader] > div {
     border-radius: var(--r-md);
     overflow: hidden;
     border: 1px solid var(--border);
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
     backdrop-filter: blur(8px);
     padding: var(--sp-2) var(--sp-4);
 }
@@ -5516,7 +5516,7 @@ div[data-multi-file-uploader] > div {
 
 .feature-rank {
     font-family: var(--data);
-    font-size: 0.65rem;
+    font-size: 0.735rem;
     font-weight: 700;
     color: var(--ink-tertiary);
     background: rgba(255, 255, 255, 0.04);
@@ -5550,7 +5550,7 @@ div[data-multi-file-uploader] > div {
 
 .feature-card-key {
     font-family: var(--data);
-    font-size: 0.6rem;
+    font-size: 0.720rem;
     color: var(--ink-tertiary);
     letter-spacing: 0.04em;
 }
@@ -5568,12 +5568,12 @@ div[data-multi-file-uploader] > div {
 
 .feature-card-value.pos {
     color: var(--emerald-bright);
-    text-shadow: 0 0 18px var(--emerald-glow);
+    text-shadow: 0 0 9px var(--emerald-glow);
 }
 
 .feature-card-value.neg {
     color: var(--rose-bright);
-    text-shadow: 0 0 18px var(--rose-glow);
+    text-shadow: 0 0 9px var(--rose-glow);
 }
 
 .feature-card-value.neutral { color: var(--ink-secondary); }
@@ -5590,7 +5590,7 @@ div[data-multi-file-uploader] > div {
 
 .feature-card-bar-label {
     font-family: var(--data);
-    font-size: 0.56rem;
+    font-size: 0.708rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -5631,7 +5631,7 @@ div[data-multi-file-uploader] > div {
 
 .feature-card-bar-pct {
     font-family: var(--data);
-    font-size: 0.7rem;
+    font-size: 0.750rem;
     font-weight: 700;
     color: var(--ink-secondary);
     font-variant-numeric: tabular-nums;
@@ -5649,7 +5649,7 @@ div[data-multi-file-uploader] > div {
 }
 
 .profile-stat {
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+    background: linear-gradient(145deg, var(--glass) 0%, rgba(27, 34, 51, 0.4) 100%);
     backdrop-filter: blur(8px);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
@@ -5680,7 +5680,7 @@ div[data-multi-file-uploader] > div {
 
 .profile-stat-label {
     font-family: var(--data);
-    font-size: 0.56rem;
+    font-size: 0.708rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -5702,7 +5702,7 @@ div[data-multi-file-uploader] > div {
 
 .profile-stat-sub {
     font-family: var(--data);
-    font-size: 0.62rem;
+    font-size: 0.726rem;
     color: var(--ink-tertiary);
     margin-top: var(--sp-2);
     letter-spacing: 0.04em;
@@ -5726,7 +5726,7 @@ div[data-multi-file-uploader] > div {
 .profile-table .value.sub {
     color: var(--ink-tertiary);
     font-family: var(--data);
-    font-size: 0.72rem;
+    font-size: 0.756rem;
     font-style: italic;
     letter-spacing: 0.02em;
 }

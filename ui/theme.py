@@ -5,7 +5,7 @@ Arthagati — Shared CSS, chart theming, and colour constants.
 UI thesis: "Obsidian Quant" Institutional Research Terminal.
 - Display/UI:  Space Grotesk (geometric, authoritative)
 - Body/Data:   JetBrains Mono / IBM Plex Mono (tabular precision)
-- Palette:     Obsidian (#0A0E17 -> #050810) backgrounds,
+- Palette:     Obsidian (#141A28 -> #0E131F) backgrounds, tuned to WCAG AA
                Amber Gold (#D4A853), Cyan, Emerald, Rose accents
 - Surfaces:    Frameless glass panels, thin border strokes
 """
@@ -29,7 +29,7 @@ C_EMERALD       = "#2DD4A8"
 C_EMERALD_BRIGHT = "#6EE7C8"
 C_ROSE          = "#E8555A"
 C_ROSE_BRIGHT   = "#F07075"
-C_VIOLET        = "#8B5CF6"
+C_VIOLET        = "#9364FE"
 C_ORANGE        = "#F59E0B"
 C_SLATE_WARM    = "#8B7E6A"
 
@@ -37,20 +37,20 @@ C_SLATE_WARM    = "#8B7E6A"
 C_PRIMARY = C_AMBER
 C_GREEN   = C_EMERALD
 C_RED     = C_ROSE
-C_MUTED   = "#4B5563"
+C_MUTED   = "#7D8795"
 C_TEXT    = "#F1F5F9"
-C_BG_DEEP = "#050810"
-C_BG_BASE = "#0A0E17"
-C_BG_CARD = "#111827"
-C_BG_GRID = "rgba(255,255,255,0.035)"
+C_BG_DEEP = "#0E131F"
+C_BG_BASE = "#141A28"
+C_BG_CARD = "#1B2233"
+C_BG_GRID = "rgba(255,255,255,0.07)"
 
 # Path to external CSS file
 CSS_PATH = Path(__file__).parent / "theme.css"
 
 # ── Shared Plotly layout configuration ───────────────────────────────────────
-PLOTLY_FONT = dict(family="JetBrains Mono, monospace", color="#94A3B8", size=10)
+PLOTLY_FONT = dict(family="JetBrains Mono, monospace", color="#9BAABF", size=11)
 PLOTLY_HOVERLABEL = dict(
-    bgcolor="rgba(10, 14, 23, 0.95)",
+    bgcolor="rgba(27, 34, 51, 0.97)",
     font=dict(family="JetBrains Mono, monospace", size=11, color="#F1F5F9"),
     bordercolor="rgba(255,255,255,0.08)",
     align="left",
@@ -65,8 +65,8 @@ PLOTLY_LEGEND = dict(
     bgcolor="rgba(0,0,0,0)",
 )
 PLOTLY_MARGIN = dict(t=20, l=50, r=20, b=40)
-PLOTLY_GRID = "rgba(255,255,255,0.035)"
-PLOTLY_GRID_ZERO = "rgba(255,255,255,0.06)"
+PLOTLY_GRID = "rgba(255,255,255,0.07)"
+PLOTLY_GRID_ZERO = "rgba(255,255,255,0.14)"
 
 # ── Crosshair ────────────────────────────────────────────────────────────────
 # Full crosshair: the x-axis spike draws the vertical line, the y-axis spike
@@ -81,7 +81,7 @@ PLOTLY_GRID_ZERO = "rgba(255,255,255,0.06)"
 # Both spikes render under `hovermode="x unified"`, so the unified tooltip is
 # kept (verified against plotly.js 5.24: the y-axis spike is emitted as a
 # horizontal <line> in unified, closest and x hover modes alike).
-PLOTLY_SPIKE_COLOR = "rgba(148,163,184,0.18)"
+PLOTLY_SPIKE_COLOR = "rgba(155,170,191,0.38)"
 
 PLOTLY_SPIKE_X: dict = dict(
     showspikes=True,
@@ -154,7 +154,7 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
         zeroline=False,
         linecolor="rgba(255,255,255,0.04)",
         title_text=x_title,
-        tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
+        tickfont=dict(size=10, family="JetBrains Mono, monospace", color="#9BAABF"),
         **PLOTLY_SPIKE_X,
         **kw,
     )
@@ -168,7 +168,7 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
         linecolor="rgba(255,255,255,0.04)",
         title_text=y_title,
         range=y_range,
-        tickfont=dict(size=9, family="JetBrains Mono, monospace", color="#64748B"),
+        tickfont=dict(size=10, family="JetBrains Mono, monospace", color="#9BAABF"),
         hoverformat=".2f",
         **PLOTLY_SPIKE_Y,
         **kw,
