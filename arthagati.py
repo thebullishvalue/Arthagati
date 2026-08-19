@@ -2543,9 +2543,7 @@ def main():
     def _page_overview() -> None:
         _shell()
         _safe("Overview", lambda: render_overview(
-            mood_df, msf_df, verdict=verdict, timeframes=TIMEFRAMES,
-            tf=st.session_state.get("tf_selected", "1Y"),
-            periods=_periods, data_age=data_age))
+            mood_df, verdict=verdict, data_age=data_age))
         _render_footer()
 
     def _page_mood() -> None:
