@@ -963,6 +963,11 @@
 @media (max-width: 640px) {
     .kpi-grid { grid-template-columns: minmax(0, 1fr); }
 }
+/* A strip and the panel under it are usually two views of ONE thing — four
+   medians as cards, the whole distribution as a table. At the page column's
+   16px gap they read as a single block with a seam through it. The extra 8px
+   is the smallest step that separates them without breaking the section. */
+.kpi-grid { margin-bottom: var(--s2); }
 
 /* ── Analog grid ──────────────────────────────────────────────────────────
    Same call, same reason: the analog cards are static HTML, so the set is one
@@ -2146,10 +2151,31 @@
     margin-left: auto;
 }
 .panel-foot {
-    padding: var(--s2) var(--s4) var(--s3);
+    padding: var(--s3) var(--s4);
     border-top: 1px solid var(--line-faint);
     font-family: var(--mono); font-size: var(--fs-3xs);
     color: var(--ink-quaternary); line-height: 1.6;
+    /* The panel clips at `overflow: hidden`, and the footer is its LAST
+       child — so anything the wrapper above it under-reports comes off the
+       bottom of this text, which is where the last line's descenders live.
+       Symmetric padding plus the min-height below means the block always
+       states a height that contains its own copy. */
+    min-height: fit-content;
+    overflow: visible;
+}
+/* The footer's wrapper chain, told not to collapse. Same failure as the
+   panel body's — Streamlit's anonymous flex row inside stMarkdown sizes to
+   its own idea of the content and will not grow — but with a worse symptom:
+   a body that collapses scrolls, a footer that collapses is CUT, because the
+   panel's own bottom edge lands inside the text. */
+[class*="st-key-panel-"] [data-testid="stElementContainer"]:has(.panel-foot),
+[class*="st-key-panel-"] [data-testid="stMarkdown"]:has(.panel-foot),
+[class*="st-key-panel-"] [data-testid="stMarkdown"]:has(.panel-foot) > div,
+[class*="st-key-panel-"] [data-testid="stMarkdownContainer"]:has(.panel-foot) {
+    height: auto !important;
+    min-height: fit-content !important;
+    flex: 0 0 auto !important;
+    overflow: visible !important;
 }
 
 /* The chart itself carries no chrome — the panel around it does. Without
@@ -2412,6 +2438,118 @@
 .lookback-row .val.long  { color: var(--long); }
 .lookback-row .val.short { color: var(--short); }
 .lookback-row .val.flat  { color: var(--ink-tertiary); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   13B · NATIVE WIDGET SURFACES — claimed from OUR tokens
+   .streamlit/config.toml declares BOTH [theme.light] and [theme.dark], and
+   Streamlit hands BaseWeb whichever one it resolves from the BROWSER's colour
+   preference — not from this app's Paper/Slate toggle, which lives in session
+   state and cannot be read from a static TOML. On a dark-preference machine in
+   Paper mode that produced a near-black pill with near-white text sitting on a
+   white rail (measured: #0F1217 on #E6EAF1 — the Slate ramp, exactly); on a
+   light-preference machine in Slate mode it is the mirror image.
+
+   Every rule below repaints the control from `var(--token)`, so whichever
+   variant Streamlit resolved stops mattering and the widget follows the
+   appearance the user actually chose. This is the durable fix the note in
+   config.toml points at, and it is what lets that file stop mattering.
+
+   Painted BROADLY and with !important on purpose. BaseWeb composes each
+   control from several nested divs, and which one carries the fill has moved
+   between Streamlit versions — naming a single level is how this broke. The
+   outer face takes the ground; every inner container is forced transparent, so
+   a deeper rule (LIGHT_TOKENS refines the select's well on Paper) cannot end
+   up painting a second, differently-coloured box inside the first.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ---- Select and multiselect: the face ---- */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+.stSelectbox [data-baseweb="select"] > div,
+.stMultiSelect [data-baseweb="select"] > div {
+    background: var(--bg) !important;
+    color: var(--ink) !important;
+    border-color: var(--line-strong) !important;
+}
+/* ---- …and everything nested inside it ---- */
+[data-baseweb="select"] > div > div,
+[data-baseweb="select"] [data-baseweb="select-value"],
+[data-baseweb="select"] [data-baseweb="input"],
+[data-baseweb="select"] [data-baseweb="input"] > div {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+[data-baseweb="select"] div[value],
+[data-baseweb="select"] span,
+[data-baseweb="select"] input {
+    color: var(--ink) !important;
+    /* -webkit-text-fill-color, not just color: Safari and Chrome paint an
+       input's glyphs from the fill, and a theme that sets one without the
+       other leaves the text its old colour on the new ground. */
+    -webkit-text-fill-color: var(--ink) !important;
+}
+[data-baseweb="select"] svg { color: var(--ink-quaternary) !important; }
+[data-baseweb="tag"] {
+    background: var(--surface-3) !important;
+    color: var(--ink) !important;
+    border-color: var(--line-strong) !important;
+}
+[data-baseweb="tag"] svg { color: var(--ink-tertiary) !important; }
+
+/* ---- Text, number, date, textarea ---- */
+.stTextInput input, .stNumberInput input,
+.stDateInput input, .stTextArea textarea {
+    background: var(--bg) !important;
+    color: var(--ink) !important;
+    -webkit-text-fill-color: var(--ink) !important;
+    border-color: var(--line-strong) !important;
+}
+input::placeholder, textarea::placeholder {
+    color: var(--ink-quaternary) !important;
+    -webkit-text-fill-color: var(--ink-quaternary) !important;
+    opacity: 1;
+}
+
+/* ---- Segmented controls: the window switch and the appearance switch ---- */
+[data-testid="stButtonGroup"] button {
+    background: var(--surface-2) !important;
+    color: var(--ink-tertiary) !important;
+    border-color: var(--line-strong) !important;
+}
+[data-testid="stButtonGroup"] button:hover { color: var(--ink) !important; }
+[data-testid="stButtonGroup"] button[aria-checked="true"],
+[data-testid="stButtonGroup"] button[aria-selected="true"],
+[data-testid="stButtonGroup"] button[data-testid$="Active"] {
+    background: var(--surface-3) !important;
+    color: var(--ink) !important;
+}
+
+/* ---- Portalled layers ----
+   The open menu and every tooltip are rendered at the DOCUMENT root, outside
+   the app tree, so they inherit nothing from it and have to be named at top
+   level or they keep whatever Streamlit resolved. */
+[data-baseweb="popover"] > div,
+[data-baseweb="popover"] ul,
+[data-baseweb="popover"] [data-baseweb="menu"] {
+    background: var(--surface-1) !important;
+    color: var(--ink) !important;
+    border: 1px solid var(--line-strong) !important;
+}
+[data-baseweb="popover"] [role="option"] {
+    background: transparent !important;
+    color: var(--ink-secondary) !important;
+}
+[data-baseweb="popover"] [role="option"]:hover,
+[data-baseweb="popover"] [role="option"][aria-selected="true"] {
+    background: var(--surface-2) !important;
+    color: var(--ink) !important;
+}
+[data-baseweb="tooltip"], [data-baseweb="tooltip"] > div,
+[role="tooltip"], [role="tooltip"] > div {
+    background: var(--surface-3) !important;
+    color: var(--ink) !important;
+    border-color: var(--line-strong) !important;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────
    14 · LAYOUT GRID & RESPONSIVE

@@ -414,14 +414,24 @@ def chart_layout(
     # Legended charts need headroom for the legend anchored above the plot
     # area; unlegended ones should not pay for it.
     _margin = dict(PLOTLY_MARGIN)
+    _legend_y = PLOTLY_LEGEND["y"]
     if show_legend:
         _margin["b"] = 58        # the legend now sits under the x-axis
+        # Anchor the legend a fixed number of PIXELS below the axis, not a
+        # fixed fraction of it. Plotly measures legend `y` in paper units
+        # against the PLOT AREA, so the -0.16 this used to be is 58px on a
+        # 360px chart and 121px on a 760px one — i.e. on every tall figure the
+        # legend rendered below the bottom margin and was clipped by the
+        # figure's own edge. That is the cut-off legend on the three-pane mood
+        # stack. 30px sits inside the 58px gutter at any height.
+        _plot_h = max(height - _margin["t"] - _margin["b"], 1)
+        _legend_y = -(30.0 / _plot_h)
     else:
         _margin["t"] = 12
     base = dict(
         height=height,
         showlegend=show_legend,
-        legend=({**PLOTLY_LEGEND,
+        legend=({**PLOTLY_LEGEND, "y": _legend_y,
                  "font": {**PLOTLY_LEGEND["font"], "color": ct["font_color"]}}
                 if show_legend else None),
         # PAINT THE CANVAS, never leave it transparent.
@@ -472,7 +482,8 @@ _AXIS_TICK_FONT = dict(size=9, family="JetBrains Mono, monospace")
 _AXIS_TITLE_FONT = dict(size=10, family="JetBrains Mono, monospace")
 
 
-def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None, col=None) -> None:
+def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None, col=None,
+               secondary_y=None) -> None:
     """Apply the app's one axis grammar to a Plotly figure.
 
     Ticks and axis titles share the data face at the app's own micro sizes;
@@ -487,6 +498,14 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
         kw["row"] = row
     if col is not None:
         kw["col"] = col
+    # On a row that carries a SECOND y-axis, `update_yaxes(row=…, col=…)`
+    # writes BOTH of them — so a range meant for the mood score lands on the
+    # price axis too and the price trace disappears off the top of the pane.
+    # Passing `secondary_y=False` addresses one axis; the x-axis has no such
+    # pairing, so it is deliberately not given the same kwarg.
+    ykw = dict(kw)
+    if secondary_y is not None:
+        ykw["secondary_y"] = secondary_y
 
     ct = _chart_theme()
     fig.update_xaxes(
@@ -535,7 +554,7 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
         # "-100") puts each row's y-title at a different x — the small
         # misalignment down the left edge of the convergence chart.
         title_standoff=14,
-        **kw,
+        **ykw,
     )
     # ── Crosshair, enforced on EVERY x-axis ──────────────────────────────
     # This is why the white line survived three attempts to style it. The
