@@ -71,8 +71,13 @@ def _fwd_tile(horizon: int, val: float | None) -> str:
             f'<span class="analog-fwd-value">{val:+.1f}%</span></div>')
 
 
-def _render_analog_card(period: dict) -> None:
-    """One analog episode.
+def _analog_card_html(period: dict) -> str:
+    """One analog episode, as markup.
+
+    Returned rather than rendered so the whole set composes into ONE grid: two
+    Streamlit columns of alternating cards only line up while every card is
+    exactly as tall as its partner, and one wrapped date or one missing forward
+    tile ends that.
 
     NOTE on layout: the f-string below has NO blank lines and starts at column
     0. Both rules are load-bearing — Streamlit feeds the string to a CommonMark
@@ -84,9 +89,15 @@ def _render_analog_card(period: dict) -> None:
     sim = float(period["similarity"]) * 100.0
     tier, tone, label, fill = _classify(mood)
     tiles = "".join(_fwd_tile(h, period.get(k)) for h, k in _HORIZONS)
+    # The track count comes from the horizon list, not from the stylesheet.
+    # `.analog-fwd-grid` deliberately declares no `grid-template-columns` —
+    # a grid with none defaults to ONE column, which stacked the four tiles
+    # vertically and turned a compact four-across strip into four full-width
+    # rows. Deriving it here means adding or removing a horizon reflows the
+    # tiles instead of silently leaving a track empty or a tile orphaned.
+    grid_style = f"grid-template-columns:repeat({max(1, len(_HORIZONS))},1fr);"
     mood_cls = "pos" if mood > 0 else "neg" if mood < 0 else ""
-    st.markdown(
-        f"""\
+    return f"""\
 <div class="analog-card {tier}">
   <div class="analog-card-head">
     <div class="analog-card-id">
@@ -111,7 +122,7 @@ def _render_analog_card(period: dict) -> None:
   </div>
   <div class="analog-fwd-block">
     <div class="analog-fwd-block-label">Forward NIFTY return</div>
-    <div class="analog-fwd-grid">{tiles}</div>
+    <div class="analog-fwd-grid" style="{grid_style}">{tiles}</div>
   </div>
   <div class="analog-card-foot">
     <span class="analog-foot-label">Similarity</span>
@@ -119,9 +130,7 @@ def _render_analog_card(period: dict) -> None:
     <span class="analog-foot-pct">{sim:.0f}%</span>
   </div>
 </div>
-""",
-        unsafe_allow_html=True,
-    )
+"""
 
 
 def _distribution(periods: list[dict]) -> pd.DataFrame:
@@ -287,10 +296,12 @@ def render(mood_df, *, periods, backtest_horizon) -> None:
         icon="layers",
         accent="emerald",
     )
-    cols = st.columns(2, gap="small")
-    for i, period in enumerate(periods[:MAX_ANALOG_CARDS]):
-        with cols[i % 2]:
-            _render_analog_card(period)
+    st.markdown(
+        '<div class="analog-grid">'
+        + "".join(_analog_card_html(p) for p in periods[:MAX_ANALOG_CARDS])
+        + "</div>",
+        unsafe_allow_html=True,
+    )
     render_note("Similarity is Mahalanobis distance (55%), trajectory cosine (35%) "
                 "and recency (10%). Forward returns are NIFTY close-to-close and are "
                 "not adjusted for dividends.")
