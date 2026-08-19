@@ -418,23 +418,19 @@ def render_chip(label: str, tone: str = "neutral", *, as_html: bool = False) -> 
     return None
 
 
-def render_metric_card(
+def metric_card_html(
     label: str,
     value: str,
     subtext: str = "",
     color_class: str = "neutral",
     tooltip: str = "",
     icon: str = "",
-) -> None:
-    """Render a terminal-styled metric card with optional tooltip.
+) -> str:
+    """The metric card's markup, as a string.
 
-    Args:
-        label: Card label (rendered uppercase).
-        value: Primary metric value.
-        subtext: Optional secondary description below value.
-        color_class: Semantic color — "neutral", "success", "danger", "warning", "info", "violet".
-        tooltip: Optional hover explanation text.
-        icon: Optional ICONS key — small icon inlined before the label.
+    Split out from ``render_metric_card`` so ``render_kpi_strip`` can compose a
+    whole row into ONE grid rather than one card per Streamlit column — see the
+    note there for why that matters.
     """
     tooltip_html = ""
     if tooltip:
@@ -446,45 +442,87 @@ def render_metric_card(
             f'<span class="metric-tooltip-text">{html_mod.escape(tooltip)}</span>'
             f'</div>'
         )
-
-    sub_metric_html = f'<div class="sub-metric">{html_mod.escape(subtext)}</div>' if subtext else ""
+    sub_html = f'<div class="sub-metric">{html_mod.escape(subtext)}</div>' if subtext else ""
     icon_html = f'<span class="card-icon">{get_icon(icon, size=12)}</span> ' if icon else ""
-    st.markdown(
+    return (
         f'<div class="metric-card {html_mod.escape(color_class)}">'
         f'<span class="label">{icon_html}{html_mod.escape(label)}</span>'
-        f"<h2>{html_mod.escape(value)}</h2>"
-        f"{sub_metric_html}"
-        f"{tooltip_html}"
-        f"</div>",
+        f'<h2>{html_mod.escape(value)}</h2>'
+        f'{sub_html}{tooltip_html}</div>'
+    )
+
+
+def render_metric_card(
+    label: str,
+    value: str,
+    subtext: str = "",
+    color_class: str = "neutral",
+    tooltip: str = "",
+    icon: str = "",
+) -> None:
+    """Render a single metric card.
+
+    For a ROW of them use ``render_kpi_strip``, which lays the set out as one
+    grid so the cards are the same height whatever their copy runs to.
+
+    color_class: "neutral", "accent", "success", "danger", "warning", "info".
+    """
+    st.markdown(
+        metric_card_html(label, value, subtext, color_class, tooltip, icon),
         unsafe_allow_html=True,
     )
 
 
-def render_kpi_strip(items: list[dict], *, max_cols: int = 5, key: str = "kpi-strip") -> None:
-    """Lay out ``render_metric_card`` items in rows of at most ``max_cols``.
+def _grid_steps(n: int, cap: int) -> tuple[int, int]:
+    """Column counts for a set of ``n`` cards: (wide, mid).
 
-    Each item is the keyword set ``render_metric_card`` takes: ``label``,
-    ``value``, and optionally ``subtext``/``color_class``/``tooltip``/
-    ``icon``. Used for the Overview page's KPI row — caps row width so cards
-    never squeeze past legibility (wraps to a second row instead of the
-    6-wide layouts elsewhere in the app that get tight on narrow viewports).
+    Both DIVIDE ``n``, so every row of the grid is full and the set never ends
+    in an orphan. `auto-fit` cannot promise that — it packs as many tracks as
+    fit and leaves the remainder on a row of its own, which is how a six-card
+    strip lands 4 + 2 and a four-card one lands 3 + 1.
+    """
+    divisors = [d for d in range(1, n + 1) if n % d == 0]
+    wide = max([d for d in divisors if d <= cap] or [1])
+    mid = max([d for d in divisors if d < wide and d <= 3] or [1])
+    return wide, mid
+
+
+def render_kpi_strip(items: list[dict], *, max_cols: int = 5, key: str = "kpi-strip") -> None:
+    """Lay out metric cards as ONE grid.
+
+    Each item is the keyword set ``metric_card_html`` takes: ``label``,
+    ``value``, and optionally ``subtext``/``color_class``/``tooltip``/``icon``.
+
+    This was ``st.columns`` + one ``st.markdown`` per card, and the cards came
+    out RAGGED — a value that wrapped to two lines ("Volatile Trend") or a
+    subtext that ran long ("1,246 rows from 2021-08-05") stood its card taller
+    than the five beside it. The equal-height rules in theme.css chain from the
+    column down through every wrapper to the card, and Streamlit inserts an
+    anonymous flex row between ``stMarkdown`` and ``stMarkdownContainer`` that
+    the chain does not name — so the chain broke one level above the card and
+    each one sized to its own content.
+
+    A grid of plain divs has no wrapper to break. The cards are static HTML and
+    gain nothing from a Streamlit container, which is the same call the landing
+    page's system and outcome grids already make. ``align-items: stretch`` and
+    the card's own ``height: 100%`` then make the row uniform by construction.
     """
     if not items:
         return
-    with st.container(key=key):
-        for i in range(0, len(items), max_cols):
-            row = items[i:i + max_cols]
-            cols = st.columns(len(row), gap="small")
-            for c, item in zip(cols, row):
-                with c:
-                    render_metric_card(
-                        label=item.get("label", ""),
-                        value=item.get("value", ""),
-                        subtext=item.get("subtext", ""),
-                        color_class=item.get("color_class", "neutral"),
-                        tooltip=item.get("tooltip", ""),
-                        icon=item.get("icon", ""),
-                    )
+    wide, mid = _grid_steps(len(items), max_cols)
+    cards = "".join(
+        metric_card_html(
+            label=i.get("label", ""), value=i.get("value", ""),
+            subtext=i.get("subtext", ""), color_class=i.get("color_class", "neutral"),
+            tooltip=i.get("tooltip", ""), icon=i.get("icon", ""),
+        )
+        for i in items
+    )
+    st.markdown(
+        f'<div class="kpi-grid" style="--kpi-cols:{wide};--kpi-cols-mid:{mid}">'
+        f'{cards}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_header(title: str, tagline: str) -> None:
@@ -1425,9 +1463,29 @@ def render_data_table(
             tds.append(f'<td class="{cls}">{_value_html(c, row[c])}</td>')
         body_rows.append(f"<tr>{''.join(tds)}</tr>")
 
+    # ── Height arithmetic ────────────────────────────────────────────────
+    # The iframe is a fixed pixel box; anything the table needs beyond it is
+    # CUT, not scrolled, because `scrolling=False` hands the scroll to the
+    # inner div. So the number below has to be exactly right, and it was not:
+    # `row_height=27` was a guess against CSS that actually renders
+    # 0.4rem x 2 padding + 11px/1.5 text + a 1px rule = 30.3px per row. Every
+    # table in the app was therefore short by ~3px per row — half a row on a
+    # five-row table, a whole row on a fifteen-row one, which is exactly the
+    # clipped last line visible on every table surface.
+    #
+    # The fix is to stop guessing: the padding, line box and rule below are
+    # written into the CSS from these same constants, so the height is true by
+    # construction rather than by two numbers happening to agree.
+    _PAD_Y, _LINE_H, _RULE = 6, 17, 1               # body cell
+    _HPAD_Y, _HLINE_H = 8, 13                       # header cell
+    _TOP_PAD = 2                                    # .tt-scroll padding-top
+    row_h = max(row_height, _PAD_Y * 2 + _LINE_H + _RULE)
+    header_h = _HPAD_Y * 2 + _HLINE_H + _RULE
     n_rows = len(view)
-    _HEADER_H = 30                      # sticky header row, matches the CSS above
-    content_h = _HEADER_H + n_rows * row_height + 4
+    # +2 as a rounding guard. Sub-pixel layout can leave a fractional pixel
+    # unaccounted for, and the two failure modes are not symmetric: two pixels
+    # of slack is invisible, two pixels short cuts a row of data in half.
+    content_h = _TOP_PAD + header_h + n_rows * row_h + 2
     iframe_h = min(content_h, max_height)
 
     # The iframe cannot see the app's stylesheet, so the design tokens it needs
@@ -1448,7 +1506,12 @@ def render_data_table(
     /* A hair of top padding so the sticky header cannot sit flush against
        the panel header rendered directly above this iframe — the two read as
        one doubled, overlapping header row without it. */
-    .tt-scroll {{ padding-top:2px; max-height:{max_height}px; overflow:auto;
+    html, body {{ height:100%; }}
+    /* 100%, not a literal: the scroller has to fill the iframe EXACTLY. Any
+       residual rounding in the height arithmetic above then shows up as a
+       scrollbar, which is recoverable, instead of as a row cut off at the
+       iframe's bottom edge, which is not. */
+    .tt-scroll {{ padding-top:{_TOP_PAD}px; max-height:100%; overflow:auto;
                   scrollbar-width:thin; scrollbar-color:{t['ink_tertiary']} transparent; }}
     .tt-scroll::-webkit-scrollbar {{ width:9px; height:9px; }}
     .tt-scroll::-webkit-scrollbar-track {{ background:transparent; }}
@@ -1463,17 +1526,17 @@ def render_data_table(
     thead th {{ position:sticky; top:0; z-index:2;
         background:{t['header_a']};
         color:{t['ink_tertiary']}; font-size:0.625rem; font-weight:600;
-        text-transform:uppercase; letter-spacing:0.12em; padding:0.5rem 0.75rem;
-        border-bottom:1px solid {t['border']}; text-align:left; white-space:nowrap; }}
+        text-transform:uppercase; letter-spacing:0.12em;
+        padding:{_HPAD_Y}px 0.75rem; line-height:{_HLINE_H}px;
+        border-bottom:{_RULE}px solid {t['border']}; text-align:left; white-space:nowrap; }}
     thead th.num {{ text-align:right; }}
     /* Row separation is a hairline OR a tint, never both — the two together
        are what made this read as a spreadsheet export. */
-    tbody tr {{ border-bottom:1px solid {t['border_subtle']};
+    tbody tr {{ border-bottom:{_RULE}px solid {t['border_subtle']};
                 transition:background 120ms cubic-bezier(0.2,0,0,1); }}
-    tbody tr:last-child {{ border-bottom:none; }}
     tbody tr:hover {{ background:{t['accent_hover']}; }}
-    tbody td {{ padding:0.4rem 0.75rem; color:{t['ink_primary']}; font-size:0.6875rem;
-                line-height:1.5; vertical-align:middle; white-space:nowrap; }}
+    tbody td {{ padding:{_PAD_Y}px 0.75rem; color:{t['ink_primary']}; font-size:0.6875rem;
+                line-height:{_LINE_H}px; vertical-align:middle; white-space:nowrap; }}
     tbody td.num {{ text-align:right; }}
     tbody td.lbl {{ font-weight:600; color:{t['ink_primary']}; }}
     tbody td.txt {{ color:{t['ink_tertiary']}; }}

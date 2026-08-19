@@ -691,6 +691,20 @@
     flex: 0 0 auto !important;
 }
 
+/* ── The same guard, for every markdown block a panel holds ───────────────
+   The collapse above is not specific to `.panel-copy` — it is what the
+   anonymous flex row Streamlit inserts inside `stMarkdown` does to ANY
+   content, and a panel holds three such blocks: its header, its footer, and
+   whatever prose sits in its body. The panel clips at `overflow: hidden`, so
+   a row that stays shorter than what it holds takes the bottom off the
+   footer. Named here once rather than per class, so a block added later is
+   covered by default. */
+[class*="st-key-panel-"] [data-testid="stMarkdown"] > div {
+    height: auto !important;
+    min-height: fit-content !important;
+    flex: 0 0 auto !important;
+}
+
 /* ── The section rhythm contract ──────────────────────────────────────────
    Vertical rhythm has exactly ONE definition, and it lives here, because the
    section header is the only thing that marks a boundary between sections.
@@ -924,9 +938,58 @@
     opacity: 1; visibility: visible; transform: translateY(0);
 }
 
-/* KPI strip — a row of metric cards used on the Overview page; caps density
-   so cards never squeeze below a legible width (wraps to a new row instead). */
-.st-key-kpi-strip [data-testid="column"] { min-width: 152px; }
+/* ── KPI grid ─────────────────────────────────────────────────────────────
+   A row of metric cards is ONE grid, not N Streamlit columns. The chain above
+   still stands for a card that appears in a column on its own, but a strip no
+   longer goes through it: the wrappers between a column and its card each
+   shrink to their own content, and one of them — an anonymous flex row
+   Streamlit inserts inside stMarkdown — is not nameable from here at all, so
+   the chain broke one level above the card and every card sized itself. A
+   value wrapping to two lines ("Volatile Trend") or a long subtext then stood
+   its card taller than the five beside it.
+
+   The column count comes from Python (`_grid_steps`) and always DIVIDES the
+   card count, so a row is never left with an orphan — `auto-fit` cannot
+   promise that, which is how a six-card strip lands 4 + 2. */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--kpi-cols, 4), minmax(0, 1fr));
+    gap: var(--grid-gap);
+    align-items: stretch;
+}
+@media (max-width: 1280px) {
+    .kpi-grid { grid-template-columns: repeat(var(--kpi-cols-mid, 2), minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+    .kpi-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Analog grid ──────────────────────────────────────────────────────────
+   Same call, same reason: the analog cards are static HTML, so the set is one
+   grid rather than two columns of alternating markdown. Two columns only
+   happen to align while every card is identical in height — one date that
+   wraps, or one missing forward tile, and the pairs stop lining up. */
+.analog-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--grid-gap);
+    align-items: stretch;
+}
+.analog-grid .analog-card { margin-bottom: 0; display: flex; flex-direction: column; }
+.analog-grid .analog-card .analog-card-foot { margin-top: auto; }
+@media (max-width: 900px) { .analog-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── Panels side by side ──────────────────────────────────────────────────
+   Two table panels in a two-column row are the same height, so the row reads
+   as a comparison rather than as two unrelated blocks. The column chain above
+   stops at the column's own vertical block; the panel is a CHILD of that
+   block, so it needs to be told to fill it. */
+[data-testid="stColumn"] [class*="st-key-panel-"] {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────
    7 · HERO CARD — the conviction chain
