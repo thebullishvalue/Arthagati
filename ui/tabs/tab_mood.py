@@ -3,19 +3,28 @@ Arthagati — Mood Engine: how the score got where it is.
 
 Three stacked panes on one date axis, inside one panel:
 
-  Row 1 · Mood Score   Kalman-smoothed sentiment, 95% band, OU forward projection
+  Row 1 · Mood Score   Kalman-smoothed sentiment, 95% band, OU forward projection,
+                       with NIFTY on a second axis
   Row 2 · MSF Spread   Four-component oscillator, OB/OS zones, divergence marks
   Row 3 · WaveTrend    LazyBear oscillator on the Mood Score itself, crossovers
 
+The index rides on the mood pane's secondary axis rather than on a chart of its
+own. The two belong together: the score is anchored to PE, so it moves AGAINST
+price by construction (rho about -0.54 against the trailing 60-day return), and
+a reader who sees them apart reads a falling score during a rally as the engine
+being wrong. On one pane the relationship is the first thing visible.
+
 Mood Score and WaveTrend y-axes are REVERSED — bearish above the axis. That is
 the convention the three signal panes share, so a reader tracking a single
-vertical does not have to flip their reading between rows.
+vertical does not have to flip their reading between rows. The NIFTY axis is
+NOT reversed: it is a price, and an inverted price axis is a trap.
 
 Reading order:
 
-  1 ANCHOR   the instrument itself         The three-pane stack
-  2 STATE    what the window contains      Window statistics
-  3 DETAIL   what the oscillator is made of MSF decomposition
+  1 ANCHOR   the instrument itself          The three-pane stack
+  2 SIGNAL   what it has fired recently     Signal log
+  3 STATE    what the window contains       Window statistics
+  4 DETAIL   what the oscillator is made of MSF decomposition
 """
 
 from __future__ import annotations
@@ -43,6 +52,37 @@ from ui.theme import chart_color, chart_layout, chart_rgba, grid_rgba, style_axe
 _TRI = 9  # marker size, shared by divergence and crossover glyphs
 _TONE = {"pos": "success", "neg": "danger", "warn": "warning",
          "info": "info", "neutral": "neutral"}
+
+
+def _signal_log(df: pd.DataFrame, msf: pd.DataFrame, limit: int = 14) -> pd.DataFrame:
+    """Divergences and crossovers as a dated list, newest first.
+
+    The panes above draw these as triangles the reader has to hunt for across
+    an 800px stack. The log is the same events with the state at the time,
+    which is how a desk consumes them: the chart says WHERE a signal is, the
+    log says WHAT it was. Both read from ui.signals, so they cannot disagree
+    about how many there are.
+    """
+    events: list[tuple[int, str, str]] = []
+    spread = pd.Series(msf["msf_spread"].to_numpy(), index=df.index)
+    bull, bear = sig.msf_divergences(df["Mood_Score"], spread)
+    events += [(i, "MSF divergence", "Bullish") for i in bull]
+    events += [(i, "MSF divergence", "Bearish") for i in bear]
+    if "WT1" in df.columns and "WT2" in df.columns:
+        g, r = sig.wt_crossovers(df["WT1"].to_numpy(dtype=float),
+                                 df["WT2"].to_numpy(dtype=float))
+        events += [(i, "WaveTrend cross", "Bullish") for i in g]
+        events += [(i, "WaveTrend cross", "Bearish") for i in r]
+    if not events:
+        return pd.DataFrame()
+    events.sort(key=lambda e: e[0], reverse=True)
+    return pd.DataFrame([{
+        "Date": df["DATE"].iloc[i].date(),
+        "Event": kind,
+        "Direction": direction,
+        "Mood": float(df["Mood_Score"].iloc[i]),
+        "NIFTY": float(df["NIFTY"].iloc[i]),
+    } for i, kind, direction in events[:limit]])
 
 
 def _window_stats(df: pd.DataFrame, msf: pd.DataFrame) -> pd.DataFrame:
@@ -116,27 +156,43 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     accent, slate, brass = chart_color("accent"), chart_color("slate"), chart_color("amber")
     long_c, short_c = chart_color("emerald"), chart_color("rose")
 
+    # Row 1 carries a secondary axis for the index; the oscillator rows do not.
     if show_wt:
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
-                            vertical_spacing=0.045, row_heights=[0.50, 0.25, 0.25])
+                            vertical_spacing=0.045, row_heights=[0.50, 0.25, 0.25],
+                            specs=[[{"secondary_y": True}], [{}], [{}]])
     else:
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                            vertical_spacing=0.06, row_heights=[0.65, 0.35])
+                            vertical_spacing=0.06, row_heights=[0.65, 0.35],
+                            specs=[[{"secondary_y": True}], [{}]])
 
     # ── Row 1 · Mood Score ────────────────────────────────────────────────
     if "Confidence_Upper" in df.columns and "Confidence_Lower" in df.columns:
         fig.add_trace(go.Scatter(x=df["DATE"], y=df["Confidence_Upper"], mode="lines",
                                  line=dict(width=0), showlegend=False, hoverinfo="skip"),
-                      row=1, col=1)
+                      row=1, col=1, secondary_y=False)
         fig.add_trace(go.Scatter(x=df["DATE"], y=df["Confidence_Lower"], mode="lines",
                                  line=dict(width=0), showlegend=False, hoverinfo="skip",
                                  fill="tonexty", fillcolor=chart_rgba("accent", 0.12),
                                  name="95% band"),
-                      row=1, col=1)
+                      row=1, col=1, secondary_y=False)
+
+    # NIFTY first, so the mood line and its band draw OVER the price rather
+    # than under it — the score is the subject of this pane, the index is the
+    # reference it is read against.
+    # Dimmer and thinner than any signal on the figure, and deliberately the
+    # same slate at lower alpha rather than a colour of its own: NIFTY is the
+    # REFERENCE this pane is read against, not a fifth series competing with
+    # the four that carry claims. At full weight it read as one.
+    fig.add_trace(go.Scattergl(x=df["DATE"], y=df["NIFTY"], mode="lines",
+                               name="NIFTY 50",
+                               line=dict(color=chart_rgba("slate", 0.55), width=1.0)),
+                  row=1, col=1, secondary_y=True)
     fig.add_trace(go.Scattergl(x=df["DATE"], y=df["Mood_Score"], mode="lines",
                                name="Mood Score", line=dict(color=accent, width=1.6)),
-                  row=1, col=1)
-    fig.add_hline(y=0, line_color=grid_rgba(0.11), line_width=1, row=1, col=1)
+                  row=1, col=1, secondary_y=False)
+    fig.add_hline(y=0, line_color=grid_rgba(0.11), line_width=1, row=1, col=1,
+                  secondary_y=False)
 
     last = df.iloc[-1]
 
@@ -154,7 +210,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     fig.add_trace(go.Scatter(x=proj_dates, y=proj_mood, mode="lines",
                              name="OU projection",
                              line=dict(color=accent, width=1.2, dash="dot"), opacity=0.6),
-                  row=1, col=1)
+                  row=1, col=1, secondary_y=False)
 
     _yc = [df["Mood_Score"].to_numpy()]
     for c in ("Confidence_Upper", "Confidence_Lower"):
@@ -248,7 +304,16 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
 
     panes = 3 if show_wt else 2
     fig.update_layout(**chart_layout(height=760 if panes == 3 else 560, show_legend=True))
-    style_axes(fig, y_title="Mood", y_range=[mood_hi, mood_lo], row=1, col=1)
+    # secondary_y=False, or the reversed mood range is written onto the price
+    # axis as well and the NIFTY trace leaves the pane entirely.
+    style_axes(fig, y_title="Mood", y_range=[mood_hi, mood_lo],
+               row=1, col=1, secondary_y=False)
+    # The index axis carries no grid — one set of horizontal rules per pane, and
+    # they belong to the score, which is what the bands are drawn against. It
+    # autoranges on its own data; nothing about the mood scale applies to it.
+    fig.update_yaxes(showgrid=False, showspikes=False, zeroline=False,
+                     title_text="NIFTY 50", tickformat=",.0f", autorange=True,
+                     row=1, col=1, secondary_y=True)
     style_axes(fig, y_title="MSF", y_range=[_mlo - _mpad, _mhi + _mpad], row=2, col=1)
     if show_wt:
         style_axes(fig, y_title="WaveTrend", y_range=[wt_hi, wt_lo], row=3, col=1)
@@ -272,7 +337,30 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
                f"±{MSF_OB_LEVEL_1:.0f} and ±{MSF_OB_LEVEL_2:.0f}.",
     )
 
-    # ── 2 · STATE ─────────────────────────────────────────────────────────
+    # ── 2 · SIGNAL ────────────────────────────────────────────────────────
+    render_section_header(
+        "Signal Log",
+        "The divergence and crossover events the panes above mark with triangles, "
+        "as a dated list. The chart says where a signal is; the log says what it "
+        "was, and what the market looked like at the time.",
+        icon="layers",
+        accent="emerald",
+    )
+    log = _signal_log(df, msf_filtered)
+    if log.empty:
+        render_note("No divergences or crossovers in this window. Both are sparse by "
+                    "construction \u2014 widen the window on the panel above to look "
+                    "further back.")
+    else:
+        render_table_panel(
+            log, key="mood-signals",
+            context=f"{tf} window \u00b7 {len(log)} shown",
+            sign_color_cols={"Mood"},
+            col_precision={"Mood": 1, "NIFTY": 0},
+            label_col="Date", max_height=340,
+        )
+
+    # ── 3 · STATE ─────────────────────────────────────────────────────────
     render_section_header(
         "Window Statistics",
         "Both series over the selected window, with the date each extreme was set.",
@@ -286,7 +374,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         max_height=160,
     )
 
-    # ── 3 · DETAIL ────────────────────────────────────────────────────────
+    # ── 4 · DETAIL ────────────────────────────────────────────────────────
     render_section_header(
         "MSF Decomposition",
         "What the oscillator is currently made of. Weights are inverse-variance and "
