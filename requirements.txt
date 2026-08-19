@@ -16,9 +16,10 @@
 #   st.segmented_control         (1.40) — the window and appearance controls
 #   width="stretch"              (1.50) — replaces use_container_width, which
 #                                          is removed after 2025-12-31
-# 1.52 is what the design system was measured against; the Streamlit-wrapper
-# notes in theme.css name 1.51/1.52 DOM differences explicitly.
-streamlit       >= 1.50.0
+# DEVELOP ON THIS EXACT VERSION TOO. `pip install -r requirements.txt` gives it
+# to you. A local interpreter on a different Streamlit is precisely how this
+# reached a deploy.
+streamlit==1.52.2
 
 # Data manipulation
 pandas          >= 2.1.0
