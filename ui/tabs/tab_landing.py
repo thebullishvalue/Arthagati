@@ -3,10 +3,22 @@ Arthagati — cold start: a description of the product, built from the product's
 own parts.
 
 Every block here uses the same components the analysis pages use — a section
-header for each division, ``render_kpi_strip`` for the coverage numbers, and
-the shared panel anatomy for each system — so the landing page sits on the
-same section-rhythm contract as everything else and cannot drift into reading
-like a different product's marketing page bolted to the front of this one.
+header for each division, ``render_kpi_strip`` for the scope numbers, and the
+shared panel anatomy for each engine — so the landing page sits on the same
+section-rhythm contract as everything else and cannot drift into reading like
+a different product's marketing page bolted to the front of this one.
+
+Reading order:
+
+  1 CLAIM    what is this?              The lede
+  2 ANCHOR   what is it made of?        Engines
+  3 DETAIL   what does it run on?       Inputs & Scope
+  4 OUTCOME  what do I get?             Run Outputs
+
+Engines follows the claim with nothing between them, because it expands the
+lede's three clauses one for one. Scope is the operational particular and sits
+where DETAIL sits on every other page. Outputs close, because that is what the
+reader is about to press Run for.
 
 The two grids on this page are plain divs rather than Streamlit containers,
 because everything on them is static text. That is not a shortcut: a container
@@ -78,8 +90,8 @@ _SYSTEM_PANELS = (
      "Four components — momentum, structure, regime and flow — blended by inverse "
      "variance and auto-calibrated, built to be independent of the score above. That "
      "independence is the point: when the two disagree, the disagreement is "
-     "information rather than an error, and it is the constraint that most often caps "
-     "conviction.",
+     "information rather than an error, and it is the reason to read the valuation "
+     "score as a level rather than as a trigger.",
      (("Components", "Momentum · Structure · Regime · Flow"),
       ("Weights", "Inverse-variance, auto-calibrated"),
       ("Bands", f"±{MSF_OB_LEVEL_2:.0f} / ±{MSF_OB_LEVEL_1:.0f}, fixed"))),
@@ -101,16 +113,18 @@ _SYSTEM_PANELS = (
 #: clips its own last line by a different amount. A grid of plain divs has no
 #: wrapper to collapse.
 _OUTCOMES = (
-    ("A directional claim",
-     "One verdict, with the six gates that condition it and the single binding "
-     "constraint named — the specific reason conviction is not higher."),
+    ("A valuation reading",
+     "Where the market sits against its own recent history, in fixed bands so that "
+     "\u201cbullish\u201d means the same thing on every date, with an independent "
+     "oscillator beside it that either confirms the reading or does not."),
     ("A measured edge",
      "Holdout Spearman rho against a permutation null, and against the negated PE "
      "ratio: the same claim with no engine at all. The margin between them is a gate, "
      "not a footnote."),
     ("An independent check",
      "A forward-return base rate from the most similar historical states, reported "
-     "with its own spread so a thin sample cannot read as agreement."),
+     "with its own spread, so a handful of overlapping windows cannot read as "
+     "agreement."),
     ("The evidence",
      "Every candidate predictor's correlation, entropy and coverage, ranked by the "
      "same quality shape the engine weights with — including the ones it rejected."),
@@ -149,30 +163,12 @@ def render_landing_page(version: str, n_predictors: int, sheet_configured: bool)
     )
 
     # ── Coverage — the app's own KPI grammar, not a bespoke number row ─────
-    render_section_header("Coverage", icon="layers")
-    render_kpi_strip(
-        [
-            {"label": "Predictor Profiles", "value": str(len(PREDICTOR_PROFILES)),
-             "subtext": "Each carrying the out-of-sample correlation it actually "
-                        "achieved on the reference sheet, alongside the no-engine "
-                        "baseline it has to beat"},
-            {"label": "Default Predictors", "value": str(n_predictors),
-             "subtext": "Macro, breadth and valuation series. NIFTY-derived columns are "
-                        "withheld — using one would make the score a function of the "
-                        "price it is scored against"},
-            {"label": "Daily History Per Run", "value": "~20y",
-             "subtext": f"Walk-forward throughout: statistics for a segment are "
-                        f"estimated on data through the previous checkpoint, "
-                        f"rebalanced every {CORR_REBALANCE_PERIOD} days"},
-        ],
-        max_cols=3,
-        key="landing-coverage",
-    )
-
     # ── The three engines, as panels ──────────────────────────────────────
     render_section_header(
-        "Systems",
-        "Three readings of the same market, in the order the argument runs.",
+        "Engines",
+        "Three readings of the same market, in the order the argument runs: one "
+        "makes the claim, one says whether to believe it, one checks both against "
+        "history without depending on either being right.",
         icon="cpu",
     )
     st.markdown(
@@ -198,12 +194,37 @@ def render_landing_page(version: str, n_predictors: int, sheet_configured: bool)
         unsafe_allow_html=True,
     )
 
-    # ── What a run returns ────────────────────────────────────────────────
     render_section_header(
-        "What a run returns",
-        f"Measured on the reference sheet {ctx['measured_date']}: "
-        f"{ctx['rows']:,} rows spanning {ctx['span']}, holdout {ctx['holdout']}, "
-        f"validated on {ctx['validated_on']} against {ctx['permutations']} permutations.",
+        "Inputs & Scope",
+        f"Measured on the reference sheet {ctx['measured_date']}: {ctx['rows']:,} rows "
+        f"spanning {ctx['span']}, holdout {ctx['holdout']}, validated on "
+        f"{ctx['validated_on']} against {ctx['permutations']} permutations.",
+        icon="database",
+    )
+    render_kpi_strip(
+        [
+            {"label": "Predictor Profiles", "value": str(len(PREDICTOR_PROFILES)),
+             "subtext": "Each carrying the out-of-sample correlation it actually "
+                        "achieved on the reference sheet, alongside the no-engine "
+                        "baseline it has to beat"},
+            {"label": "Default Predictors", "value": str(n_predictors),
+             "subtext": "Macro, breadth and valuation series. NIFTY-derived columns are "
+                        "withheld — using one would make the score a function of the "
+                        "price it is scored against"},
+            {"label": "Daily History Per Run", "value": "~20y",
+             "subtext": f"Walk-forward throughout: statistics for a segment are "
+                        f"estimated on data through the previous checkpoint, "
+                        f"rebalanced every {CORR_REBALANCE_PERIOD} days"},
+        ],
+        max_cols=3,
+        key="landing-inputs",
+    )
+
+    # ── Run outputs ────────────────────────────────────────────────
+    render_section_header(
+        "Run Outputs",
+        "Four things land on screen when a run finishes, and each one is stated "
+        "with the reason it can be trusted or the reason it cannot.",
         icon="target",
     )
     st.markdown(

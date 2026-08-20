@@ -13,10 +13,10 @@ rail keeps the quick-switch; this page carries the evidence.
 
 Reading order:
 
-  1 SCAN     what is running?          Active set summary
-  2 SIGNAL   what else could run?      Preset comparison
-  3 STATE    what exactly is on?       The active columns
-  4 DETAIL   why is a column missing?  Eligibility rules
+  1 SCAN     what is running?          Active Model
+  2 SIGNAL   what else could run?      Profile Comparison
+  3 STATE    what exactly is on?       Active Columns
+  4 DETAIL   why is a column missing?  Eligibility Rules
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ def render(*, available_predictors, resolve_profile, detect_profile,
 
     # ── 2 · SIGNAL ────────────────────────────────────────────────────────
     render_section_header(
-        "Preset Comparison",
+        "Profile Comparison",
         "Each preset carries the measurement recorded for it. These are a RECORD "
         "from the reference sheet, not a live claim about the loaded data — "
         "Validation re-measures whatever is actually active.",
@@ -135,7 +135,7 @@ def render(*, available_predictors, resolve_profile, detect_profile,
 
     left, right = st.columns([5, 7], gap="small")
     with left:
-        render_section_header("Select", "Applies immediately and recomputes.",
+        render_section_header("Profile Selection", "Applies immediately and recomputes.",
                               icon="settings")
         keys = list(PREDICTOR_PROFILES) + ["custom"]
         labels = {k: PREDICTOR_PROFILES[k]["label"] for k in PREDICTOR_PROFILES}
@@ -184,7 +184,7 @@ def render(*, available_predictors, resolve_profile, detect_profile,
 
     # ── 4 · DETAIL ────────────────────────────────────────────────────────
     render_section_header(
-        "Eligibility",
+        "Eligibility Rules",
         "Why a column present in the sheet may not appear in the universe. Applied "
         "in load order, before any profile resolves.",
         icon="file-text",

@@ -1,20 +1,15 @@
 """
 Arthagati — Mood Engine: the reading, and how the score got there.
 
-This is the app's front door. Overview used to sit in front of it and answer
-"what is the reading" from the same three frames this page already holds, which
-gave the two surfaces a way to disagree about which window they were showing
-and cost a click to get from the verdict to the instrument behind it. The
-verdict now leads the page that produced it.
+This is the app's front door: the instrument, and everything read off it.
 
 Reading order — the house convention every page follows:
 
-  1 CLAIM   what does the engine say?          The conviction chain
-  2 TRUST   under what conditions?             Market state
-  3 ANCHOR  the instrument itself              The three-pane stack
-  4 STATE   what the window contains           Window statistics
-  5 DETAIL  what the oscillator is made of     MSF decomposition
-  6 EVENTS  what it has fired                  Signal log
+  1 TRUST   under what conditions?             Regime Diagnostics
+  2 ANCHOR  the instrument itself              Mood Score & Studies
+  3 STATE   what the window contains           Window Statistics
+  4 DETAIL  what the oscillator is made of     MSF Decomposition
+  5 EVENTS  what it has fired                  Signal Log
 
 Window statistics and the MSF decomposition are ADJACENT on purpose: the
 statistics table's last row is the MSF spread, and the decomposition breaks
@@ -58,7 +53,6 @@ from ui import format as fmt
 from ui import signals as sig
 from ui.components import (
     render_chart_panel,
-    render_hero_card,
     render_kpi_strip,
     render_note,
     render_section_header,
@@ -67,6 +61,7 @@ from ui.components import (
 from ui.signals import REGIME_TONE
 from ui.theme import (
     chart_color, chart_layout, chart_rgba, grid_rgba, style_axes,
+    style_secondary_axis,
 )
 
 _TRI = 9  # marker size, shared by divergence and crossover glyphs
@@ -186,8 +181,7 @@ def _msf_components(msf: pd.DataFrame, idx: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days,
-           verdict, data_age) -> None:
+def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
     tf = st.session_state.get("tf_selected", "1Y")
     mask = sig.window(mood_df, timeframes, tf)
     df = mood_df.loc[mask].copy()
@@ -201,18 +195,9 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days,
 
     last_row = mood_df.iloc[-1]
 
-    # ── 1 · CLAIM ─────────────────────────────────────────────────────────
+    # ── 1 · TRUST ─────────────────────────────────────────────────────────
     render_section_header(
-        "The Reading",
-        "One claim, and every condition attached to it. Conviction is the product "
-        "of the gates — the weakest caps it, and is named as the constraint.",
-        icon="target",
-    )
-    render_hero_card(verdict)
-
-    # ── 2 · TRUST ─────────────────────────────────────────────────────────
-    render_section_header(
-        "Market State",
+        "Regime Diagnostics",
         "The classifiers the reading sits inside. They do not say which way the "
         "market goes; they say whether a mean-reverting valuation score is the "
         "right instrument to be reading right now.",
@@ -221,9 +206,9 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days,
     )
     render_kpi_strip(_state_cards(last_row), max_cols=5, key="mood-state")
 
-    # ── 3 · ANCHOR ────────────────────────────────────────────────────────
+    # ── 2 · ANCHOR ────────────────────────────────────────────────────────
     render_section_header(
-        "Mood · MSF · WaveTrend",
+        "Mood Score & Studies",
         "The Kalman-smoothed score with its 95% band and Ornstein-Uhlenbeck forward "
         "projection, the oscillator that confirms or contradicts it, and a WaveTrend "
         "overlay on the score itself. Bearish is plotted ABOVE the axis on both "
@@ -392,12 +377,13 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days,
     # axis as well and the NIFTY trace leaves the pane entirely.
     style_axes(fig, y_title="Mood", y_range=[mood_hi, mood_lo],
                row=1, col=1, secondary_y=False)
-    # The index axis carries no grid — one set of horizontal rules per pane, and
-    # they belong to the score, which is what the bands are drawn against. It
-    # autoranges on its own data; nothing about the mood scale applies to it.
-    fig.update_yaxes(showgrid=False, showspikes=False, zeroline=False,
-                     title_text="NIFTY 50", tickformat=",.0f", autorange=True,
-                     row=1, col=1, secondary_y=True)
+    # Same axis grammar as the mood axis beside it — same tick face, same
+    # title face, same standoff — differing only in what must: no grid, no
+    # zero line, no spike. See style_secondary_axis for why an unstyled second
+    # axis is not neutral but LOUDER than the one it sits opposite.
+    style_secondary_axis(fig, title="NIFTY 50", tickformat=",.0f", row=1, col=1)
+    # Autorange on its own data; nothing about the mood scale applies to it.
+    fig.update_yaxes(autorange=True, row=1, col=1, secondary_y=True)
     style_axes(fig, y_title="MSF", y_range=[_mlo - _mpad, _mhi + _mpad], row=2, col=1)
     if show_wt:
         style_axes(fig, y_title="WaveTrend", y_range=[wt_hi, wt_lo], row=3, col=1)
@@ -421,7 +407,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days,
                f"±{MSF_OB_LEVEL_1:.0f} and ±{MSF_OB_LEVEL_2:.0f}.",
     )
 
-    # ── 4 · STATE ─────────────────────────────────────────────────────────
+    # ── 3 · STATE ─────────────────────────────────────────────────────────
     render_section_header(
         "Window Statistics",
         "Both series over the selected window, with the date each extreme was set.",
@@ -435,7 +421,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days,
         max_height=160,
     )
 
-    # ── 5 · DETAIL ────────────────────────────────────────────────────────
+    # ── 4 · DETAIL ────────────────────────────────────────────────────────
     render_section_header(
         "MSF Decomposition",
         "What the oscillator is currently made of. Weights are inverse-variance and "
@@ -451,7 +437,7 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days,
         precision=2, max_height=180,
     )
 
-    # ── 6 · EVENTS ────────────────────────────────────────────────────────
+    # ── 5 · EVENTS ────────────────────────────────────────────────────────
     render_section_header(
         "Signal Log",
         "The divergence and crossover events the stack above marks with triangles, "

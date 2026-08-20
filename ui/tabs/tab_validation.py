@@ -6,15 +6,11 @@ engine had no part in shaping, against a permutation null, alongside the null
 model the engine has to beat — the negated PE ratio, "cheap is good" with no
 engine at all. See validation.py for the measurements.
 
-The result is also written to session state, because the conviction chain on
-the Mood Engine reads two of these numbers as gates: a reading the holdout cannot
-support must not carry conviction anywhere in the app.
-
 Reading order:
 
-  1 TRUST    can this be believed?      Verdict and its gates
+  1 TRUST    can this be believed?      Out-of-Sample Verdict
   2 ANCHOR   what was measured?         Holdout, null and baseline
-  3 DETAIL   where does it live?        Rho by horizon
+  3 DETAIL   where does it live?        Holdout Rho by Horizon
 """
 
 from __future__ import annotations
@@ -62,15 +58,6 @@ def render(mood_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
           if "NIFTY50_PE" in raw_df.columns else np.full(len(mood_df), np.nan))
     with st.spinner("Scoring the holdout and running the permutation null…"):
         r = _run_validation(mood_df, pe)
-
-    # Publish the two figures the conviction chain gates on. Written here
-    # rather than recomputed there so the card and this page cannot disagree
-    # about whether an edge was measured.
-    st.session_state["_validation_summary"] = {
-        "holdout_rho": r["holdout_rho"], "p_value": r["p_value"],
-        "baseline_rho": r["baseline_rho"], "n_holdout": r["n_holdout"],
-        "verdict": r["verdict"],
-    }
 
     margin = (r["holdout_rho"] - r["baseline_rho"]
               if np.isfinite(r["baseline_rho"]) else float("nan"))
@@ -126,8 +113,7 @@ def render(mood_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
             "the edge belongs to the valuation anchor, not to the five-layer "
             "pipeline. The engine's contribution is a bounded, comparable score and "
             "its diagnostics, not additional rank information — which is why the "
-            "conviction chain on the Mood Engine carries the margin over this baseline "
-            "as a gate of its own."
+            "margin over this baseline is the honest measure of what the pipeline adds."
         )
         render_interpretation_card("Edge confirmed — with a caveat worth reading",
                                    body, color="success")
@@ -162,7 +148,7 @@ def render(mood_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
 
     # ── 3 · DETAIL ────────────────────────────────────────────────────────
     render_section_header(
-        "Rho by Horizon",
+        "Holdout Rho by Horizon",
         "Where the signal lives. Bars for horizons the holdout cannot validate are "
         "dimmed, so the chart cannot be read as claiming more than the test "
         "established.",

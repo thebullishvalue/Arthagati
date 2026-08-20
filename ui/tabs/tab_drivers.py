@@ -12,9 +12,9 @@ recommend anything the user had not already selected.
 
 Reading order:
 
-  1 SCAN     how large is the universe?    Tier counts
-  2 SIGNAL   which columns rank?           The screen and the ranked table
-  3 DETAIL   what does each anchor say?    Per-anchor correlations
+  1 SCAN     how large is the universe?    Predictor Universe
+  2 SIGNAL   which columns rank?           Screen & Ranking
+  3 DETAIL   what does each anchor say?    Correlation by Anchor
 """
 
 from __future__ import annotations
@@ -142,7 +142,7 @@ def render(raw_df, *, active_preds, non_predictor_cols,
 
     # ── 2 · SIGNAL ────────────────────────────────────────────────────────
     render_section_header(
-        "Screen",
+        "Screen & Ranking",
         "Filters apply to the ranked table below and to nothing else — the engine "
         "keeps running on the active set whatever is screened here.",
         icon="search",
@@ -197,7 +197,7 @@ def render(raw_df, *, active_preds, non_predictor_cols,
 
     # ── 3 · DETAIL ────────────────────────────────────────────────────────
     render_section_header(
-        "Anchor Detail",
+        "Correlation by Anchor",
         "Active predictors only, ranked by |rho| against each valuation anchor "
         "separately. A column that loads on one anchor but not the other is doing "
         "less work than its average suggests.",

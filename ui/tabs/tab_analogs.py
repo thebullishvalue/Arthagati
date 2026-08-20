@@ -9,9 +9,9 @@ that is independent of the pipeline.
 
 Reading order:
 
-  1 ANCHOR   what is the base rate?        Forward-return distribution
-  2 STATE    which episodes produced it?   The analog cards
-  3 DETAIL   does it hold on everything?   Mood vs forward return, split
+  1 ANCHOR   what is the base rate?        Forward-Return Base Rate
+  2 STATE    which episodes produced it?   Matched Episodes
+  3 DETAIL   does it hold on everything?   Full-Sample Backtest
 """
 
 from __future__ import annotations
@@ -282,9 +282,9 @@ def render(mood_df, *, periods, backtest_horizon) -> None:
         "Even so, the forward windows overlap the rest of the history: a +90D return "
         "measured from ten different starting points inside one bull market is close "
         "to one observation, not ten. Read the table as a set of precedents to open "
-        f"and examine, not as a distribution to draw a probability from. Below "
-        f"<strong>{MIN_PRECEDENT_N}</strong> distinct episodes the conviction chain "
-        "treats this base rate as unusable for exactly that reason.",
+        f"and examine, not as a distribution to draw a probability from. Fewer than "
+        f"<strong>{MIN_PRECEDENT_N}</strong> distinct episodes is a handful of coin "
+        "flips, not a base rate.",
         color="warning",
     )
 
@@ -308,7 +308,7 @@ def render(mood_df, *, periods, backtest_horizon) -> None:
 
     # ── 3 · DETAIL ────────────────────────────────────────────────────────
     render_section_header(
-        "State vs Forward Return",
+        "Full-Sample Backtest",
         "Every observation in the history, split chronologically with a one-horizon "
         "embargo. This is a shape check on the whole sample, not a significance "
         "test — Validation carries the held-out measurement.",
