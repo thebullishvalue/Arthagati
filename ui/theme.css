@@ -993,7 +993,11 @@
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    /* NO `min-height: 0` here. On a flex item that is licence to shrink below
+       the content's own minimum, and paired with the panel's `overflow:
+       hidden` the result is a panel that silently crops the table inside it
+       rather than growing. Equal heights are worth having; they are not worth
+       buying with a clip. */
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -2125,6 +2129,25 @@
     transition: border-color var(--motion-base) var(--ease-standard);
 }
 [class*="st-key-panel-"]:hover { border-color: var(--line-strong); }
+
+/* The panel's own bottom padding is the ONLY thing that can guarantee its
+   last child is not cut, and it is why the footer kept losing its descenders
+   after three attempts at fixing the wrapper above it. `overflow: hidden`
+   clips at the PADDING box, not the content box — so space declared here is
+   space the clip cannot take, whatever the wrappers inside report. Everything
+   else in this file is an attempt to make those wrappers honest; this is the
+   backstop for when one of them is not.
+
+   Applied only to panels that HAVE a footer or a chart. A table panel ends in
+   an iframe whose height is computed exactly, and 8px of dead space under it
+   would read as a misaligned frame. */
+[class*="st-key-panel-"]:has(.panel-foot),
+[class*="st-key-panel-"]:has(.stPlotlyChart) {
+    padding-bottom: var(--s2) !important;
+}
+/* And the chart itself, which had padding on three sides and none at the
+   bottom — so an unlegended plot's x-axis labels sat on the panel's edge. */
+[class*="st-key-panel-"] .stPlotlyChart { padding-bottom: var(--s1); }
 
 .panel-hdr {
     display: flex; align-items: baseline; justify-content: space-between;
