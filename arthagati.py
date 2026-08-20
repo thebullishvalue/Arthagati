@@ -96,7 +96,6 @@ from ui.components import (
 from ui import format as fmt
 from ui import signals as sig
 from ui.tabs.tab_landing import render_landing_page
-from ui.tabs.tab_overview import render as render_overview
 from ui.tabs.tab_mood import render as render_mood
 from ui.tabs.tab_analogs import render as render_analogs
 from ui.tabs.tab_drivers import render as render_drivers
@@ -194,18 +193,11 @@ from config import (  # noqa: E402
 # DOMAIN LOOK-UP TABLES
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Regime label → chip tone. One table, read by every surface that shows a
-# regime, so the colour and the word cannot disagree between views. Colour
-# itself is resolved per render through ui.theme.chart_color so it follows
-# the appearance; only the SEMANTIC name is fixed here.
-REGIME_TONE: dict[str, tuple[str, str]] = {
-    "Trending":       ("emerald", "success"),
-    "Volatile Trend": ("amber",   "warning"),
-    "Mean-Reverting": ("cyan",    "info"),
-    "Choppy":         ("rose",    "danger"),
-    "Unknown":        ("slate",   "neutral"),
-}
-REGIME_STYLES = REGIME_TONE
+# Regime label → chip tone now lives in ui.signals.REGIME_TONE, beside the
+# other display-state derivations, so a tab can read it without importing
+# this file — which Streamlit runs as __main__, making any such import a
+# second module object rather than a reference to this one.
+REGIME_STYLES = sig.REGIME_TONE
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2465,8 +2457,8 @@ def main():
         notices.append({"kind": "info", "title": "Warm-up rows present", "body": _warm})
 
     # ─── The conviction chain, built once and shared ───────────────────────
-    # Built here rather than inside a page so the Overview's verdict and any
-    # other surface that shows a gate read the same object. Pure data in, pure
+    # Built here rather than inside a page so the verdict and any other
+    # surface that shows a gate read the same object. Pure data in, pure
     # data out — see ui.components.build_hero_verdict.
     try:
         _periods = find_similar_periods(mood_df)
@@ -2540,17 +2532,11 @@ def main():
             )
 
     # ─── Pages — thin wrappers. None recomputes the pipeline above. ────────
-    def _page_overview() -> None:
-        _shell()
-        _safe("Overview", lambda: render_overview(
-            mood_df, verdict=verdict, data_age=data_age))
-        _render_footer()
-
     def _page_mood() -> None:
         _shell()
         _safe("Mood Engine", lambda: render_mood(
             mood_df, msf_df, timeframes=TIMEFRAMES, mood_scale=MOOD_SCALE,
-            ou_proj_days=OU_PROJ_DAYS))
+            ou_proj_days=OU_PROJ_DAYS, verdict=verdict, data_age=data_age))
         _render_footer()
 
     def _page_analogs() -> None:
@@ -2580,14 +2566,16 @@ def main():
             on_profile_change=_apply_profile, on_predictors_change=_apply_predictors))
         _render_footer()
 
-    # Overview leads: it is the read that combines everything else, so it is
-    # the page a returning user opens first. The engine surfaces follow as its
-    # inputs, Validation as the independent check on all of them.
+    # Mood Engine leads, and carries the verdict. There was an Overview in
+    # front of it that answered "what is the reading" out of the same three
+    # frames this page already holds — which gave the two surfaces a way to
+    # disagree about which window they were showing, and put a click between
+    # the verdict and the instrument that produced it. The engine surfaces
+    # follow, Validation as the independent check on all of them.
     pages = {
-        "": [st.Page(_page_overview, title="Overview",
-                     icon=":material/dashboard:", default=True)],
         "Engine": [
-            st.Page(_page_mood, title="Mood Engine", icon=":material/monitoring:"),
+            st.Page(_page_mood, title="Mood Engine",
+                    icon=":material/monitoring:", default=True),
             st.Page(_page_analogs, title="Analogs", icon=":material/history:"),
             st.Page(_page_drivers, title="Drivers", icon=":material/hub:"),
         ],
