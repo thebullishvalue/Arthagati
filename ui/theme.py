@@ -575,6 +575,51 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
     apply_default_hover(fig)
 
 
+def style_secondary_axis(fig, title: str = "", tickformat: str | None = None,
+                         row=None, col=None) -> None:
+    """Style an overlaid SECOND y-axis to the same grammar as the primary.
+
+    An axis that `style_axes` skips does not fall back to nothing — it falls
+    back to `layout.font`, which is one step brighter (`--ink-tertiary` rather
+    than `--ink-quaternary`) and one point larger (10px rather than 9px) than
+    the axis ramp. On the mood pane that made the NIFTY axis the loudest text
+    on a chart whose subject is the mood score, in both appearances: brighter
+    and larger against graphite, and washed against paper.
+
+    Everything cosmetic here is the SAME object `style_axes` uses — the same
+    tick font, title font, line colour and standoff — so the two axes of one
+    pane are visibly the same kind of text.
+
+    What legitimately differs, and only this:
+
+      * no gridlines. One set of horizontal rules per pane, and they belong to
+        the series the reference bands are drawn against.
+      * no zero line. Zero is not a meaningful level on a price.
+      * no crosshair spike. The primary axis already carries the crosshair;
+        a second one is the same reading drawn twice.
+    """
+    ct = _chart_theme()
+    kw = {}
+    if row is not None:
+        kw["row"] = row
+    if col is not None:
+        kw["col"] = col
+    if tickformat is not None:
+        kw["tickformat"] = tickformat
+    fig.update_yaxes(
+        showgrid=False,
+        zeroline=False,
+        showspikes=False,
+        linecolor=ct["axis_line"],
+        title_text=title,
+        title_font=dict(**_AXIS_TITLE_FONT, color=ct["tick"]),
+        tickfont=dict(**_AXIS_TICK_FONT, color=ct["tick"]),
+        title_standoff=14,
+        secondary_y=True,
+        **kw,
+    )
+
+
 def apply_default_hover(fig, precision: int = 2) -> None:
     """Give every visible trace a 2-decimal hover, robustly.
 
