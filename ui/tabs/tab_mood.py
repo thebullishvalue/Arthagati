@@ -1,7 +1,29 @@
 """
-Arthagati — Mood Engine: how the score got where it is.
+Arthagati — Mood Engine: the reading, and how the score got there.
 
-Three stacked panes on one date axis, inside one panel:
+This is the app's front door. Overview used to sit in front of it and answer
+"what is the reading" from the same three frames this page already holds, which
+gave the two surfaces a way to disagree about which window they were showing
+and cost a click to get from the verdict to the instrument behind it. The
+verdict now leads the page that produced it.
+
+Reading order — the house convention every page follows:
+
+  1 CLAIM   what does the engine say?          The conviction chain
+  2 TRUST   under what conditions?             Market state
+  3 ANCHOR  the instrument itself              The three-pane stack
+  4 STATE   what the window contains           Window statistics
+  5 DETAIL  what the oscillator is made of     MSF decomposition
+  6 EVENTS  what it has fired                  Signal log
+
+Window statistics and the MSF decomposition are ADJACENT on purpose: the
+statistics table's last row is the MSF spread, and the decomposition breaks
+that exact number into its four components. A number and its explanation
+cannot have an unrelated block between them, which is where the signal log
+used to sit. The log closes the page instead — it is a dated ledger rather
+than a summary, and a ledger belongs at the end.
+
+The three-pane stack:
 
   Row 1 · Mood Score   Kalman-smoothed sentiment, 95% band, OU forward projection,
                        with NIFTY on a second axis
@@ -18,13 +40,6 @@ Mood Score and WaveTrend y-axes are REVERSED — bearish above the axis. That is
 the convention the three signal panes share, so a reader tracking a single
 vertical does not have to flip their reading between rows. The NIFTY axis is
 NOT reversed: it is a price, and an inverted price axis is a trap.
-
-Reading order:
-
-  1 ANCHOR   the instrument itself          The three-pane stack
-  2 SIGNAL   what it has fired recently     Signal log
-  3 STATE    what the window contains       Window statistics
-  4 DETAIL   what the oscillator is made of MSF decomposition
 """
 
 from __future__ import annotations
@@ -43,15 +58,60 @@ from ui import format as fmt
 from ui import signals as sig
 from ui.components import (
     render_chart_panel,
+    render_hero_card,
+    render_kpi_strip,
     render_note,
     render_section_header,
     render_table_panel,
 )
-from ui.theme import chart_color, chart_layout, chart_rgba, grid_rgba, style_axes
+from ui.signals import REGIME_TONE
+from ui.theme import (
+    chart_color, chart_layout, chart_rgba, grid_rgba, style_axes,
+)
 
 _TRI = 9  # marker size, shared by divergence and crossover glyphs
+#: ui.signals speaks in semantic tones; the card system speaks in CSS
+#: modifier names. One table translates, so neither has to know the other.
 _TONE = {"pos": "success", "neg": "danger", "warn": "warning",
          "info": "info", "neutral": "neutral"}
+
+
+def _state_cards(last) -> list[dict]:
+    """The regime classifiers, as KPI cards.
+
+    These were a three-column table on the page that used to precede this one:
+    diagnostic, value, and a sentence explaining how to read it. Five rows of
+    two short values and a caption is a strip, not a table — nothing in it is
+    compared DOWN a column, which is the only thing a table buys. As cards the
+    reading and its interpretation sit on the same object, and the row can be
+    scanned for a tone in one pass without reading a word of it.
+    """
+    hurst = float(last.get("Hurst", np.nan))
+    entropy = float(last.get("Market_Entropy", np.nan))
+    regime = str(last.get("Regime", "Unknown"))
+    h_label, h_tone = sig.hurst_state(hurst)
+    e_label, e_tone = sig.entropy_state(entropy)
+    _, regime_tone = REGIME_TONE.get(regime, REGIME_TONE["Unknown"])
+    return [
+        {"label": "Regime", "value": regime, "subtext": "Hurst x entropy, 90d",
+         "color_class": regime_tone, "icon": "compass",
+         "tooltip": "Both axes split at their own EXPANDING MEDIAN, not at a "
+                    "fixed 0.5. Hurst on the mood score sits far above 0.5 for "
+                    "most of its history, so the theoretical boundary collapsed "
+                    "the four quadrants into one."},
+        {"label": "Hurst exponent", "value": fmt.num(hurst, 2),
+         "subtext": f"{h_label.title()} \u00b7 above 0.55 trends, below 0.45 reverts",
+         "color_class": _TONE[h_tone], "icon": "trending-up"},
+        {"label": "Market entropy", "value": fmt.num(entropy, 2),
+         "subtext": f"{e_label.title()} \u00b7 higher is less structured",
+         "color_class": _TONE[e_tone], "icon": "zap"},
+        {"label": "OU half-life", "value": fmt.days(last.get("OU_Half_Life")),
+         "subtext": "Time to revert halfway to equilibrium",
+         "color_class": "neutral", "icon": "cpu"},
+        {"label": "OU equilibrium", "value": fmt.num(last.get("OU_Mu"), 3, signed=True),
+         "subtext": "Long-run mean, in the engine's own units",
+         "color_class": "neutral", "icon": "target"},
+    ]
 
 
 def _signal_log(df: pd.DataFrame, msf: pd.DataFrame, limit: int = 14) -> pd.DataFrame:
@@ -126,7 +186,8 @@ def _msf_components(msf: pd.DataFrame, idx: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
+def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days,
+           verdict, data_age) -> None:
     tf = st.session_state.get("tf_selected", "1Y")
     mask = sig.window(mood_df, timeframes, tf)
     df = mood_df.loc[mask].copy()
@@ -138,6 +199,29 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
         df = mood_df.tail(min(len(mood_df), 30)).copy()
         msf_filtered = msf_df.tail(len(df)).copy()
 
+    last_row = mood_df.iloc[-1]
+
+    # ── 1 · CLAIM ─────────────────────────────────────────────────────────
+    render_section_header(
+        "The Reading",
+        "One claim, and every condition attached to it. Conviction is the product "
+        "of the gates — the weakest caps it, and is named as the constraint.",
+        icon="target",
+    )
+    render_hero_card(verdict)
+
+    # ── 2 · TRUST ─────────────────────────────────────────────────────────
+    render_section_header(
+        "Market State",
+        "The classifiers the reading sits inside. They do not say which way the "
+        "market goes; they say whether a mean-reverting valuation score is the "
+        "right instrument to be reading right now.",
+        icon="cpu",
+        accent="violet",
+    )
+    render_kpi_strip(_state_cards(last_row), max_cols=5, key="mood-state")
+
+    # ── 3 · ANCHOR ────────────────────────────────────────────────────────
     render_section_header(
         "Mood · MSF · WaveTrend",
         "The Kalman-smoothed score with its 95% band and Ornstein-Uhlenbeck forward "
@@ -337,12 +421,42 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
                f"±{MSF_OB_LEVEL_1:.0f} and ±{MSF_OB_LEVEL_2:.0f}.",
     )
 
-    # ── 2 · SIGNAL ────────────────────────────────────────────────────────
+    # ── 4 · STATE ─────────────────────────────────────────────────────────
+    render_section_header(
+        "Window Statistics",
+        "Both series over the selected window, with the date each extreme was set.",
+        icon="bar-chart",
+        accent="cyan",
+    )
+    render_table_panel(
+        _window_stats(df, msf_filtered), key="mood-stats",
+        label_col="Series", sign_color_cols={"Last", "High", "Low", "Mean"},
+        col_precision={"Last": 2, "High": 2, "Low": 2, "Mean": 2, "Sigma": 2},
+        max_height=160,
+    )
+
+    # ── 5 · DETAIL ────────────────────────────────────────────────────────
+    render_section_header(
+        "MSF Decomposition",
+        "What the oscillator is currently made of. Weights are inverse-variance and "
+        "auto-calibrated, so a component with no variance is excluded rather than "
+        "capturing all of the weight.",
+        icon="layers",
+        accent="violet",
+    )
+    idx = min(len(msf_filtered) - 1, len(df) - 1)
+    render_table_panel(
+        _msf_components(msf_filtered, idx), key="mood-msf-parts",
+        label_col="Component", sign_color_cols={"Now", "Window mean"},
+        precision=2, max_height=180,
+    )
+
+    # ── 6 · EVENTS ────────────────────────────────────────────────────────
     render_section_header(
         "Signal Log",
-        "The divergence and crossover events the panes above mark with triangles, "
-        "as a dated list. The chart says where a signal is; the log says what it "
-        "was, and what the market looked like at the time.",
+        "The divergence and crossover events the stack above marks with triangles, "
+        "as a dated ledger. The chart says where a signal is; the log says what "
+        "it was, and what the market looked like at the time.",
         icon="layers",
         accent="emerald",
     )
@@ -359,33 +473,3 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
             col_precision={"Mood": 1, "NIFTY": 0},
             label_col="Date", max_height=340,
         )
-
-    # ── 3 · STATE ─────────────────────────────────────────────────────────
-    render_section_header(
-        "Window Statistics",
-        "Both series over the selected window, with the date each extreme was set.",
-        icon="bar-chart",
-        accent="cyan",
-    )
-    render_table_panel(
-        _window_stats(df, msf_filtered), key="mood-stats",
-        label_col="Series", sign_color_cols={"Last", "High", "Low", "Mean"},
-        col_precision={"Last": 2, "High": 2, "Low": 2, "Mean": 2, "Sigma": 2},
-        max_height=160,
-    )
-
-    # ── 4 · DETAIL ────────────────────────────────────────────────────────
-    render_section_header(
-        "MSF Decomposition",
-        "What the oscillator is currently made of. Weights are inverse-variance and "
-        "auto-calibrated, so a component with no variance is excluded rather than "
-        "capturing all of the weight.",
-        icon="layers",
-        accent="violet",
-    )
-    idx = min(len(msf_filtered) - 1, len(df) - 1)
-    render_table_panel(
-        _msf_components(msf_filtered, idx), key="mood-msf-parts",
-        label_col="Component", sign_color_cols={"Now", "Window mean"},
-        precision=2, max_height=180,
-    )

@@ -7,7 +7,7 @@ model the engine has to beat — the negated PE ratio, "cheap is good" with no
 engine at all. See validation.py for the measurements.
 
 The result is also written to session state, because the conviction chain on
-Overview reads two of these numbers as gates: a reading the holdout cannot
+the Mood Engine reads two of these numbers as gates: a reading the holdout cannot
 support must not carry conviction anywhere in the app.
 
 Reading order:
@@ -126,8 +126,8 @@ def render(mood_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
             "the edge belongs to the valuation anchor, not to the five-layer "
             "pipeline. The engine's contribution is a bounded, comparable score and "
             "its diagnostics, not additional rank information — which is why the "
-            "conviction chain on Overview carries the margin over this baseline as a "
-            "gate of its own."
+            "conviction chain on the Mood Engine carries the margin over this baseline "
+            "as a gate of its own."
         )
         render_interpretation_card("Edge confirmed — with a caveat worth reading",
                                    body, color="success")
