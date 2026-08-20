@@ -26,6 +26,19 @@ from config import (
 # High score = cheap versus recent history = constructive, hence a positive
 # tone. This is a valuation reading, not a momentum reading.
 
+#: Regime label → (chart palette key, chip tone). One table, read by every
+#: surface that shows a regime, so the colour and the word cannot disagree
+#: between views. Only the SEMANTIC name is fixed here; the hex is resolved per
+#: render through ui.theme.chart_color so it follows the active appearance.
+REGIME_TONE: dict[str, tuple[str, str]] = {
+    "Trending":       ("emerald", "success"),
+    "Volatile Trend": ("amber",   "warning"),
+    "Mean-Reverting": ("cyan",    "info"),
+    "Choppy":         ("rose",    "danger"),
+    "Unknown":        ("slate",   "neutral"),
+}
+
+
 def mood_state(score: float) -> tuple[str, str]:
     """→ (label, tone)."""
     if score >= MOOD_BAND_OUTER:

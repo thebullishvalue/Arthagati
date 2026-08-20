@@ -483,7 +483,13 @@ def _grid_steps(n: int, cap: int) -> tuple[int, int]:
     """
     divisors = [d for d in range(1, n + 1) if n % d == 0]
     wide = max([d for d in divisors if d <= cap] or [1])
-    mid = max([d for d in divisors if d < wide and d <= 3] or [1])
+    # The mid step is the largest divisor of n that is 2 or 3. When n has none
+    # — a prime count like 5 — the strip KEEPS its wide layout down to the
+    # single-column break rather than collapsing to 1: five cards across a
+    # ~1000px content area is ~200px each, which is above the legibility floor
+    # the column system already works to. Dropping to 1-up there would be five
+    # full-bleed slabs, which is worse than the thing it avoids.
+    mid = max([d for d in divisors if d < wide and 2 <= d <= 3] or [wide])
     return wide, mid
 
 
