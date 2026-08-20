@@ -88,8 +88,6 @@ from ui.components import (
     render_chip,
     render_empty_state,
     render_note,
-    render_hero_card,
-    build_hero_verdict,
     warmup_note,
     panel,
 )
@@ -2171,12 +2169,6 @@ APPEARANCES = ("Paper", "Slate")
 #: widget key directly loses the choice the first time a run short-circuits.
 _THEME_CHOICE = "appearance_choice"
 
-#: The forward window the conviction chain is stated over. The analog engine
-#: reports +5/20/60/90D; 90 is the horizon at which validation finds the
-#: signal strongest, so it is the one the verdict is framed on.
-HERO_HORIZON = 90
-
-
 def theme_choice() -> str:
     """The appearance the user last chose, always one of ``APPEARANCES``.
 
@@ -2456,35 +2448,12 @@ def main():
     if _warm:
         notices.append({"kind": "info", "title": "Warm-up rows present", "body": _warm})
 
-    # ─── The conviction chain, built once and shared ───────────────────────
-    # Built here rather than inside a page so the verdict and any other
-    # surface that shows a gate read the same object. Pure data in, pure
-    # data out — see ui.components.build_hero_verdict.
+    # Analogs needs the matched episodes; nothing else does since the
+    # conviction chain was removed from the interface.
     try:
         _periods = find_similar_periods(mood_df)
     except Exception:                    # engine unavailable — a gate, not a crash
         _periods = []
-    _fwd = [p.get("fwd_90d") for p in _periods if p.get("fwd_90d") is not None]
-    _precedent = ({"n": len(_fwd),
-                   "positive_pct": sum(1 for v in _fwd if v > 0) / len(_fwd) * 100}
-                  if _fwd else None)
-    _validation = st.session_state.get("_validation_summary")
-
-    verdict = build_hero_verdict(
-        mood=float(latest["Mood_Score"]),
-        msf=float(latest["MSF_Spread"]),
-        regime=str(latest.get("Regime", "Unknown")),
-        entropy=float(latest.get("Market_Entropy", 0.5)),
-        hurst=float(latest.get("Hurst", 0.5)),
-        ou_half_life=float(latest.get("OU_Half_Life", 0.0)),
-        precedent=_precedent,
-        validation=_validation,
-        data_age_days=int(data_age),
-        is_warmup=bool(latest.get("Is_Warmup", False)),
-        horizon_days=HERO_HORIZON,
-        bands=(float(MOOD_BAND_INNER), float(MOOD_BAND_OUTER), float(MSF_OB_LEVEL_1)),
-    )
-
     # ─── Page shell ────────────────────────────────────────────────────────
     def _shell() -> None:
         """The page chrome, identical on every page.
@@ -2536,7 +2505,7 @@ def main():
         _shell()
         _safe("Mood Engine", lambda: render_mood(
             mood_df, msf_df, timeframes=TIMEFRAMES, mood_scale=MOOD_SCALE,
-            ou_proj_days=OU_PROJ_DAYS, verdict=verdict, data_age=data_age))
+            ou_proj_days=OU_PROJ_DAYS))
         _render_footer()
 
     def _page_analogs() -> None:
@@ -2566,11 +2535,10 @@ def main():
             on_profile_change=_apply_profile, on_predictors_change=_apply_predictors))
         _render_footer()
 
-    # Mood Engine leads, and carries the verdict. There was an Overview in
-    # front of it that answered "what is the reading" out of the same three
-    # frames this page already holds — which gave the two surfaces a way to
-    # disagree about which window they were showing, and put a click between
-    # the verdict and the instrument that produced it. The engine surfaces
+    # Mood Engine leads: it is the instrument, and every reading in the app is
+    # taken off it. There was an Overview in front of it that restated the same
+    # numbers out of the same frames, which only gave the two surfaces a way to
+    # disagree about which window they were showing. The other engine surfaces
     # follow, Validation as the independent check on all of them.
     pages = {
         "Engine": [
