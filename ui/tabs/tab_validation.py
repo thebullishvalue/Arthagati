@@ -168,11 +168,18 @@ def render(mood_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
         x=[f"+{h}D{'' if h in validated_set else ' *'}" for h in hs],
         y=[per[h] for h in hs], marker_color=colours, width=0.55,
         text=[f"{per[h]:+.3f}" for h in hs], textposition="outside",
+        # The value above the tallest bar was clipped at the plot's top edge
+        # ("+0.618" lost its top half): the label may draw past the plot, and
+        # the axis keeps headroom for it so it never has to.
+        cliponaxis=False,
         hovertemplate="%{x}  rho %{y:.3f}<extra></extra>"))
     fig.add_hline(y=0, line_color=grid_rgba(0.11), line_width=1)
     fig.update_layout(**chart_layout(height=320, show_legend=False))
     fig.update_layout(hovermode="closest")
     style_axes(fig, y_title="Spearman rho")
+    _lo, _hi = min(min(per.values()), 0.0), max(max(per.values()), 0.0)
+    _pad = (_hi - _lo or 1.0) * 0.16
+    fig.update_yaxes(range=[_lo - (_pad if _lo < 0 else 0.0), _hi + (_pad if _hi > 0 else 0.0)])
 
     render_chart_panel(
         fig, key="val-horizons",
