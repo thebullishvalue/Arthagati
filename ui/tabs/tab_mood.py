@@ -373,6 +373,14 @@ def render(mood_df, msf_df, *, timeframes, mood_scale, ou_proj_days) -> None:
 
     panes = 3 if show_wt else 2
     fig.update_layout(**chart_layout(height=760 if panes == 3 else 560, show_legend=True))
+    # Room for a SECOND legend row. Six or seven entries wrap on a tablet, Plotly
+    # then grows the bottom margin itself, the plot shrinks, and the legend's
+    # offset (a fraction of the plot's height) shrinks with it, which put the
+    # legend into the date ticks. Reserved up front, nothing is resized.
+    if sum(1 for tr in fig.data if tr.showlegend is not False) > 4:
+        _h, _t = fig.layout.height, fig.layout.margin.t or 0
+        _b = (fig.layout.margin.b or 0) + 22
+        fig.update_layout(margin_b=_b, legend_y=-(30.0 / max(_h - _t - _b, 1)))
     # secondary_y=False, or the reversed mood range is written onto the price
     # axis as well and the NIFTY trace leaves the pane entirely.
     style_axes(fig, y_title="Mood", y_range=[mood_hi, mood_lo],
