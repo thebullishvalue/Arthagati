@@ -508,6 +508,18 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
         ykw["secondary_y"] = secondary_y
 
     ct = _chart_theme()
+    # A bottom legend sits a fixed 30px under the axis, which is exactly where
+    # an x-axis title goes: with both, the title ran through the legend's first
+    # row (the Analogs backtest, measured at tablet width). The title keeps its
+    # place; the legend and the bottom margin move down by one title line.
+    _leg_y = fig.layout.legend.y
+    if (x_title and row is None and fig.layout.showlegend is not False
+            and _leg_y is not None and _leg_y < 0 and fig.layout.height
+            and (fig.layout.margin.b or 0) == 58):   # chart_layout's legend gutter; once
+        _t, _b = (fig.layout.margin.t or 0), (fig.layout.margin.b or 0)
+        _offset_px = -_leg_y * max(fig.layout.height - _t - _b, 1) + 20
+        fig.update_layout(margin_b=_b + 20,
+                          legend_y=-(_offset_px / max(fig.layout.height - _t - _b - 20, 1)))
     fig.update_xaxes(
         showgrid=True,
         gridcolor=ct["grid"],
