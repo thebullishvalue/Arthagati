@@ -23,7 +23,7 @@ from __future__ import annotations
 # IDENTITY — single source of truth for every version string in the repo
 # ══════════════════════════════════════════════════════════════════════════════
 
-VERSION      = "v2.11.5"
+VERSION      = "v2.11.6"
 PRODUCT_NAME = "Arthagati"
 COMPANY      = "@thebullishvalue"
 

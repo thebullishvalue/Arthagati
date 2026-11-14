@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
 
 ---
 
+## [v2.11.6] — 2026-11-14
+### Fixed
+- **A panel's opening copy keeps its gap below the header's rule.** The header is markdown, and
+  Streamlit's -16px bottom margin pulled the copy up under the rule: its first line sat 2px below
+  the line. When text follows a header, the header keeps its full height, so the copy starts 18px
+  below the rule, as in Arthagati's one-block panels. Charts and tables, which carry their own
+  top inset, are unchanged.
+- A toast's icon takes the accent (it kept the native near-white on Paper).
+
+---
+
 ## [v2.11.5] — 2026-11-14
 ### Fixed
 - **A fidelity pass over every page.** Every page, tab and expander was scanned at 1440, 1024, 834
