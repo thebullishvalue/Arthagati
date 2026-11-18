@@ -41,7 +41,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # Structured terminal console (banner / phase / step / checkpoint / summary).
-from core.logger_config import console, generate_run_id
+from core.logger_config import console, generate_run_id, capture_library_output
 
 # Quiet noisy library loggers — the structured console handles user-facing output
 logging.basicConfig(
@@ -228,14 +228,10 @@ def quiet_engine_logs():
 # stylesheet and the charts must agree on one theme for the whole run, and the
 # appearance control lives in the rail, i.e. further down the script.
 
-# ── Boot banner (printed once per Streamlit process) ─────────────────────────
-if not st.session_state.get("_arthagati_banner_printed"):
-    console.header(f"ARTHAGATI {VERSION}", version="")
-    console.item("Product", f"{PRODUCT_NAME} · अर्थगति")
-    console.item("Maintainer", COMPANY)
-    console.item("Engine", "OU · Kalman · Decay-Spearman · MSF Spread")
-    console.line("─", 70)
-    st.session_state["_arthagati_banner_printed"] = True
+# ── Boot banner: once per Streamlit process (the family console keeps the count) ──
+capture_library_output()
+console.banner(PRODUCT_NAME, VERSION, "Valuation-Anchored Sentiment · Ornstein-Uhlenbeck · Kalman · "
+               "Walk-Forward Spearman", {"Maintainer": COMPANY, "Engine": "OU · Kalman · Decay-Spearman · MSF Spread"})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2047,9 +2043,9 @@ def _compute_engine_output(
         cached_mood = st.session_state.get("_engine_mood_df")
         cached_msf  = st.session_state.get("_engine_msf_df")
         if cached_mood is not None and cached_msf is not None:
-            console.section("Engine Cache HIT — fast-path", phase="CACHE")
-            console.item("Reused rows",    f"{len(cached_mood):,}")
-            console.item("Recompute",      "skipped — view/timeframe switches are O(1) from here")
+            # A replay of output this session already holds: its trace was printed when it
+            # was computed, so this rerun stays quiet.
+            console.drop()
             _progress_bar(
                 prog_slot, 90,
                 "Engine Output Cached",
@@ -2058,6 +2054,7 @@ def _compute_engine_output(
             return cached_mood, cached_msf
 
     # ── Compute mood ────────────────────────────────────────────────────
+    console.release()          # real work: print the held header and phases, then go live
     console.start_phase("Sentiment Engine", num=3, total=total_phases)
     console.step(3, "OU normalisation · Kalman smoothing · 5-layer pipeline")
     console.item("Mode", "Factory defaults (post-engine ensemble tunes the output layer)")
@@ -2277,14 +2274,15 @@ def main():
 
     # ─── Ingestion ─────────────────────────────────────────────────────────
     run_id = generate_run_id()
-    console.main_header(
-        f"Analysis Run · {run_id}",
-        details={
-            "Started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "Mode":    "Streamlit interactive",
-            "Sheet":   f"…{SHEET_ID[-8:]}" if SHEET_ID else "(env not set)",
-        },
-    )
+    # A rerun whose engine output is already in this session is a replay, not a run: hold
+    # the trace until the engine says which (see _compute_engine_output).
+    if st.session_state.get("_engine_fp"):
+        console.hold()
+    console.header(f"{PRODUCT_NAME} · Analysis", VERSION, run_id=run_id)
+    console.main_header("Inputs", {
+        "Mode":  "Streamlit interactive",
+        "Sheet": f"…{SHEET_ID[-8:]}" if SHEET_ID else "(env not set)",
+    })
     _total = 4
     st.session_state["_phase_total"] = _total
     console.start_phase("Data Ingestion", num=1, total=_total)
@@ -2356,7 +2354,7 @@ def main():
     data_age = (pd.Timestamp(today_ist) - latest_date).days
     selected_tf = st.session_state.get("tf_selected", "1Y")
 
-    console.summary(f"Run {run_id} · Pipeline Summary", {
+    console.summary("Pipeline summary", {
         "Predictors":     f"{len(selected_preds)} active",
         "Rows":           f"{len(mood_df):,}",
         "Mood Score":     f"{latest['Mood_Score']:+.2f} ({latest.get('Mood', '—')})",
@@ -2366,6 +2364,7 @@ def main():
         "Hurst":          f"{latest.get('Hurst', 0.5):.2f}",
         "Market Entropy": f"{latest.get('Market_Entropy', 0.5):.2f}",
     })
+    console.end_run()
 
     # ─── The control rail ──────────────────────────────────────────────────
     # Everything GLOBAL lives here — which model, what to do with the session,
@@ -2571,4 +2570,8 @@ def _nifty_change(mood_df) -> float | None:
 
 
 if __name__ == "__main__":
-    main()
+    console.resume()            # each rerun starts with nothing held and nothing quiet
+    try:
+        main()
+    finally:
+        console.release()       # a run that stopped early still prints what it held
