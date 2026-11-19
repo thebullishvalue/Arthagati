@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
 
 ---
 
+## [v2.11.19] — 2026-11-19
+### Changed
+- **The rail holds controls only.** The Session readout under the controls is gone (status, source
+  and version before a run; predictors, rows, as-of, freshness and version after one). Every
+  member's rail reads identity, controls, appearance, and VAAYDO's never had one; where a readout
+  stood, each app showed a different kind of fact, and each pushed the appearance switch further
+  down. Nothing is lost: freshness and the as-of date are the command bar's chip, a missing source
+  is the landing page's notice, and the version is in the footer.
+- **The appearance switch sits at the foot on every screen.** Streamlit ends the rail with 96px of
+  padding, so the switch "pinned to the foot" floated well above it on every screen, and on a rail
+  taller than the screen it sat below the fold. The rail now ends 16px under the switch (plus a
+  phone's home-bar inset), and the switch is pinned: where the rail scrolls, it stays at the foot
+  on the rail's own ground and the controls pass behind it. A rail that carries the page list pins
+  it on a desktop at least 820px tall; on a smaller screen it is the rail's last item, 16px from
+  its end, so a long page list never leaves it half-hidden over the controls.
+
+---
+
 ## [v2.11.18] — 2026-11-19
 ### Shared with the family
 - The fidelity block of `ui/theme.css` carries the landing grids that Tattva, Nishkarsh, Nivesa,

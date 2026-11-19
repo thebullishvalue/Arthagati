@@ -81,7 +81,6 @@ from ui.components import (
     render_top_bar,
     render_nav_brand,
     render_notice_rail,
-    render_rail_readout,
     render_section_header,
     render_metric_card,
     render_kpi_strip,
@@ -2257,12 +2256,6 @@ def main():
             if st.button("Run analysis", width="stretch", type="primary"):
                 st.session_state["analysis_started"] = True
                 st.rerun()
-            render_rail_readout([
-                ("Status", "Idle", "caution"),
-                ("Source", "Sheets" if (SHEET_ID and SHEET_GID) else "Not set",
-                 "" if (SHEET_ID and SHEET_GID) else "short"),
-                ("Version", VERSION, ""),
-            ])
             _render_appearance_control()
         render_landing_page(
             version=VERSION,
@@ -2410,15 +2403,8 @@ def main():
             _invalidate_engine_cache()
             st.rerun()
 
+        # Freshness and the as-of date are the command bar's chip; the rail holds controls only.
         _status_label, _status_tone = fmt.age_label(data_age)
-        render_rail_readout([
-            ("Predictors", f"{len(selected_preds)}/{len(available_predictors)}", "accent"),
-            ("Rows", f"{len(mood_df):,}", ""),
-            ("As of", fmt.when(latest_date, "%d %b %y"), ""),
-            ("Freshness", _status_label,
-             {"pos": "long", "warn": "caution", "neg": "short"}.get(_status_tone, "")),
-            ("Version", VERSION, ""),
-        ])
         _render_appearance_control()
 
     # ─── Notices: computed once, rendered under the command bar ────────────
