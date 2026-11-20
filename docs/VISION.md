@@ -3,8 +3,8 @@
 
 > **Status.** This document records the *curation philosophy* — which theories
 > were adopted, which were cut, and why. It is the reasoning behind the
-> architecture; README.md is the specification of what the code does today.
-> Where the two disagree, README wins and this file is stale.
+> architecture; the [README](../README.md) and the [Guide](GUIDE.md) are the specification
+> of what the code does today. Where they disagree with this file, they win and this file is stale.
 >
 > v2.9.0 changed two decisions recorded below, both for reasons this document's
 > own principles imply:
