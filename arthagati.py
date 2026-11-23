@@ -2067,7 +2067,12 @@ def _compute_engine_output(
         prog_slot.empty()
         console.error("calculate_historical_mood returned empty DataFrame")
         console.end_phase("Sentiment Engine")
-        st.error("Failed to calculate mood scores.")
+        _hidden_pages(lambda: render_empty_state(
+            "The sentiment engine returned nothing",
+            "The engine produced no mood scores from these predictors, so there is nothing to show.",
+            eyebrow="Engine failed",
+            action_label="Press Refresh data in the rail, or choose another predictor profile",
+        ))
         st.stop()
     latest_mood = float(mood_df["Mood_Score"].iloc[-1])
     console.success(f"Mood score computed: {latest_mood:+.2f}")
@@ -2227,6 +2232,35 @@ def _apply_predictors(preds: tuple) -> None:
     st.rerun()
 
 
+#: Every page: (group, title, icon, url path). One table for both navigations: the app
+#: registers its pages on every run, hidden before a run, so the same addresses always resolve.
+PAGES = (
+    ("Engine", "Mood Engine", ":material/monitoring:", "_page_mood"),
+    ("Engine", "Analogs", ":material/history:", "_page_analogs"),
+    ("Engine", "Drivers", ":material/hub:", "_page_drivers"),
+    ("System", "Validation", ":material/verified:", "_page_validation"),
+    ("System", "Configuration", ":material/tune:", "_page_config"),
+)
+
+
+def _hidden_pages(render) -> None:
+    """Register every page, hidden, each drawing ``render`` (the landing page, or a failure).
+
+    Before a run there is nothing for the pages to show, and the app used to return before
+    registering them at all. A session that starts on a page's address, or restarts under an
+    open one (Streamlit Cloud reboots the app on every push to main, and wakes a sleeping one
+    the same way), then held links to pages it had never registered: the landing page showed,
+    and every link in the rail did nothing until the next run. Registered and hidden, every
+    address resolves, the stale links go, and the page the reader was on comes back after Run.
+    """
+    def page() -> None:
+        render()
+        _render_footer()
+
+    st.navigation([st.Page(page, title=title, icon=icon, url_path=path, default=(i == 0))
+                   for i, (_, title, icon, path) in enumerate(PAGES)], position="hidden").run()
+
+
 def main():
     # ─── Resolve the appearance BEFORE anything is styled ──────────────────
     # This must run first. `theme` is written by the appearance control, which
@@ -2257,12 +2291,11 @@ def main():
                 st.session_state["analysis_started"] = True
                 st.rerun()
             _render_appearance_control()
-        render_landing_page(
+        _hidden_pages(lambda: render_landing_page(
             version=VERSION,
             n_predictors=len(DEPENDENT_VARS),
             sheet_configured=bool(SHEET_ID and SHEET_GID),
-        )
-        _render_footer()
+        ))
         return
 
     # ─── Ingestion ─────────────────────────────────────────────────────────
@@ -2287,14 +2320,14 @@ def main():
         progress_slot.empty()
         console.error("Data fetch returned None — aborting run.")
         console.end_phase("Data Ingestion")
-        render_empty_state(
+        _hidden_pages(lambda: render_empty_state(
             "Data source unreachable",
             "The Google Sheets gviz endpoint returned no usable CSV after the configured "
             "retries, so there is nothing to score. Check ARTHAGATI_SHEET_ID and "
             "ARTHAGATI_SHEET_GID, and that the sheet is shared as readable by link.",
             eyebrow="Ingestion failed",
             action_label="Press Refresh data in the rail to retry",
-        )
+        ))
         st.stop()
     console.success(f"Loaded {len(raw_df):,} rows × {len(raw_df.columns)} columns")
     console.item("Date range", f"{raw_df['DATE'].min().date()} → {raw_df['DATE'].max().date()}")
@@ -2525,18 +2558,12 @@ def main():
     # numbers out of the same frames, which only gave the two surfaces a way to
     # disagree about which window they were showing. The other engine surfaces
     # follow, Validation as the independent check on all of them.
-    pages = {
-        "Engine": [
-            st.Page(_page_mood, title="Mood Engine",
-                    icon=":material/monitoring:", default=True),
-            st.Page(_page_analogs, title="Analogs", icon=":material/history:"),
-            st.Page(_page_drivers, title="Drivers", icon=":material/hub:"),
-        ],
-        "System": [
-            st.Page(_page_validation, title="Validation", icon=":material/verified:"),
-            st.Page(_page_config, title="Configuration", icon=":material/tune:"),
-        ],
-    }
+    render_page = {"Mood Engine": _page_mood, "Analogs": _page_analogs, "Drivers": _page_drivers,
+                   "Validation": _page_validation, "Configuration": _page_config}
+    pages: dict = {}
+    for i, (group, title, icon, path) in enumerate(PAGES):
+        pages.setdefault(group, []).append(
+            st.Page(render_page[title], title=title, icon=icon, url_path=path, default=(i == 0)))
     st.navigation(pages, position="sidebar").run()
 
 
