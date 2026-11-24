@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ---
 
+## [v2.11.23] — 2026-11-24
+### Fixed
+- **Help icons show on Paper.** A widget's (?) is a ring that Streamlit strokes with its own colour, near-white at
+  60% from its static dark base, whatever colour the icon is given: on Paper the Config tab's Predictor columns hint all but vanished.
+  The family's fidelity block now makes the stroke follow the colour, the quiet ink, brighter on hover.
+
+---
+
 ## [v2.11.22] — 2026-11-23
 ### Fixed
 - **A page link never goes dead.** Before a run there is nothing for the pages to show, and the
